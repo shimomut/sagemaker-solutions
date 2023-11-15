@@ -1,7 +1,6 @@
-# https://pytorch.org/tutorials/intermediate/ddp_tutorial.html
-
-# usage:
-# torchrun --nnodes=1 --nproc_per_node=4 --rdzv_id=100 --rdzv_backend=c10d --rdzv_endpoint=$MASTER_ADDR:29400 step2.py 
+# Run DDP with torchrun command. Can be run on multiple nodes.
+# Based on https://pytorch.org/tutorials/intermediate/ddp_tutorial.html
+# Usage: torchrun --nnodes=1 --nproc_per_node=4 --rdzv_id=100 --rdzv_backend=c10d --rdzv_endpoint=$MASTER_ADDR:29400 step2.py 
 
 import os
 
@@ -11,6 +10,7 @@ import torch.nn as nn
 import torch.optim as optim
 
 from torch.nn.parallel import DistributedDataParallel as DDP
+
 
 class ToyModel(nn.Module):
     def __init__(self):
@@ -24,6 +24,7 @@ class ToyModel(nn.Module):
 
 
 def demo_basic():
+
     dist.init_process_group("nccl")
     rank = dist.get_rank()
     print(f"Start running basic DDP example on rank {rank}.")
@@ -43,10 +44,6 @@ def demo_basic():
     optimizer.step()
     dist.destroy_process_group()
 
-if __name__ == "__main__":
 
-    print( "Env:" )
-    for k in os.environ:
-        print( f"  {k} : {os.environ[k]}" )
-    
+if __name__ == "__main__":
     demo_basic()

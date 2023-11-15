@@ -1,4 +1,6 @@
-# https://pytorch.org/tutorials/intermediate/ddp_tutorial.html
+# Run DDP and MP on Sngle node
+# Based on https://pytorch.org/tutorials/intermediate/ddp_tutorial.html
+# Usage : python ./step1.py
 
 import os
 import sys
@@ -11,17 +13,6 @@ import torch.multiprocessing as mp
 
 from torch.nn.parallel import DistributedDataParallel as DDP
 
-# On Windows platform, the torch.distributed package only
-# supports Gloo backend, FileStore and TcpStore.
-# For FileStore, set init_method parameter in init_process_group
-# to a local file. Example as follow:
-# init_method="file:///f:/libtmp/some_file"
-# dist.init_process_group(
-#    "gloo",
-#    rank=rank,
-#    init_method=init_method,
-#    world_size=world_size)
-# For TcpStore, same way as on Linux.
 
 def setup(rank, world_size):
     os.environ['MASTER_ADDR'] = 'localhost'
@@ -30,9 +21,9 @@ def setup(rank, world_size):
     # initialize the process group
     dist.init_process_group("gloo", rank=rank, world_size=world_size)
 
+
 def cleanup():
     dist.destroy_process_group()
-
 
 
 class ToyModel(nn.Module):
@@ -82,7 +73,6 @@ def demo_basic(rank, world_size):
     cleanup()
 
 
-
 def demo_checkpoint(rank, world_size):
     print(f"Running DDP checkpoint example on rank {rank}.")
     setup(rank, world_size)
@@ -126,7 +116,6 @@ def demo_checkpoint(rank, world_size):
     cleanup()
 
 
-
 def demo_model_parallel(rank, world_size):
     print(f"Running DDP with model parallel example on rank {rank}.")
     setup(rank, world_size)
@@ -165,5 +154,3 @@ if __name__ == "__main__":
     run_demo(demo_checkpoint, world_size)
     world_size = n_gpus//2
     run_demo(demo_model_parallel, world_size)
-
-
