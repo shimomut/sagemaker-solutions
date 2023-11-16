@@ -16,6 +16,7 @@ docker-run:
 	docker run -it \
 		--gpus all \
 		--mount type=bind,src=$(abspath $(MOUNT_SRC)),dst=$(MOUNT_DST) \
+		--network host \
 		--env ENV_TEST1=123 \
 		--env ENV_TEST2=abc \
 		$(IMAGE_NAME):$(IMAGE_TAG) \
