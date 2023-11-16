@@ -13,12 +13,18 @@ sqsh:
 	ENROOT_SQUASH_OPTIONS='-comp gzip -noD' enroot import -o $(SQSH_FILE) dockerd://$(IMAGE_NAME):$(IMAGE_TAG)
 
 docker-run:
-	docker run -it $(IMAGE_NAME):$(IMAGE_TAG) /bin/bash
+	docker run -it \
+		--mount type=bind,src=$(abspath $(MOUNT_SRC)),dst=$(MOUNT_DST) \
+		--env ENV_TEST1=123 \
+		--env ENV_TEST2=abc \
+		$(IMAGE_NAME):$(IMAGE_TAG) \
+		/bin/bash
 
 enroot-run:
 	enroot start \
 		--mount $(MOUNT_SRC):$(MOUNT_DST) \
 		--env ENV_TEST1=123 \
+		--env ENV_TEST2=abc \
 		$(SQSH_FILE) \
 		/bin/bash
 
