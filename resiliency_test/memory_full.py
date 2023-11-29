@@ -1,17 +1,20 @@
 import uuid
 import time
+import random
 import subprocess
 
-mem = str(uuid.uuid4()) * 1024 * 1024
+mem = str(uuid.uuid4()) * random.randint(1,1024 * 1024)
+print(f"Allocated {len(mem)} bytes")
 
-subprocess.run( [ "python3", "memory_full.py" ] )
-subprocess.run( [ "python3", "memory_full.py" ] )
-subprocess.run( [ "python3", "memory_full.py" ] )
-subprocess.run( [ "python3", "memory_full.py" ] )
-subprocess.run( [ "python3", "memory_full.py" ] )
-subprocess.run( [ "python3", "memory_full.py" ] )
-subprocess.run( [ "python3", "memory_full.py" ] )
-subprocess.run( [ "python3", "memory_full.py" ] )
+if 1:
+    subprocess.run( [ "python3", "memory_full.py" ] )
+    subprocess.run( [ "python3", "memory_full.py" ] )
+    subprocess.run( [ "python3", "memory_full.py" ] )
+    subprocess.run( [ "python3", "memory_full.py" ] )
+    subprocess.run( [ "python3", "memory_full.py" ] )
+    subprocess.run( [ "python3", "memory_full.py" ] )
+    subprocess.run( [ "python3", "memory_full.py" ] )
+    subprocess.run( [ "python3", "memory_full.py" ] )
 
 while True:
-    sleep(1)
+    time.sleep(1)
