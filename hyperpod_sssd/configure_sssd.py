@@ -2,6 +2,7 @@ import os
 import subprocess
 import tempfile
 import socket
+import re
 
 # ---
 
@@ -20,6 +21,8 @@ packages_to_install = [
 netplan_filename_for_custom_dns = "/etc/netplan/99-custom-dns.yaml"
 network_interface_name = "ens6"
 dns_server_addresses = [ "10.3.73.85", "10.2.82.19" ]
+
+sshd_config_filename = "/etc/ssh/sshd_config"
 
 exit_on_failure = True
 
@@ -64,7 +67,7 @@ def configure_custom_dns():
 
         subprocess.run( [ *sudo_command, "chmod", "644", tmp_yaml_filename ] )
         subprocess.run( [ *sudo_command, "chown", "root:root", tmp_yaml_filename ] )
-        subprocess.run( [ *sudo_command, "mv", tmp_yaml_filename, netplan_filename_for_custom_dns ] )
+        subprocess.run( [ *sudo_command, "cp", tmp_yaml_filename, netplan_filename_for_custom_dns ] )
 
     print("---")
     print("Applying netplan change (warning about ens6 can be ignored)")
@@ -79,10 +82,33 @@ def configure_custom_dns():
         on_failure(f"Warning : {ad_domain} cannot be resolved")
 
 
+def enable_password_authentication():
+
+    print("---")
+    print(f"Enabling password authentication in {sshd_config_filename}")
+
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        tmp_sshd_config_filename = os.path.join(tmp_dir,"sshd_config")
+
+        with open(sshd_config_filename) as fd_src:
+            d = fd_src.read()
+
+        d = re.sub( r"PasswordAuthentication[ \t]+no", "PasswordAuthentication yes", d )
+
+        with open(tmp_sshd_config_filename,"w") as fd_dst:
+            fd_dst.write(d)
+
+        subprocess.run( [ *sudo_command, "chmod", "644", tmp_sshd_config_filename ] )
+        subprocess.run( [ *sudo_command, "chown", "root:root", tmp_sshd_config_filename ] )
+        subprocess.run( [ *sudo_command, "cp", tmp_sshd_config_filename, sshd_config_filename ] )
+
+
+
 print("Starting SSSD configuration steps")
 
 #install_apt_packages()
-configure_custom_dns()
+#configure_custom_dns()
+enable_password_authentication()
 
 print("---")
 print("Finished SSSD configuration steps")
