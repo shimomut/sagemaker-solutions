@@ -1,3 +1,5 @@
+all:
+
 run:
 	sbatch job.sh
 
@@ -9,3 +11,4 @@ monitor-queue:
 
 clean:
 	rm output/log_*.txt
+	rm gpu-already-failed.txt
