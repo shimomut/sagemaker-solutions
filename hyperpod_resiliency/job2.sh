@@ -6,5 +6,7 @@
 #SBATCH -N 6
 #SBATCH --exclusive
 
+# This job requires memory setting in slurm.conf. See configs/slurm.conf.mem
+
 # How about this?
 srun --nodes 6 --mem=100M --auto-resume=1 python3 step.py --name task1 --gpu-failure

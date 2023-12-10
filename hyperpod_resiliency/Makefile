@@ -1,7 +1,7 @@
 all:
 
 run:
-	sbatch job2.sh
+	sbatch job1.sh
 
 log:
 	tail -f output/*
