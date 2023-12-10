@@ -10,3 +10,6 @@
 
 # Auto-resume fails. ALways fails when modifying slurm.conf?
 srun --nodes 6 --mem=100M --auto-resume=1 python3 step.py --name task1 --gpu-failure
+
+# This also fails.
+#srun --nodes 6 --auto-resume=1 python3 step.py --name task1 --gpu-failure
