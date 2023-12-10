@@ -7,7 +7,7 @@
 #SBATCH --exclusive
 
 # Auto resume succeeds
-srun --nodes 6 --auto-resume=1 python3 step.py --name task1 --gpu-failure
+srun --nodes 6 --auto-resume=1 python3 step.py --name task1 --gpu-failure 1
 
 # Auto resume fails
-#srun --nodes 6 --cpus-per-task=1 --auto-resume=1 python3 step.py --name task1 --gpu-failure
+#srun --nodes 6 --cpus-per-task=1 --auto-resume=1 python3 step.py --name task1 --gpu-failure 1

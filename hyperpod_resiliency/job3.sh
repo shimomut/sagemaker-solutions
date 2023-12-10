@@ -8,5 +8,5 @@
 
 # Auto resume works at srun level. In this case only task2 re-runs.
 srun --nodes 3 --auto-resume=1 python3 step.py --name task1 &
-srun --nodes 3 --auto-resume=1 python3 step.py --name task2 --gpu-failure &
+srun --nodes 3 --auto-resume=1 python3 step.py --name task2 --gpu-failure 1 &
 wait
