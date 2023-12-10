@@ -7,4 +7,6 @@
 #SBATCH --exclusive
 
 # How about this?
-srun --nodes 6 --mem=100M --auto-resume=1 python3 step.py --name task1 --gpu-failure
+srun --nodes 3 --auto-resume=1 python3 step.py --name task1 &
+srun --nodes 3 --auto-resume=1 python3 step.py --name task1 --gpu-failure &
+wait
