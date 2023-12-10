@@ -7,4 +7,5 @@
 #SBATCH --exclusive
 
 # What if running multiple tasks on each node
+# All tasks re-run as expected
 srun --nodes 3 --ntasks 6 --auto-resume=1 python3 step.py --name task1 --gpu-failure 1
