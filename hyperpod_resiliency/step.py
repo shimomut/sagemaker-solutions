@@ -28,7 +28,7 @@ if args.gpu_failure:
 
     if not os.path.exists("./gpu-failure-happened.txt"):
 
-        if os.environ["SLURM_NODEID"] == "2":
+        if os.environ["SLURM_NODEID"] == "1":
 
             with open("./gpu-failure-happened.txt", "w") as fd:
                 pass
