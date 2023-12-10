@@ -26,11 +26,11 @@ time.sleep(10)
 
 if args.gpu_failure:
 
-    if not os.path.exists("./gpu-failure-happened_2.txt"):
+    if not os.path.exists("./gpu-failure-happened.txt"):
 
         if os.environ["SLURM_NODEID"] == "2":
 
-            with open("./gpu-failure-happened_2.txt", "w") as fd:
+            with open("./gpu-failure-happened.txt", "w") as fd:
                 pass
         
             print(f"[{args.name}] Simulating GPU failure.", flush=True)
