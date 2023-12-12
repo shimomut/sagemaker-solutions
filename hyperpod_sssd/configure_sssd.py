@@ -33,14 +33,7 @@ krb5_config_filename = "/etc/krb5.conf"
 
 ad_admin_password = "xyz" # FIXME : read from Secrets Manager?
 
-exit_on_failure = True
-
 # ---
-
-def on_failure(message):
-    print(message)
-    if exit_on_failure:
-        sys.exit(1)
 
 def install_apt_packages():
 
@@ -84,11 +77,8 @@ def configure_custom_dns():
 
     print("---")
     print("Confirming AD domain is reachable")
-    try:
-        address = socket.gethostbyname(ad_domain)
-        print( f"{ad_domain} -> {address}" )
-    except gaierror:
-        on_failure(f"Warning : {ad_domain} cannot be resolved")
+    address = socket.gethostbyname(ad_domain)
+    print( f"{ad_domain} -> {address}" )
 
 
 def realm_join():
