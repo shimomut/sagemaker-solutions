@@ -17,7 +17,8 @@ sudo_command = ["sudo","-E"]
 #sudo_command = []
 
 packages_to_install = [
-    "ldap-utils", "realmd", "sssd-tools", "adcli", "sssd", "libnss-sss", "libpam-sss", 
+    "ldap-utils", "realmd", "sssd-tools", "adcli", "sssd", "libnss-sss", "libpam-sss",
+    "sssd-ldap",
     "sssd-krb5", "krb5-user" # not needed ?
 ]
 
