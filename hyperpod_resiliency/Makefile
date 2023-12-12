@@ -1,14 +1,14 @@
 all:
 
 run:
-	sbatch job.sh
+	sbatch job1.sh
 
-monitor-log:
+log:
 	tail -f output/*
 
-monitor-queue:
-	watch squeue
+q:
+	squeue
 
 clean:
 	rm output/log_*.txt
-	rm gpu-already-failed.txt
+	rm gpu-failure-happened.txt
