@@ -26,7 +26,10 @@ packages_to_install = [
 ]
 
 netplan_filename_for_custom_dns = "/etc/netplan/99-custom-dns.yaml"
-network_interface_name = "ens6"
+
+network_interface_name = "eth0"
+#network_interface_name = "ens6"
+
 dns_server_addresses = [ "10.3.73.85", "10.2.82.19" ]
 
 sshd_config_filename = "/etc/ssh/sshd_config"
@@ -195,16 +198,14 @@ def restart_services():
 
 print("Starting SSSD configuration steps")
 
-install_apt_packages()
 configure_custom_dns()
+#install_apt_packages()
 #realm_join()
-enable_password_authentication()
-enable_automatic_homedir_creation()
-restart_services()
-
-if 0:
-    configure_sssd()
-    configure_krb5()
+#enable_password_authentication()
+#enable_automatic_homedir_creation()
+#restart_services()
+#configure_sssd()
+#configure_krb5()
 
 print("---")
 print("Finished SSSD configuration steps")
