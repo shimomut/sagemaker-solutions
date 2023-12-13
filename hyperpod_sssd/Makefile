@@ -14,11 +14,20 @@ restart-service:
 service-status:
 	sudo systemctl status sssd.service
 
-check:
+check1:
 	getent passwd user1@cluster-test.amazonaws.com
+	getent passwd user2@cluster-test.amazonaws.com
 
 check2:
 	getent passwd user1
+	getent passwd user2
 
 check3:
 	id user1
+	id user2
+
+check4:
+	su -l user1@cluster-test.amazonaws.com
+
+check5:
+	sssctl domain-status cluster-test.amazonaws.com

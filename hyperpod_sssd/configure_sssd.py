@@ -17,9 +17,12 @@ sudo_command = ["sudo","-E"]
 #sudo_command = []
 
 packages_to_install = [
-    "ldap-utils", "realmd", "sssd-tools", "adcli", "sssd", "libnss-sss", "libpam-sss",
+    "ldap-utils", "sssd-tools", "adcli", "sssd",
+    "libnss-sss", "libpam-sss",
     "sssd-ldap",
-    "sssd-krb5", "krb5-user" # not needed ?
+    "sssd-dbus",
+    #"realmd", 
+    #"sssd-krb5", "krb5-user" # not needed ?
 ]
 
 netplan_filename_for_custom_dns = "/etc/netplan/99-custom-dns.yaml"
@@ -82,6 +85,7 @@ def configure_custom_dns():
     print( f"{ad_domain} -> {address}" )
 
 
+# FIXME : This shouldn't be needed
 def realm_join():
     # FIXME : should print stdout/stderr
     p = pexpect.popen_spawn.PopenSpawn([*sudo_command, "realm", "join", "-U", "Admin", ad_domain])
@@ -193,7 +197,7 @@ print("Starting SSSD configuration steps")
 
 install_apt_packages()
 configure_custom_dns()
-realm_join()
+#realm_join()
 enable_password_authentication()
 enable_automatic_homedir_creation()
 restart_services()
