@@ -42,3 +42,6 @@ check4:
 
 check5:
 	sssctl domain-status cluster-test.amazonaws.com
+
+clear-cache:
+	sudo sssctl cache-remove
