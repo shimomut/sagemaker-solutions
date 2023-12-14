@@ -154,7 +154,13 @@ def main(args):
         # Note: Uncomment the below lines to install docker and enroot
         # ExecuteBashScript("./utils/install_docker.sh").run()
         # ExecuteBashScript("./utils/install_enroot_pyxis.sh").run(node_type)
-        
+
+        # Enable AcriveDirectory/LDAP integration
+        subprocess.run(
+            ["sudo", "python3", "-u", "configure_sssd.py"], 
+            #check=True # FIXME : not failing cluster creation during LCC development 
+        )
+
     print("[INFO]: Success: All provisioning scripts completed")
 
 
