@@ -1,3 +1,4 @@
+import sys
 import os
 import time
 import subprocess
@@ -10,6 +11,8 @@ import pexpect.popen_spawn
 # ---
 
 # Configurations
+
+ec2_test_env = False
 
 ad_domain = "cluster-test.amazonaws.com"
 
@@ -24,12 +27,15 @@ packages_to_install = [
     "sssd-krb5",
     "krb5-user",
     "realmd",
+    "adcli",
 ]
 
 netplan_filename_for_custom_dns = "/etc/netplan/99-custom-dns.yaml"
 
-network_interface_name = "eth0"
-#network_interface_name = "ens6"
+if ec2_test_env:
+    network_interface_name = "eth0"
+else:
+    network_interface_name = "ens6"
 
 dns_server_addresses = [ "10.3.73.85", "10.2.82.19" ]
 
@@ -39,7 +45,7 @@ sssd_config_filename = "/etc/sssd/sssd.conf"
 
 krb5_config_filename = "/etc/krb5.conf"
 
-ad_admin_password = {placeholder} # FIXME : read from Secrets Manager?
+ad_admin_password = "placeholder" # FIXME : read from Secrets Manager?
 
 # ---
 
@@ -72,31 +78,53 @@ def configure_custom_dns():
 
     with tempfile.TemporaryDirectory() as tmp_dir:
         tmp_yaml_filename = os.path.join(tmp_dir, os.path.basename(netplan_filename_for_custom_dns))
+
+        d = netplan_custom_dns_yaml.strip()
+        print(d)
+
         with open(tmp_yaml_filename,"w") as fd:
-            fd.write( netplan_custom_dns_yaml.strip() )
+            fd.write(d)
 
         subprocess.run( [ *sudo_command, "chmod", "644", tmp_yaml_filename ] )
         subprocess.run( [ *sudo_command, "chown", "root:root", tmp_yaml_filename ] )
         subprocess.run( [ *sudo_command, "cp", tmp_yaml_filename, netplan_filename_for_custom_dns ] )
 
     print("---")
-    print("Applying netplan change (warning about ens6 can be ignored)")
+    print("Applying netplan change (warning about ens5 can be ignored)")
     subprocess.run( [ *sudo_command, "netplan", "apply" ] )
 
     # It takes some time until when host name can be resolved
-    time.sleep(10)
+    #time.sleep(10)
 
     print("---")
     print("Confirming AD domain is reachable")
     max_retries = 10
     for i in range(max_retries):
         try:
+            print("systemd-resolve")
+            subprocess.run(["systemd-resolve", "--status", "--no-pager"], stdout=sys.stdout, stderr=sys.stderr)
+
+            print("nslookup")
+            subprocess.run(["nslookup", "www.amazon.com"], stdout=sys.stdout, stderr=sys.stderr)
+
+            print("ping")
+            subprocess.run(["ping", "-c", "5", "www.amazon.com"], stdout=sys.stdout, stderr=sys.stderr)
+
+            print("nslookup")
+            subprocess.run(["nslookup", ad_domain], stdout=sys.stdout, stderr=sys.stderr)
+
+            print("ping")
+            subprocess.run(["ping", "-c", "5", ad_domain], stdout=sys.stdout, stderr=sys.stderr)
+
             print(f"Attempt {i+1} / {max_retries}")
-            address = socket.gethostbyname(ad_domain)
+            address_info = socket.getaddrinfo(ad_domain,0,0,0,0)
             break
-        except socket.gaierror:
+        except socket.gaierror as e:
+            print(e)
             time.sleep(10)
-    print( f"{ad_domain} -> {address}" )
+    else:
+        assert False, f"{ad_domain} cannot be resolved"
+    print(address_info)
 
 
 def enable_password_authentication():
@@ -111,6 +139,7 @@ def enable_password_authentication():
             d = fd_src.read()
 
         d = re.sub( r"PasswordAuthentication[ \t]+no", "PasswordAuthentication yes", d )
+        print(d)
 
         with open(tmp_sshd_config_filename,"w") as fd_dst:
             fd_dst.write(d)
@@ -201,8 +230,12 @@ def configure_sssd():
 
     with tempfile.TemporaryDirectory() as tmp_dir:
         tmp_sssd_config_filename = os.path.join(tmp_dir, os.path.basename(sssd_config_filename))
+
+        d = sssd_conf.strip()
+        print(d)
+
         with open(tmp_sssd_config_filename,"w") as fd:
-            fd.write( sssd_conf.strip() )
+            fd.write(d)
 
         subprocess.run( [ *sudo_command, "chmod", "600", tmp_sssd_config_filename ] )
         subprocess.run( [ *sudo_command, "chown", "root:root", tmp_sssd_config_filename ] )
