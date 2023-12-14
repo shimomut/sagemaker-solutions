@@ -8,6 +8,17 @@ install-config:
 	sudo cp ./sssd.conf /etc/sssd/sssd.conf
 	sudo chmod 600 /etc/sssd/sssd.conf
 
+	sudo cp ./krb5.conf /etc/krb5.conf
+	sudo chmod 644 /etc/krb5.conf
+
+install-config-join:
+	sudo cp ./sssd-4.conf /etc/sssd/sssd.conf
+	sudo chmod 600 /etc/sssd/sssd.conf
+
+install-config-blog:
+	sudo cp ./sssd-5.conf /etc/sssd/sssd.conf
+	sudo chmod 600 /etc/sssd/sssd.conf
+
 restart-service:
 	sudo systemctl restart sssd.service
 
