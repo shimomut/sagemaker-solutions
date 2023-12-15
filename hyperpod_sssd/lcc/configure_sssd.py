@@ -12,9 +12,9 @@ import pexpect.popen_spawn
 
 # Configurations
 
-ec2_test_env = False
+ec2_test_env = True
 
-ad_domain = "cluster-test.amazonaws.com"
+ad_domain = "cluster-test3.amazonaws.com"
 
 # If this script is executed by root already, this variable can be empty
 sudo_command = ["sudo","-E"]
@@ -37,7 +37,10 @@ if ec2_test_env:
 else:
     network_interface_name = "ens6"
 
-dns_server_addresses = [ "10.3.73.85", "10.2.82.19" ]
+dns_server_addresses = [ 
+    #"10.3.73.85", "10.2.82.19" # for cluster-test.amazonaws.com
+    "10.3.24.253", "10.2.5.177" # for cluster-test3.amazonaws.com
+]
 
 sshd_config_filename = "/etc/ssh/sshd_config"
 
@@ -94,28 +97,13 @@ def configure_custom_dns():
     subprocess.run( [ *sudo_command, "netplan", "apply" ] )
 
     # It takes some time until when host name can be resolved
-    #time.sleep(10)
+    time.sleep(10)
 
     print("---")
     print("Confirming AD domain is reachable")
     max_retries = 10
     for i in range(max_retries):
         try:
-            print("systemd-resolve")
-            subprocess.run(["systemd-resolve", "--status", "--no-pager"], stdout=sys.stdout, stderr=sys.stderr)
-
-            print("nslookup")
-            subprocess.run(["nslookup", "www.amazon.com"], stdout=sys.stdout, stderr=sys.stderr)
-
-            print("ping")
-            subprocess.run(["ping", "-c", "5", "www.amazon.com"], stdout=sys.stdout, stderr=sys.stderr)
-
-            print("nslookup")
-            subprocess.run(["nslookup", ad_domain], stdout=sys.stdout, stderr=sys.stderr)
-
-            print("ping")
-            subprocess.run(["ping", "-c", "5", ad_domain], stdout=sys.stdout, stderr=sys.stderr)
-
             print(f"Attempt {i+1} / {max_retries}")
             address_info = socket.getaddrinfo(ad_domain,0,0,0,0)
             break
@@ -253,14 +241,14 @@ def restart_services():
 
 print("Starting SSSD configuration steps")
 
-install_apt_packages()
+#install_apt_packages()
 configure_custom_dns()
-enable_password_authentication()
-enable_automatic_homedir_creation()
-configure_krb5()
-realm_join()
-configure_sssd()
-restart_services()
+#enable_password_authentication()
+#enable_automatic_homedir_creation()
+#configure_krb5()
+#realm_join()
+#configure_sssd()
+#restart_services()
 
 print("---")
 print("Finished SSSD configuration steps")
