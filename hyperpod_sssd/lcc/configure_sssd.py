@@ -191,7 +191,7 @@ def realm_join():
         assert result==0, f"Joining AD domain failed with return code {result}"
 
 
-sssd_conf = f"""
+sssd_conf_with_join = f"""
 [sssd]
 domains = {ad_domain}
 config_file_version = 2
@@ -209,6 +209,40 @@ ad_domain = {ad_domain}
 use_fully_qualified_names = True
 ldap_id_mapping = True
 access_provider = ad
+"""
+
+
+sssd_conf = f"""
+[domain/{ad_domain}]
+id_provider = ldap
+cache_credentials = True
+ldap_uri = ldap://{ad_domain}
+ldap_search_base = dc=cluster-test3,dc=amazonaws,dc=com
+ldap_schema = AD
+ldap_default_bind_dn = cn=Admin,ou=Users,ou=cluster-test3,dc=cluster-test3,dc=amazonaws,dc=com
+ldap_default_authtok = {ad_admin_password}
+ldap_tls_reqcert = never
+ldap_id_mapping = True
+ldap_referrals = false
+ldap_user_extra_attrs = altSecurityIdentities:altSecurityIdentities
+ldap_use_tokengroups = True
+enumerate = False
+fallback_homedir = /home/%u@%d
+default_shell = /bin/bash
+use_fully_qualified_names = True
+
+[sssd]
+domains = {ad_domain}
+config_file_version = 2
+services = nss, pam
+debug_level = 10
+
+[pam]
+offline_credentials_expiration = 14
+
+[nss]
+filter_users = nobody,root
+filter_groups = nobody,root
 """
 
 def configure_sssd():
