@@ -227,8 +227,6 @@ ldap_referrals = True
 #ldap_user_extra_attrs = altSecurityIdentities:altSecurityIdentities
 ldap_use_tokengroups = True
 krb5_realm = {ad_domain.upper()}
-krb5_server = {ad_domain}
-krb5_kpasswd = {ad_domain}
 krb5_canonicalize = True
 enumerate = False
 fallback_homedir = /home/%u@%d
@@ -283,13 +281,12 @@ def restart_services():
 print("Starting SSSD configuration steps")
 
 #install_apt_packages()
-configure_custom_dns()
+#configure_custom_dns()
 #enable_password_authentication()
 #enable_automatic_homedir_creation()
 #configure_krb5()
-#realm_join()
-#configure_sssd()
-#restart_services()
+configure_sssd()
+restart_services()
 
 print("---")
 print("Finished SSSD configuration steps")
