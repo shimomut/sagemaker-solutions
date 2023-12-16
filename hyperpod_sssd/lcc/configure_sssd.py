@@ -8,9 +8,8 @@ import re
 
 import pexpect.popen_spawn
 
-# ---
-
-# Configurations
+# ---------------------------------
+# Configurations you need to modify
 
 ec2_test_env = True
 
@@ -26,8 +25,6 @@ packages_to_install = [
     "sssd-tools",
     "sssd-krb5",
     "krb5-user",
-    "realmd",
-    "adcli",
 ]
 
 netplan_filename_for_custom_dns = "/etc/netplan/99-custom-dns.yaml"
@@ -48,7 +45,82 @@ sssd_config_filename = "/etc/sssd/sssd.conf"
 
 krb5_config_filename = "/etc/krb5.conf"
 
-ad_admin_password = "placeholder" # FIXME : read from Secrets Manager?
+# you can get obfuscated password by sss_obfuscate command
+# FIXME : should read from Secrets Manager
+ad_admin_obfuscated_password = "placeholder"
+
+assert ad_admin_obfuscated_password != "placeholder", "You need to configure ad_admin_obfuscated_password"
+
+# ---------------------------------
+# Templates for configuration files
+
+netplan_custom_dns_yaml = f"""
+network:
+    version: 2
+    ethernets:
+        {network_interface_name}:
+            nameservers:
+                addresses: [{", ".join(dns_server_addresses)}]
+            dhcp4-overrides:
+                use-dns: false
+"""
+
+krb5_conf = f"""
+[libdefaults]
+	default_realm = {ad_domain.upper()}
+	ccache_type = 4
+	forwardable = true
+	proxiable = true
+	rdns = false
+	dns_lookup_realm = true
+	dns_lookup_kdc = true
+	ticket_lifetime = 24h
+	renew_lifetime = 7d
+
+[realms]
+
+[domain_realm]
+"""
+
+sssd_conf = f"""
+[domain/{ad_domain}]
+id_provider = ldap
+auth_provider = krb5
+cache_credentials = True
+ldap_uri = ldap://{ad_domain}
+ldap_search_base = dc=cluster-test3,dc=amazonaws,dc=com
+ldap_schema = AD
+ldap_default_bind_dn = cn=Admin,ou=Users,ou=cluster-test3,dc=cluster-test3,dc=amazonaws,dc=com
+ldap_default_authtok_type = obfuscated_password
+ldap_default_authtok = {ad_admin_obfuscated_password}
+ldap_tls_reqcert = never
+ldap_id_mapping = True
+ldap_referrals = True
+#ldap_user_extra_attrs = altSecurityIdentities:altSecurityIdentities
+ldap_use_tokengroups = True
+krb5_realm = {ad_domain.upper()}
+krb5_canonicalize = True
+enumerate = False
+fallback_homedir = /home/%u@%d
+default_shell = /bin/bash
+use_fully_qualified_names = True
+#debug_level = 6
+
+[sssd]
+domains = {ad_domain}
+config_file_version = 2
+services = nss, pam
+#debug_level = 6
+
+[pam]
+offline_credentials_expiration = 14
+#debug_level = 6
+
+[nss]
+filter_users = nobody,root
+filter_groups = nobody,root
+#debug_level = 6
+"""
 
 # ---
 
@@ -62,17 +134,6 @@ def install_apt_packages():
     print("Installing packages - ", packages_to_install)
     subprocess.run( [ *sudo_command, "DEBIAN_FRONTEND=noninteractive", "apt", "install", "-y", *packages_to_install ] )
 
-
-netplan_custom_dns_yaml = f"""
-network:
-    version: 2
-    ethernets:
-        {network_interface_name}:
-            nameservers:
-                addresses: [{", ".join(dns_server_addresses)}]
-            dhcp4-overrides:
-                use-dns: false
-"""
 
 def configure_custom_dns():
 
@@ -153,10 +214,7 @@ def configure_krb5():
     with tempfile.TemporaryDirectory() as tmp_dir:
         tmp_config_filename = os.path.join(tmp_dir,os.path.basename(krb5_config_filename))
 
-        with open(krb5_config_filename) as fd_src:
-            d = fd_src.read()
-
-        d = re.sub( r"default_realm = .*", f"default_realm = {ad_domain.upper()}", d )
+        d = krb5_conf.strip()
         print(d)
 
         with open(tmp_config_filename,"w") as fd_dst:
@@ -166,89 +224,6 @@ def configure_krb5():
         subprocess.run( [ *sudo_command, "chown", "root:root", tmp_config_filename ] )
         subprocess.run( [ *sudo_command, "cp", tmp_config_filename, krb5_config_filename ] )
 
-
-def realm_join():
-
-    print("---")
-    print("Joining AD")
-
-    max_retries = 10
-    for i in range(max_retries):
-
-        print(f"Attempt {i+1} / {max_retries}")
-
-        p = pexpect.popen_spawn.PopenSpawn([*sudo_command, "realm", "join", "-U", "Admin", ad_domain])
-        p.expect(":", timeout=30)
-        print(p.before.decode("utf-8") + p.after.decode("utf-8"), end="")
-        p.sendline(ad_admin_password)
-        p.expect(pexpect.EOF, timeout=30)
-        print(p.before.decode("utf-8"), end="")
-        result = p.wait()
-        if result==0: break
-
-        time.sleep(10)
-    else:
-        assert result==0, f"Joining AD domain failed with return code {result}"
-
-
-sssd_conf_with_join = f"""
-[sssd]
-domains = {ad_domain}
-config_file_version = 2
-services = nss, pam
-
-[domain/{ad_domain}]
-default_shell = /bin/bash
-krb5_store_password_if_offline = True
-cache_credentials = True
-krb5_realm = {ad_domain.upper()}
-realmd_tags = manages-system joined-with-adcli
-id_provider = ad
-fallback_homedir = /home/%u@%d
-ad_domain = {ad_domain}
-use_fully_qualified_names = True
-ldap_id_mapping = True
-access_provider = ad
-"""
-
-sssd_conf = f"""
-[domain/{ad_domain}]
-id_provider = ldap
-auth_provider = krb5
-cache_credentials = True
-ldap_uri = ldap://{ad_domain}
-ldap_search_base = dc=cluster-test3,dc=amazonaws,dc=com
-ldap_schema = AD
-ldap_default_bind_dn = cn=Admin,ou=Users,ou=cluster-test3,dc=cluster-test3,dc=amazonaws,dc=com
-ldap_default_authtok = {ad_admin_password}
-ldap_tls_reqcert = never
-ldap_id_mapping = True
-ldap_referrals = True
-#ldap_user_extra_attrs = altSecurityIdentities:altSecurityIdentities
-ldap_use_tokengroups = True
-krb5_realm = {ad_domain.upper()}
-krb5_canonicalize = True
-enumerate = False
-fallback_homedir = /home/%u@%d
-default_shell = /bin/bash
-use_fully_qualified_names = True
-#debug_level = 6
-
-[sssd]
-domains = {ad_domain}
-config_file_version = 2
-services = nss, pam
-#debug_level = 6
-
-[pam]
-offline_credentials_expiration = 14
-#debug_level = 6
-
-[nss]
-filter_users = nobody,root
-filter_groups = nobody,root
-#debug_level = 6
-"""
 
 def configure_sssd():
 
@@ -280,11 +255,11 @@ def restart_services():
 
 print("Starting SSSD configuration steps")
 
-#install_apt_packages()
-#configure_custom_dns()
-#enable_password_authentication()
-#enable_automatic_homedir_creation()
-#configure_krb5()
+install_apt_packages()
+configure_custom_dns()
+enable_password_authentication()
+enable_automatic_homedir_creation()
+configure_krb5()
 configure_sssd()
 restart_services()
 
