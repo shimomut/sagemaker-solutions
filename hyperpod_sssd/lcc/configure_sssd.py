@@ -1,17 +1,12 @@
-import sys
 import os
-import time
 import subprocess
 import tempfile
-import socket
 import re
-
-import pexpect.popen_spawn
 
 # ---------------------------------
 # Configurations you need to modify
 
-ec2_test_env = True
+ec2_test_env = False
 
 ad_domain = "cluster-test3.amazonaws.com"
 
@@ -156,24 +151,6 @@ def configure_custom_dns():
     print("---")
     print("Applying netplan change (warning about ens5 can be ignored)")
     subprocess.run( [ *sudo_command, "netplan", "apply" ] )
-
-    # It takes some time until when host name can be resolved
-    time.sleep(10)
-
-    print("---")
-    print("Confirming AD domain is reachable")
-    max_retries = 10
-    for i in range(max_retries):
-        try:
-            print(f"Attempt {i+1} / {max_retries}")
-            address_info = socket.getaddrinfo(ad_domain,0,0,0,0)
-            break
-        except socket.gaierror as e:
-            print(e)
-            time.sleep(10)
-    else:
-        assert False, f"{ad_domain} cannot be resolved"
-    print(address_info)
 
 
 def enable_password_authentication():
