@@ -211,10 +211,10 @@ ldap_id_mapping = True
 access_provider = ad
 """
 
-
 sssd_conf = f"""
 [domain/{ad_domain}]
 id_provider = ldap
+auth_provider = krb5
 cache_credentials = True
 ldap_uri = ldap://{ad_domain}
 ldap_search_base = dc=cluster-test3,dc=amazonaws,dc=com
@@ -223,26 +223,33 @@ ldap_default_bind_dn = cn=Admin,ou=Users,ou=cluster-test3,dc=cluster-test3,dc=am
 ldap_default_authtok = {ad_admin_password}
 ldap_tls_reqcert = never
 ldap_id_mapping = True
-ldap_referrals = false
-ldap_user_extra_attrs = altSecurityIdentities:altSecurityIdentities
+ldap_referrals = True
+#ldap_user_extra_attrs = altSecurityIdentities:altSecurityIdentities
 ldap_use_tokengroups = True
+krb5_realm = {ad_domain.upper()}
+krb5_server = {ad_domain}
+krb5_kpasswd = {ad_domain}
+krb5_canonicalize = True
 enumerate = False
 fallback_homedir = /home/%u@%d
 default_shell = /bin/bash
 use_fully_qualified_names = True
+#debug_level = 6
 
 [sssd]
 domains = {ad_domain}
 config_file_version = 2
 services = nss, pam
-debug_level = 10
+#debug_level = 6
 
 [pam]
 offline_credentials_expiration = 14
+#debug_level = 6
 
 [nss]
 filter_users = nobody,root
 filter_groups = nobody,root
+#debug_level = 6
 """
 
 def configure_sssd():
