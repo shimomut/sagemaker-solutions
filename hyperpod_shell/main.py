@@ -2,7 +2,9 @@ import os
 import time
 import json
 import pprint
+import subprocess
 
+import pexpect
 import cmd2
 from cmd2 import Bg, Fg, style
 import boto3
@@ -18,6 +20,9 @@ from misc import *
 # - Command to dump all logs
 # - Improve output from create/delete commands
 # - Error handling in choices_cluster_names
+
+
+cmd_aws = ["aws"]
 
 
 class HyperPodShellApp(cmd2.Cmd):
@@ -42,21 +47,27 @@ class HyperPodShellApp(cmd2.Cmd):
         # Set the default category name
         self.default_category = 'cmd2 Built-in Commands'
 
-    # ----
+
+    # -------------
+    # boto3 clients
 
     _sagemaker_client = None
+    @staticmethod
     def get_sagemaker_client():
         if not HyperPodShellApp._sagemaker_client:
             HyperPodShellApp._sagemaker_client = boto3.client("sagemaker")
         return HyperPodShellApp._sagemaker_client
 
     _logs_client = None
+    @staticmethod
     def get_logs_client():
         if not HyperPodShellApp._logs_client:
             HyperPodShellApp._logs_client = boto3.client("logs")
         return HyperPodShellApp._logs_client
 
-    # ----
+
+    # ----------
+    # completers
 
     def choices_cluster_names(self):
         choices = []
@@ -68,7 +79,8 @@ class HyperPodShellApp(cmd2.Cmd):
 
         return choices
 
-    # ----
+    # --------
+    # commands
 
     argparser = cmd2.Cmd2ArgumentParser(description='Create a cluster with JSON file')
     argparser.add_argument('--cluster-name', action='store', required=True, help='Name of cluster')
@@ -316,6 +328,65 @@ class HyperPodShellApp(cmd2.Cmd):
             return
 
         logs.print_log(logs_client, log_group, stream)
+
+
+    argparser = cmd2.Cmd2ArgumentParser(description="Login to a cluster node with SSM")
+    argparser.add_argument('--cluster-name', action='store', required=True, choices_provider=choices_cluster_names, help='Name of cluster')
+    argparser.add_argument('--node-id', action='store', required=True, help='Id of node')
+
+    @cmd2.with_category(CATEGORY_HYPERPOD)
+    @cmd2.with_argparser(argparser)
+    def do_ssm(self, args):
+
+        sagemaker_client = self.get_sagemaker_client()
+
+        try:
+            cluster = sagemaker_client.describe_cluster(
+                ClusterName = args.cluster_name
+            )
+        except sagemaker_client.exceptions.ResourceNotFound:
+            print(f"Cluster [{args.cluster_name}] not found.")
+            return
+
+        nodes = list_cluster_nodes_all( sagemaker_client, args.cluster_name )
+
+        cluster_id = cluster["ClusterArn"].split("/")[-1]
+
+        for node in nodes:
+            instance_group_name = node["InstanceGroupName"]
+            node_id = node["InstanceId"]
+            if node_id==args.node_id:
+                break
+        else:
+            print(f"Node ID [{args.node_id}] not found.")
+            return
+
+        ssm_target = f"sagemaker-cluster:{cluster_id}_{instance_group_name}-{node_id}"
+
+
+        if 1:
+            cmd = ["aws", "ssm", "start-session", "--target", ssm_target]
+            subprocess.run(cmd)
+
+        # use pexpect to automatically switch to ubuntu user
+        elif 0:
+            cmd = f"aws ssm start-session --target {ssm_target}"
+            print(cmd)
+            p = pexpect.spawn(cmd)
+            p.expect("#")
+            print(p.before.decode("utf-8") + p.after.decode("utf-8"), end="")
+
+            def run_single_command(cmd):
+                p.sendline(cmd)
+                p.expect( ["#","$"] )
+                print(p.before.decode("utf-8") + p.after.decode("utf-8"), end="")
+
+            run_single_command(f"sudo su ubuntu")
+            run_single_command(f"cd && bash")
+
+            p.interact()
+
+            p.terminate(force=True)
 
 
     argparser = cmd2.Cmd2ArgumentParser(description='Print SSH config for cluster nodes')
