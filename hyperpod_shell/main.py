@@ -4,6 +4,7 @@ import cmd2
 from cmd2 import Bg, Fg, style
 import boto3
 
+import logs
 from misc import *
 
 
@@ -245,15 +246,13 @@ class HyperPodShellApp(cmd2.Cmd):
             time.sleep(5)
 
 
-    argparser = cmd2.Cmd2ArgumentParser(description="Monitor log from a cluster node")
+    argparser = cmd2.Cmd2ArgumentParser(description="Print log from a cluster node")
     argparser.add_argument('--cluster-name', action='store', required=True, help='Name of cluster')
     argparser.add_argument('--node-id', action='store', required=True, help='Id of node')
-    argparser.add_argument('--freq', action='store', type=int, default=5, help='Polling frequency in seconds')
-    argparser.add_argument('--lookback', action='store', type=int, default=60, help='Lookback window in minutes')
 
     @cmd2.with_category(CATEGORY_HYPERPOD)
     @cmd2.with_argparser(argparser)
-    def do_monitor_log(self, args):
+    def do_log(self, args):
 
         sagemaker_client = boto3.client("sagemaker")
 
@@ -266,19 +265,19 @@ class HyperPodShellApp(cmd2.Cmd):
             return
 
         cluster_id = cluster["ClusterArn"].split("/")[-1]
-        args.log_group = f"/aws/sagemaker/Clusters/{args.cluster_name}/{cluster_id}"
+        log_group = f"/aws/sagemaker/Clusters/{args.cluster_name}/{cluster_id}"
 
         logs_client = boto3.client("logs")
-        response = logs_client.describe_log_streams( logGroupName = args.log_group )
+        response = logs_client.describe_log_streams( logGroupName = log_group )
         for stream in response["logStreams"]:
             if stream["logStreamName"].endswith(args.node_id):
-                args.stream = stream["logStreamName"]
+                stream = stream["logStreamName"]
                 break
         else:
             print(f"Log stream for [{args.node_id}] not found.")
             return
 
-        aws_toolbox_logs.monitor_log(args)
+        logs.print_log(log_group, stream)
 
 
     argparser = cmd2.Cmd2ArgumentParser(description='Print SSH config for cluster nodes')
