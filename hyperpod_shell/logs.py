@@ -4,7 +4,7 @@ import fnmatch
 import boto3
 
 
-def _list_log_groups_all( logs_client, prefix ):
+def _list_log_groups_all(logs_client, prefix):
 
     log_groups = []
     next_tolen = None
@@ -49,7 +49,7 @@ def list_log_groups(args):
     num_found = 0
 
     print("Log groups:")
-    for log_group in _list_log_groups_all( logs_client, prefix ):
+    for log_group in _list_log_groups_all(logs_client, prefix):
         if fnmatch.fnmatch( log_group["logGroupName"], args.pattern ):
             print( "  " + log_group["logGroupName"] )
             last_found_log_group = log_group
@@ -63,9 +63,7 @@ def list_log_groups(args):
             print( "  " + stream["logStreamName"] )
             
 
-def print_log(log_group, stream):
-
-    logs_client = boto3.client("logs")
+def print_log(logs_client, log_group, stream):
 
     # FIXME : should use cluster creation time
     start_time = int( ( time.time() - 24 * 60 * 60 ) * 1000 )

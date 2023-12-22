@@ -13,7 +13,6 @@ from misc import *
 
 # TODO:
 # - Use self.poutput() instead of print()
-# - cache boto3 clients
 # - Completer for cluster name
 # - Command to start SSM session
 # - Command to export all log streams
@@ -46,10 +45,24 @@ class HyperPodShellApp(cmd2.Cmd):
 
     # ----
 
+    _sagemaker_client = None
+    def get_sagemaker_client():
+        if not HyperPodShellApp._sagemaker_client:
+            HyperPodShellApp._sagemaker_client = boto3.client("sagemaker")
+        return HyperPodShellApp._sagemaker_client
+
+    _logs_client = None
+    def get_logs_client():
+        if not HyperPodShellApp._logs_client:
+            HyperPodShellApp._logs_client = boto3.client("logs")
+        return HyperPodShellApp._logs_client
+
+    # ----
+
     def choices_cluster_names(self):
         choices = []
 
-        sagemaker_client = boto3.client("sagemaker")
+        sagemaker_client = self.get_sagemaker_client()
         clusters = list_clusters_all(sagemaker_client)
         for cluster in clusters:
             choices.append( cluster["ClusterName"] )
@@ -78,7 +91,7 @@ class HyperPodShellApp(cmd2.Cmd):
             with open(args.vpc_config_file) as fd:
                 params["VpcConfig"] = json.loads(fd.read())
 
-        sagemaker_client = boto3.client("sagemaker")
+        sagemaker_client = self.get_sagemaker_client()
         response = sagemaker_client.create_cluster(**params)
 
         pprint.pprint(response)
@@ -97,7 +110,7 @@ class HyperPodShellApp(cmd2.Cmd):
             if answer.lower() not in ["y","yes"]:
                 return
 
-        sagemaker_client = boto3.client("sagemaker")
+        sagemaker_client = self.get_sagemaker_client()
 
         try:
             response = sagemaker_client.delete_cluster(
@@ -117,7 +130,7 @@ class HyperPodShellApp(cmd2.Cmd):
     @cmd2.with_argparser(argparser)
     def do_list(self, args):
 
-        sagemaker_client = boto3.client("sagemaker")
+        sagemaker_client = self.get_sagemaker_client()
 
         clusters = list_clusters_all(sagemaker_client)
 
@@ -148,7 +161,7 @@ class HyperPodShellApp(cmd2.Cmd):
     @cmd2.with_argparser(argparser)
     def do_describe(self, args):
 
-        sagemaker_client = boto3.client("sagemaker")
+        sagemaker_client = self.get_sagemaker_client()
 
         try:
             cluster = sagemaker_client.describe_cluster(
@@ -201,7 +214,7 @@ class HyperPodShellApp(cmd2.Cmd):
     @cmd2.with_argparser(argparser)
     def do_wait_clusters(self, args):
 
-        sagemaker_client = boto3.client("sagemaker")
+        sagemaker_client = self.get_sagemaker_client()
 
         progress_dots = ProgressDots()
 
@@ -242,7 +255,7 @@ class HyperPodShellApp(cmd2.Cmd):
     @cmd2.with_argparser(argparser)
     def do_wait_nodes(self, args):
 
-        sagemaker_client = boto3.client("sagemaker")
+        sagemaker_client = self.get_sagemaker_client()
 
         progress_dots = ProgressDots()
 
@@ -280,7 +293,7 @@ class HyperPodShellApp(cmd2.Cmd):
     @cmd2.with_argparser(argparser)
     def do_log(self, args):
 
-        sagemaker_client = boto3.client("sagemaker")
+        sagemaker_client = self.get_sagemaker_client()
 
         try:
             cluster = sagemaker_client.describe_cluster(
@@ -293,7 +306,7 @@ class HyperPodShellApp(cmd2.Cmd):
         cluster_id = cluster["ClusterArn"].split("/")[-1]
         log_group = f"/aws/sagemaker/Clusters/{args.cluster_name}/{cluster_id}"
 
-        logs_client = boto3.client("logs")
+        logs_client = self.get_logs_client()
         response = logs_client.describe_log_streams( logGroupName = log_group )
         for stream in response["logStreams"]:
             if stream["logStreamName"].endswith(args.node_id):
@@ -303,7 +316,7 @@ class HyperPodShellApp(cmd2.Cmd):
             print(f"Log stream for [{args.node_id}] not found.")
             return
 
-        logs.print_log(log_group, stream)
+        logs.print_log(logs_client, log_group, stream)
 
 
     argparser = cmd2.Cmd2ArgumentParser(description='Print SSH config for cluster nodes')
@@ -313,7 +326,7 @@ class HyperPodShellApp(cmd2.Cmd):
     @cmd2.with_argparser(argparser)
     def do_print_ssh_config(self, args):
 
-        sagemaker_client = boto3.client("sagemaker")
+        sagemaker_client = self.get_sagemaker_client()
 
         try:
             cluster = sagemaker_client.describe_cluster(
@@ -360,7 +373,7 @@ class HyperPodShellApp(cmd2.Cmd):
     @cmd2.with_argparser(argparser)
     def do_install_ssh_key(self, args):
 
-        sagemaker_client = boto3.client("sagemaker")
+        sagemaker_client = self.get_sagemaker_client()
 
         try:
             cluster = sagemaker_client.describe_cluster(
@@ -410,7 +423,7 @@ class HyperPodShellApp(cmd2.Cmd):
     @cmd2.with_argparser(argparser)
     def do_bulk_run_command(self, args):
 
-        sagemaker_client = boto3.client("sagemaker")
+        sagemaker_client = self.get_sagemaker_client()
 
         try:
             cluster = sagemaker_client.describe_cluster(
