@@ -2,10 +2,8 @@ import os
 
 import cmd2
 from cmd2 import Bg, Fg, style
-
 import boto3
 
-import tree
 from misc import *
 
 
@@ -30,23 +28,6 @@ class HyperPodShellApp(cmd2.Cmd):
 
         # Set the default category name
         self.default_category = 'cmd2 Built-in Commands'
-
-    @cmd2.with_category(CATEGORY_TEST)
-    def do_intro(self, _):
-        """Display the intro banner"""
-        self.poutput(self.intro)
-
-    @cmd2.with_category(CATEGORY_TEST)
-    def do_echo(self, arg):
-        """Example of a multiline command"""
-        self.poutput(arg)
-
-    @cmd2.with_category(CATEGORY_TEST)
-    def do_rich(self, arg):
-        """Test rich text library"""
-        print("Hello")
-        self.poutput("Hello2")
-        tree.print_tree()
 
     # ----
 
