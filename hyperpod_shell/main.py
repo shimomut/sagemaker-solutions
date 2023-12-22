@@ -297,9 +297,6 @@ class HyperPodShellApp(cmd2.Cmd):
             print(f"Cluster [{args.cluster_name}] not found.")
             return
         
-        if debug:
-            pprint.pprint(cluster)
-
         nodes = list_cluster_nodes_all( sagemaker_client, args.cluster_name )
 
         cluster_id = cluster["ClusterArn"].split("/")[-1]
@@ -316,7 +313,6 @@ class HyperPodShellApp(cmd2.Cmd):
 
                     instance_group_name = node["InstanceGroupName"]
                     node_id = node["InstanceId"]
-                    region_arg = ""
 
                     print()                
                     print(
@@ -324,7 +320,7 @@ class HyperPodShellApp(cmd2.Cmd):
                         f"    HostName sagemaker-cluster:{cluster_id}_{instance_group_name}-{node_id}\n"
                         f"    User ubuntu\n"
                         f"    IdentityFile c:/Users/shimomut/Keys/842413447717-ec2.pem\n"
-                        f"    ProxyCommand aws.cmd --profile {profile} --region {_get_region(args)} ssm start-session --target %h --document-name AWS-StartSSHSession --parameters portNumber=%p"
+                        f"    ProxyCommand aws.cmd --profile {profile} --region {get_region()} ssm start-session --target %h --document-name AWS-StartSSHSession --parameters portNumber=%p"
                     )
 
                     node_index += 1

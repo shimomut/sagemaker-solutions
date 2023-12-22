@@ -1,3 +1,13 @@
+
+import boto3
+
+
+def get_region():
+    boto3_session = boto3.session.Session()
+    region = boto3_session.region_name
+    return region
+
+
 def list_clusters_all(sagemaker_client):
 
     clusters = []    
