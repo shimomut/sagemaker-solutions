@@ -1,4 +1,6 @@
 import os
+import time
+import pprint
 
 import cmd2
 from cmd2 import Bg, Fg, style
@@ -6,6 +8,14 @@ import boto3
 
 import logs
 from misc import *
+
+
+# TODO:
+# - Use self.poutput() instead of print()
+# - Completer for cluster name
+# - Command to start SSM session
+# - Command to export all log streams
+# - 
 
 
 class HyperPodShellApp(cmd2.Cmd):
