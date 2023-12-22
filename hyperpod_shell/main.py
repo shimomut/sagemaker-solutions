@@ -1,5 +1,6 @@
 import os
 import time
+import json
 import pprint
 
 import cmd2
@@ -12,10 +13,13 @@ from misc import *
 
 # TODO:
 # - Use self.poutput() instead of print()
+# - cache boto3 clients
 # - Completer for cluster name
 # - Command to start SSM session
 # - Command to export all log streams
-# - 
+# - Command to dump all logs
+# - Improve output from create/delete commands
+# - Error handling in choices_cluster_names
 
 
 class HyperPodShellApp(cmd2.Cmd):
@@ -39,6 +43,18 @@ class HyperPodShellApp(cmd2.Cmd):
 
         # Set the default category name
         self.default_category = 'cmd2 Built-in Commands'
+
+    # ----
+
+    def choices_cluster_names(self):
+        choices = []
+
+        sagemaker_client = boto3.client("sagemaker")
+        clusters = list_clusters_all(sagemaker_client)
+        for cluster in clusters:
+            choices.append( cluster["ClusterName"] )
+
+        return choices
 
     # ----
 
@@ -125,7 +141,7 @@ class HyperPodShellApp(cmd2.Cmd):
 
 
     argparser = cmd2.Cmd2ArgumentParser(description='Describe cluster and its nodes in depth')
-    argparser.add_argument('--cluster-name', action='store', required=True, help='Name of cluster')
+    argparser.add_argument('--cluster-name', action='store', required=True, choices_provider=choices_cluster_names, help='Name of cluster')
     argparser.add_argument('--details', action='store_true', default=False, help="Show details" )
 
     @cmd2.with_category(CATEGORY_HYPERPOD)
