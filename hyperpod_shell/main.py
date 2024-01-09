@@ -96,8 +96,6 @@ class HyperPodShellApp(cmd2.Cmd):
         for node in nodes:
             choices.append( node["InstanceId"] )
 
-        choices.append("*")
-
         return choices
 
 
@@ -105,9 +103,9 @@ class HyperPodShellApp(cmd2.Cmd):
     # commands
 
     argparser = cmd2.Cmd2ArgumentParser(description="Create a cluster with JSON file")
-    argparser.add_argument("--cluster-name", action="store", required=True, help="Name of cluster")
-    argparser.add_argument("--instance-groups-config-file", action="store", required=True, completer=cmd2.Cmd.path_complete, help="JSON formatted config file path for instance groups")
-    argparser.add_argument("--vpc-config-file", action="store", required=False, completer=cmd2.Cmd.path_complete, help="JSON formatted config file path for VPC")
+    argparser.add_argument("cluster_name", metavar="CLUSTER_NAME", action="store", help="Name of cluster")
+    argparser.add_argument("--instances", action="store", required=True, completer=cmd2.Cmd.path_complete, help="JSON formatted config file path for instance groups")
+    argparser.add_argument("--vpc", action="store", required=False, completer=cmd2.Cmd.path_complete, help="JSON formatted config file path for VPC")
 
     @cmd2.with_category(CATEGORY_HYPERPOD)
     @cmd2.with_argparser(argparser)
