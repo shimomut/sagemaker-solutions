@@ -14,9 +14,6 @@ from misc import *
 
 
 # TODO:
-# - Command to start SSM session
-# - Command to export all log streams
-# - Command to dump all logs
 # - Improve output from create/delete commands
 # - Error handling in choices_cluster_names
 
@@ -98,6 +95,8 @@ class HyperPodShellApp(cmd2.Cmd):
 
         for node in nodes:
             choices.append( node["InstanceId"] )
+
+        choices.append("*")
 
         return choices
 
@@ -341,16 +340,32 @@ class HyperPodShellApp(cmd2.Cmd):
         log_group = f"/aws/sagemaker/Clusters/{args.cluster_name}/{cluster_id}"
 
         logs_client = self.get_logs_client()
+        
+        # FIXME : should handle paging
         response = logs_client.describe_log_streams( logGroupName = log_group )
-        for stream in response["logStreams"]:
-            if stream["logStreamName"].endswith(args.node_id):
-                stream = stream["logStreamName"]
-                break
-        else:
-            self.poutput(f"Log stream for [{args.node_id}] not found.")
-            return
+        streams = response["logStreams"]
 
-        logs.print_log(logs_client, log_group, stream)
+        if args.node_id=="*":
+            for stream in streams:
+                stream = stream["logStreamName"]
+                
+                header = f"--- {log_group} {stream} ---"
+                self.poutput("-" * len(header))
+                self.poutput(header)
+                self.poutput("-" * len(header))
+                logs.print_log(logs_client, log_group, stream)
+                self.poutput(f"")
+        else:
+            for stream in streams:
+                if stream["logStreamName"].endswith(args.node_id):
+                    stream = stream["logStreamName"]
+                    break
+            else:
+                self.poutput(f"Log stream for [{args.node_id}] not found.")
+                return
+
+            logs.print_log(logs_client, log_group, stream)
+            self.poutput(f"")
 
 
     argparser = cmd2.Cmd2ArgumentParser(description="Login to a cluster node with SSM")
