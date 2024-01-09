@@ -1,68 +1,7 @@
 import time
-import fnmatch
-
-import boto3
 
 
-def _list_log_groups_all(logs_client, prefix):
-
-    log_groups = []
-    next_tolen = None
-
-    while True:
-
-        params = {
-            "limit" : 50,
-        }
-
-        if prefix:
-            params["logGroupNamePrefix"] = prefix
-
-        if next_tolen:
-            params["nextToken"] = next_tolen
-
-        response = logs_client.describe_log_groups(**params)
-
-        log_groups += response["logGroups"]
-
-        if "nextToken" in response:
-            next_tolen = response["nextToken"]
-        else:
-            break
-    
-    return log_groups
-
-
-def list_log_groups(args):
-
-    logs_client = boto3.client("logs")
-
-    prefix = args.pattern
-    pos = prefix.find("*")
-    if pos>=0:
-        prefix = prefix[:pos]
-    pos = prefix.find("?")
-    if pos>=0:
-        prefix = prefix[:pos]
-
-    last_found_log_group = None
-    num_found = 0
-
-    print("Log groups:")
-    for log_group in _list_log_groups_all(logs_client, prefix):
-        if fnmatch.fnmatch( log_group["logGroupName"], args.pattern ):
-            print( "  " + log_group["logGroupName"] )
-            last_found_log_group = log_group
-            num_found += 1
-
-    if num_found==1:
-        print("")
-        print("Streams:")
-        response = logs_client.describe_log_streams( logGroupName = last_found_log_group["logGroupName"] )
-        for stream in response["logStreams"]:
-            print( "  " + stream["logStreamName"] )
-            
-
+# FIXME : use poutput() instead of print()
 def print_log(logs_client, log_group, stream):
 
     # FIXME : should use cluster creation time
