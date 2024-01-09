@@ -109,8 +109,8 @@ class HyperPodShellApp(cmd2.Cmd):
 
 
     argparser = cmd2.Cmd2ArgumentParser(description='Delete a cluster')
-    argparser.add_argument('--cluster-name', action='store', required=True, choices_provider=choices_cluster_names, help='Name of cluster')
-    argparser.add_argument('--yes', action='store_true', default=False, help='Skip confirmation')
+    argparser.add_argument('cluster_name', metavar="CLUSTER_NAME", action='store', choices_provider=choices_cluster_names, help='Name of cluster')
+    argparser.add_argument("-y", '--yes', action='store_true', default=False, help='Skip confirmation')
 
     @cmd2.with_category(CATEGORY_HYPERPOD)
     @cmd2.with_argparser(argparser)
@@ -165,7 +165,7 @@ class HyperPodShellApp(cmd2.Cmd):
 
 
     argparser = cmd2.Cmd2ArgumentParser(description='Describe cluster and its nodes in depth')
-    argparser.add_argument('--cluster-name', action='store', required=True, choices_provider=choices_cluster_names, help='Name of cluster')
+    argparser.add_argument('cluster_name', metavar="CLUSTER_NAME", action='store', choices_provider=choices_cluster_names, help='Name of cluster')
     argparser.add_argument('--details', action='store_true', default=False, help="Show details" )
 
     @cmd2.with_category(CATEGORY_HYPERPOD)
@@ -260,7 +260,7 @@ class HyperPodShellApp(cmd2.Cmd):
 
 
     argparser = cmd2.Cmd2ArgumentParser(description='Wait node creation / deletion')
-    argparser.add_argument('--cluster-name', action='store', required=True, choices_provider=choices_cluster_names, help='Name of cluster')
+    argparser.add_argument('cluster_name', metavar="CLUSTER_NAME", action='store', choices_provider=choices_cluster_names, help='Name of cluster')
 
     @cmd2.with_category(CATEGORY_HYPERPOD)
     @cmd2.with_argparser(argparser)
@@ -297,7 +297,7 @@ class HyperPodShellApp(cmd2.Cmd):
 
 
     argparser = cmd2.Cmd2ArgumentParser(description="Print log from a cluster node")
-    argparser.add_argument('--cluster-name', action='store', required=True, choices_provider=choices_cluster_names, help='Name of cluster')
+    argparser.add_argument('cluster_name', metavar="CLUSTER_NAME", action='store', choices_provider=choices_cluster_names, help='Name of cluster')
     argparser.add_argument('--node-id', action='store', required=True, help='Id of node')
 
     @cmd2.with_category(CATEGORY_HYPERPOD)
@@ -331,7 +331,7 @@ class HyperPodShellApp(cmd2.Cmd):
 
 
     argparser = cmd2.Cmd2ArgumentParser(description="Login to a cluster node with SSM")
-    argparser.add_argument('--cluster-name', action='store', required=True, choices_provider=choices_cluster_names, help='Name of cluster')
+    argparser.add_argument('cluster_name', metavar="CLUSTER_NAME", action='store', choices_provider=choices_cluster_names, help='Name of cluster')
     argparser.add_argument('--node-id', action='store', required=True, help='Id of node')
 
     @cmd2.with_category(CATEGORY_HYPERPOD)
@@ -390,7 +390,7 @@ class HyperPodShellApp(cmd2.Cmd):
 
 
     argparser = cmd2.Cmd2ArgumentParser(description='Print SSH config for cluster nodes')
-    argparser.add_argument('--cluster-name', action='store', required=True, choices_provider=choices_cluster_names, help='Name of cluster')
+    argparser.add_argument('cluster_name', metavar="CLUSTER_NAME", action='store', choices_provider=choices_cluster_names, help='Name of cluster')
 
     @cmd2.with_category(CATEGORY_HYPERPOD)
     @cmd2.with_argparser(argparser)
@@ -436,7 +436,7 @@ class HyperPodShellApp(cmd2.Cmd):
 
 
     argparser = cmd2.Cmd2ArgumentParser(description='Install SSH public key to all cluster nodes')
-    argparser.add_argument('--cluster-name', action='store', required=True, choices_provider=choices_cluster_names, help='Name of cluster')
+    argparser.add_argument('cluster_name', metavar="CLUSTER_NAME", action='store', choices_provider=choices_cluster_names, help='Name of cluster')
     argparser.add_argument('--public-key-file', action='store', required=True, help='SSH public key file')
 
     @cmd2.with_category(CATEGORY_HYPERPOD)
@@ -485,7 +485,7 @@ class HyperPodShellApp(cmd2.Cmd):
 
 
     argparser = cmd2.Cmd2ArgumentParser(description='Run single line command in all nodes of specified instance group')
-    argparser.add_argument('--cluster-name', action='store', required=True, choices_provider=choices_cluster_names, help='Name of cluster')
+    argparser.add_argument('cluster_name', metavar="CLUSTER_NAME", action='store', choices_provider=choices_cluster_names, help='Name of cluster')
     argparser.add_argument('--instance-group-name', action='store', required=True, help='Instance group name')
     argparser.add_argument('--command', action='store', required=True, help='Single line of command to run')
 
