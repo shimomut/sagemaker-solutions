@@ -15,7 +15,8 @@ from misc import *
 
 # TODO:
 # - Improve output from create/delete commands
-# - Error handling in choices_cluster_names
+# - Make public-key-file positional
+# - Enable file path completion for public-key-file
 
 
 cmd_aws = ["aws"]
@@ -24,7 +25,6 @@ cmd_aws = ["aws"]
 class HyperPodShellApp(cmd2.Cmd):
 
     CATEGORY_HYPERPOD = "HyperPod operations"
-    CATEGORY_TEST = "Test commands"
 
     def __init__(self):
         super().__init__(
