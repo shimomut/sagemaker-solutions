@@ -14,7 +14,7 @@ from misc import *
 
 
 # TODO:
-# - Use self.poutput() instead of print()
+# - Make node-id positional
 # - Command to start SSM session
 # - Command to export all log streams
 # - Command to dump all logs
@@ -105,7 +105,7 @@ class HyperPodShellApp(cmd2.Cmd):
         sagemaker_client = self.get_sagemaker_client()
         response = sagemaker_client.create_cluster(**params)
 
-        pprint.pprint(response)
+        self.poutput(pprint.pformat(response))
 
 
     argparser = cmd2.Cmd2ArgumentParser(description="Delete a cluster")
@@ -128,10 +128,10 @@ class HyperPodShellApp(cmd2.Cmd):
                 ClusterName = args.cluster_name,
             )
         except sagemaker_client.exceptions.ResourceNotFound:
-            print(f"Cluster [{args.cluster_name}] not found.")
+            self.poutput(f"Cluster [{args.cluster_name}] not found.")
             return
 
-        pprint.pprint(response)
+        self.poutput(pprint.pformat(response))
 
 
     argparser = cmd2.Cmd2ArgumentParser(description="List clusters in human readable format")
@@ -179,19 +179,19 @@ class HyperPodShellApp(cmd2.Cmd):
                 ClusterName = args.cluster_name
             )
         except sagemaker_client.exceptions.ResourceNotFound:
-            print(f"Cluster [{args.cluster_name}] not found.")
+            self.poutput(f"Cluster [{args.cluster_name}] not found.")
             return
         
         nodes = list_cluster_nodes_all( sagemaker_client, args.cluster_name )
 
-        print("Cluster name :", cluster["ClusterName"])
-        print("Cluster Arn :", cluster["ClusterArn"])
-        print("Cluster status :", cluster["ClusterStatus"])
+        self.poutput(f"Cluster name : {cluster['ClusterName']}")
+        self.poutput(f"Cluster Arn : {cluster['ClusterArn']}")
+        self.poutput(f"Cluster status : {cluster['ClusterStatus']}")
 
         if cluster["ClusterStatus"] in ["Failed"]:
-            print("Failure message :", cluster["FailureMessage"])
+            self.poutput(f"Failure message : {cluster['FailureMessage']}")
 
-        print()
+        self.poutput("")
 
         format_string = "{:<%d} : {} : {:<%d} : {} : {}" % (get_max_len(nodes,"InstanceGroupName"), get_max_len(nodes,("InstanceStatus","Status"))+1)
 
@@ -208,15 +208,15 @@ class HyperPodShellApp(cmd2.Cmd):
                     if node_status in ["Pending"]:
                         node_status = "*" + node_status
 
-                    print( format_string.format( instance_group_name, node_id, node_status, node["LaunchTime"].strftime("%Y/%m/%d %H:%M:%S"), ssm_target ) )
+                    self.poutput(format_string.format( instance_group_name, node_id, node_status, node["LaunchTime"].strftime("%Y/%m/%d %H:%M:%S"), ssm_target ))
 
                     if "Message" in node["InstanceStatus"]:
                         message = node["InstanceStatus"]["Message"]
-                        print()
+                        self.poutput("")
                         for line in message.splitlines():
-                            print(f"{line}")
-                        print()
-                        print("---")
+                            self.poutput(line)
+                        self.poutput("")
+                        self.poutput("---")
 
 
     argparser = cmd2.Cmd2ArgumentParser(description="Wait cluster creation / deletion")
@@ -237,7 +237,7 @@ class HyperPodShellApp(cmd2.Cmd):
                 cluster_names_to_watch.add(cluster["ClusterName"])
 
         if not cluster_names_to_watch:
-            print("Nothing to wait.")
+            self.poutput("Nothing to wait.")
             return
 
         # Monitor status until everything finishes
@@ -311,7 +311,7 @@ class HyperPodShellApp(cmd2.Cmd):
                 ClusterName = args.cluster_name
             )
         except sagemaker_client.exceptions.ResourceNotFound:
-            print(f"Cluster [{args.cluster_name}] not found.")
+            self.poutput(f"Cluster [{args.cluster_name}] not found.")
             return
 
         cluster_id = cluster["ClusterArn"].split("/")[-1]
@@ -324,7 +324,7 @@ class HyperPodShellApp(cmd2.Cmd):
                 stream = stream["logStreamName"]
                 break
         else:
-            print(f"Log stream for [{args.node_id}] not found.")
+            self.poutput(f"Log stream for [{args.node_id}] not found.")
             return
 
         logs.print_log(logs_client, log_group, stream)
@@ -345,7 +345,7 @@ class HyperPodShellApp(cmd2.Cmd):
                 ClusterName = args.cluster_name
             )
         except sagemaker_client.exceptions.ResourceNotFound:
-            print(f"Cluster [{args.cluster_name}] not found.")
+            self.poutput(f"Cluster [{args.cluster_name}] not found.")
             return
 
         nodes = list_cluster_nodes_all( sagemaker_client, args.cluster_name )
@@ -358,7 +358,7 @@ class HyperPodShellApp(cmd2.Cmd):
             if node_id==args.node_id:
                 break
         else:
-            print(f"Node ID [{args.node_id}] not found.")
+            self.poutput(f"Node ID [{args.node_id}] not found.")
             return
 
         ssm_target = f"sagemaker-cluster:{cluster_id}_{instance_group_name}-{node_id}"
@@ -371,15 +371,15 @@ class HyperPodShellApp(cmd2.Cmd):
         # use pexpect to automatically switch to ubuntu user
         elif 0:
             cmd = f"aws ssm start-session --target {ssm_target}"
-            print(cmd)
+            self.poutput(cmd)
             p = pexpect.spawn(cmd)
             p.expect("#")
-            print(p.before.decode("utf-8") + p.after.decode("utf-8"), end="")
+            self.poutput(p.before.decode("utf-8") + p.after.decode("utf-8"), end="")
 
             def run_single_command(cmd):
                 p.sendline(cmd)
                 p.expect( ["#","$"] )
-                print(p.before.decode("utf-8") + p.after.decode("utf-8"), end="")
+                self.poutput(p.before.decode("utf-8") + p.after.decode("utf-8"), end="")
 
             run_single_command(f"sudo su ubuntu")
             run_single_command(f"cd && bash")
@@ -403,7 +403,7 @@ class HyperPodShellApp(cmd2.Cmd):
                 ClusterName = args.cluster_name
             )
         except sagemaker_client.exceptions.ResourceNotFound:
-            print(f"Cluster [{args.cluster_name}] not found.")
+            self.poutput(f"Cluster [{args.cluster_name}] not found.")
             return
         
         nodes = list_cluster_nodes_all( sagemaker_client, args.cluster_name )
@@ -423,8 +423,8 @@ class HyperPodShellApp(cmd2.Cmd):
                     instance_group_name = node["InstanceGroupName"]
                     node_id = node["InstanceId"]
 
-                    print()                
-                    print(
+                    self.poutput("")                
+                    self.poutput(
                         f"Host {args.cluster_name}-{instance_group_name}-{node_index}\n"
                         f"    HostName sagemaker-cluster:{cluster_id}_{instance_group_name}-{node_id}\n"
                         f"    User ubuntu\n"
@@ -450,7 +450,7 @@ class HyperPodShellApp(cmd2.Cmd):
                 ClusterName = args.cluster_name
             )
         except sagemaker_client.exceptions.ResourceNotFound:
-            print(f"Cluster [{args.cluster_name}] not found.")
+            self.poutput(f"Cluster [{args.cluster_name}] not found.")
             return
         
         nodes = list_cluster_nodes_all( sagemaker_client, args.cluster_name )
@@ -465,7 +465,7 @@ class HyperPodShellApp(cmd2.Cmd):
             node_id = node["InstanceId"]
             ssm_target = f"sagemaker-cluster:{cluster_id}_{instance_group_name}-{node_id}"
 
-            print(f"Installing ssh public key to {node_id}")
+            self.poutput(f"Installing ssh public key to {node_id}")
 
             p = pexpect.popen_spawn.PopenSpawn([cmd_aws, "ssm", "start-session", "--target", ssm_target])
             p.expect("#")
@@ -474,12 +474,12 @@ class HyperPodShellApp(cmd2.Cmd):
             p.expect("#")
 
             if public_key in p.before.decode("utf-8"):
-                print("Already installed")
+                self.poutput("Already installed")
             else:
                 cmd = f"echo {public_key} >> /home/ubuntu/.ssh/authorized_keys"
                 p.sendline(cmd)
                 p.expect("#")
-                print("Done")
+                self.poutput("Done")
 
             p.kill(signal.SIGINT)
 
@@ -500,7 +500,7 @@ class HyperPodShellApp(cmd2.Cmd):
                 ClusterName = args.cluster_name
             )
         except sagemaker_client.exceptions.ResourceNotFound:
-            print(f"Cluster [{args.cluster_name}] not found.")
+            self.poutput(f"Cluster [{args.cluster_name}] not found.")
             return
         
         nodes = list_cluster_nodes_all( sagemaker_client, args.cluster_name )
@@ -515,18 +515,18 @@ class HyperPodShellApp(cmd2.Cmd):
                 node_id = node["InstanceId"]
                 ssm_target = f"sagemaker-cluster:{cluster_id}_{instance_group_name}-{node_id}"
 
-                print(f"Running command in {node_id}")
-                print()
+                self.poutput(f"Running command in {node_id}")
+                self.poutput("")
 
                 p = pexpect.popen_spawn.PopenSpawn([cmd_aws, "ssm", "start-session", "--target", ssm_target])
                 p.expect("#")
-                print(p.after.decode("utf-8"),end="")
+                self.poutput(p.after.decode("utf-8"),end="")
                 p.sendline(args.command)
                 p.expect("#")
-                print(p.before.decode("utf-8"),end="")
+                self.poutput(p.before.decode("utf-8"),end="")
                 p.kill(signal.SIGINT)
 
-                print("-----")
+                self.poutput("-----")
 
 
 if __name__ == "__main__":
