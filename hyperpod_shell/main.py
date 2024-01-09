@@ -16,7 +16,6 @@ from misc import *
 # TODO:
 # - Improve output from create/delete commands
 # - Error handling in choices_cluster_names
-# - Use different color for promt
 
 
 cmd_aws = ["aws"]
@@ -36,7 +35,7 @@ class HyperPodShellApp(cmd2.Cmd):
         )
 
         self.intro = style("Welcome to HyperPod Shell", fg=Fg.RED, bg=Bg.WHITE, bold=True)
-        self.prompt = "HyperPod $ "
+        self.prompt = style("HyperPod $ ", fg=Fg.GREEN, bg=None, bold=False)
 
         # Allow access to your application in py and ipy via self
         self.self_in_py = True
