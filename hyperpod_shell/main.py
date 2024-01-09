@@ -14,7 +14,6 @@ from misc import *
 
 
 # TODO:
-# - Make node-id positional
 # - Command to start SSM session
 # - Command to export all log streams
 # - Command to dump all logs
@@ -69,7 +68,8 @@ class HyperPodShellApp(cmd2.Cmd):
     # ----------
     # completers
 
-    def choices_cluster_names(self):
+    def choices_cluster_names(self, arg_tokens):
+
         choices = []
 
         sagemaker_client = self.get_sagemaker_client()
@@ -78,6 +78,29 @@ class HyperPodShellApp(cmd2.Cmd):
             choices.append( cluster["ClusterName"] )
 
         return choices
+
+
+    def choices_node_ids(self, arg_tokens):
+
+        cluster_name = None
+        cluster_names = arg_tokens["cluster_name"]
+        if len(cluster_names)==1:
+            cluster_name = cluster_names[0]
+
+        choices = []
+
+        sagemaker_client = self.get_sagemaker_client()
+
+        try:
+            nodes = list_cluster_nodes_all( sagemaker_client, cluster_name )
+        except sagemaker_client.exceptions.ResourceNotFound:
+            raise cmd2.CompletionError(f"Cluster [{cluster_name}] not found.")
+
+        for node in nodes:
+            choices.append( node["InstanceId"] )
+
+        return choices
+
 
     # --------
     # commands
@@ -298,7 +321,7 @@ class HyperPodShellApp(cmd2.Cmd):
 
     argparser = cmd2.Cmd2ArgumentParser(description="Print log from a cluster node")
     argparser.add_argument("cluster_name", metavar="CLUSTER_NAME", action="store", choices_provider=choices_cluster_names, help="Name of cluster")
-    argparser.add_argument("--node-id", action="store", required=True, help="Id of node")
+    argparser.add_argument("node_id", metavar="NODE_ID", action="store", choices_provider=choices_node_ids, help="Id of node")
 
     @cmd2.with_category(CATEGORY_HYPERPOD)
     @cmd2.with_argparser(argparser)
@@ -332,7 +355,7 @@ class HyperPodShellApp(cmd2.Cmd):
 
     argparser = cmd2.Cmd2ArgumentParser(description="Login to a cluster node with SSM")
     argparser.add_argument("cluster_name", metavar="CLUSTER_NAME", action="store", choices_provider=choices_cluster_names, help="Name of cluster")
-    argparser.add_argument("--node-id", action="store", required=True, help="Id of node")
+    argparser.add_argument("node_id", metavar="NODE_ID", action="store", choices_provider=choices_node_ids, help="Id of node")
 
     @cmd2.with_category(CATEGORY_HYPERPOD)
     @cmd2.with_argparser(argparser)
