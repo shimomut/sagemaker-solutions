@@ -16,6 +16,7 @@ from misc import *
 # TODO:
 # - Improve output from create/delete commands
 # - Error handling in choices_cluster_names
+# - Use different color for promt
 
 
 cmd_aws = ["aws"]
@@ -95,6 +96,41 @@ class HyperPodShellApp(cmd2.Cmd):
 
         for node in nodes:
             choices.append( node["InstanceId"] )
+
+        return choices
+
+
+    def choices_node_ids_from_log_streams(self, arg_tokens):
+
+        cluster_name = None
+        cluster_names = arg_tokens["cluster_name"]
+        if len(cluster_names)==1:
+            cluster_name = cluster_names[0]
+
+        choices = []
+
+        sagemaker_client = self.get_sagemaker_client()
+        logs_client = self.get_logs_client()
+
+        try:
+            cluster = sagemaker_client.describe_cluster(
+                ClusterName = cluster_name
+            )
+        except sagemaker_client.exceptions.ResourceNotFound:
+            raise cmd2.CompletionError(f"Cluster [{cluster_name}] not found.")
+
+        cluster_id = cluster["ClusterArn"].split("/")[-1]
+        log_group = f"/aws/sagemaker/Clusters/{cluster_name}/{cluster_id}"
+
+        try:
+            streams = list_log_streams_all(logs_client, log_group)
+        except logs_client.exceptions.ResourceNotFoundException:
+            raise cmd2.CompletionError(f"Log group [{log_group}] not found.")
+
+        for stream in streams:
+            stream_name = stream["logStreamName"]
+            node_id = stream_name.split("/")[-1]
+            choices.append(node_id)
 
         return choices
 
@@ -318,13 +354,14 @@ class HyperPodShellApp(cmd2.Cmd):
 
     argparser = cmd2.Cmd2ArgumentParser(description="Print log from a cluster node")
     argparser.add_argument("cluster_name", metavar="CLUSTER_NAME", action="store", choices_provider=choices_cluster_names, help="Name of cluster")
-    argparser.add_argument("node_id", metavar="NODE_ID", action="store", choices_provider=choices_node_ids, help="Id of node")
+    argparser.add_argument("node_id", metavar="NODE_ID", action="store", choices_provider=choices_node_ids_from_log_streams, help="Id of node")
 
     @cmd2.with_category(CATEGORY_HYPERPOD)
     @cmd2.with_argparser(argparser)
     def do_log(self, args):
 
         sagemaker_client = self.get_sagemaker_client()
+        logs_client = self.get_logs_client()
 
         try:
             cluster = sagemaker_client.describe_cluster(
@@ -337,11 +374,11 @@ class HyperPodShellApp(cmd2.Cmd):
         cluster_id = cluster["ClusterArn"].split("/")[-1]
         log_group = f"/aws/sagemaker/Clusters/{args.cluster_name}/{cluster_id}"
 
-        logs_client = self.get_logs_client()
-        
-        # FIXME : should handle paging
-        response = logs_client.describe_log_streams( logGroupName = log_group )
-        streams = response["logStreams"]
+        try:
+            streams = list_log_streams_all(logs_client, log_group)
+        except logs_client.exceptions.ResourceNotFoundException:
+            self.poutput(f"Log group [{log_group}] not found.")
+            return
 
         if args.node_id=="*":
             for stream in streams:
