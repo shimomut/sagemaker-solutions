@@ -23,15 +23,18 @@ def list_clusters_all(sagemaker_client):
 
         clusters += response["ClusterSummaries"]
 
-        if "NextToken" not in response or not response["NextToken"]:
-            break
+        if "NextToken" in response and response["NextToken"]:
+            next_token = response["NextToken"]
+            continue
+
+        break
 
     return clusters
 
 
 def list_cluster_nodes_all(sagemaker_client, cluster_name):
 
-    nodes = []    
+    nodes = []
     next_token = None
 
     while True:
@@ -46,10 +49,40 @@ def list_cluster_nodes_all(sagemaker_client, cluster_name):
 
         nodes += response["ClusterNodeSummaries"]
 
-        if "NextToken" not in response or not response["NextToken"]:
-            break
+        if "NextToken" in response and response["NextToken"]:
+            next_token = response["NextToken"]
+            continue
+
+        break
 
     return nodes
+
+
+def list_log_streams_all(logs_client, log_group):
+
+    streams = []
+    next_token = None
+
+    while True:
+        
+        params = {
+            "logGroupName" : log_group,
+            "limit" : 50,
+        }
+        if next_token:
+            params["nextToken"] = next_token
+
+        response = logs_client.describe_log_streams(**params)
+
+        streams += response["logStreams"]
+
+        if "nextToken" in response and response["nextToken"]:
+            next_token = response["nextToken"]
+            continue
+
+        break
+
+    return streams
 
 
 def get_max_len( d, keys ):
