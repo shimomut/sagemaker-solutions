@@ -3,8 +3,10 @@ import time
 import json
 import pprint
 import subprocess
+import signal
 
 import pexpect
+import pexpect.popen_spawn
 import cmd2
 from cmd2 import Bg, Fg, style
 import boto3
@@ -509,7 +511,7 @@ class HyperPodShellApp(cmd2.Cmd):
 
     argparser = cmd2.Cmd2ArgumentParser(description="Install SSH public key to all cluster nodes")
     argparser.add_argument("cluster_name", metavar="CLUSTER_NAME", action="store", choices_provider=choices_cluster_names, help="Name of cluster")
-    argparser.add_argument("--public-key-file", action="store", required=True, help="SSH public key file")
+    argparser.add_argument("--public-key-file", action="store", required=True, completer=cmd2.Cmd.path_complete, help="SSH public key file")
 
     @cmd2.with_category(CATEGORY_HYPERPOD)
     @cmd2.with_argparser(argparser)
@@ -529,7 +531,9 @@ class HyperPodShellApp(cmd2.Cmd):
 
         cluster_id = cluster["ClusterArn"].split("/")[-1]
 
-        with open(args.public_key_file) as fd:
+        public_key_file = os.path.expanduser(args.public_key_file)
+
+        with open(public_key_file) as fd:
             public_key = fd.read().strip()
 
         for node in nodes:
@@ -539,7 +543,7 @@ class HyperPodShellApp(cmd2.Cmd):
 
             self.poutput(f"Installing ssh public key to {node_id}")
 
-            p = pexpect.popen_spawn.PopenSpawn([cmd_aws, "ssm", "start-session", "--target", ssm_target])
+            p = pexpect.popen_spawn.PopenSpawn([*cmd_aws, "ssm", "start-session", "--target", ssm_target])
             p.expect("#")
             cmd = f"cat /home/ubuntu/.ssh/authorized_keys"
             p.sendline(cmd)
@@ -590,7 +594,7 @@ class HyperPodShellApp(cmd2.Cmd):
                 self.poutput(f"Running command in {node_id}")
                 self.poutput("")
 
-                p = pexpect.popen_spawn.PopenSpawn([cmd_aws, "ssm", "start-session", "--target", ssm_target])
+                p = pexpect.popen_spawn.PopenSpawn([*cmd_aws, "ssm", "start-session", "--target", ssm_target])
                 p.expect("#")
                 self.poutput(p.after.decode("utf-8"),end="")
                 p.sendline(args.command)
