@@ -152,11 +152,11 @@ class HyperPodShellApp(cmd2.Cmd):
             "ClusterName" : args.cluster_name,
         }
 
-        with open(args.instance_groups_config_file) as fd:
+        with open(args.instances) as fd:
             params["InstanceGroups"] = json.loads(fd.read())
 
-        if args.vpc_config_file:
-            with open(args.vpc_config_file) as fd:
+        if args.vpc:
+            with open(args.vpc) as fd:
                 params["VpcConfig"] = json.loads(fd.read())
 
         sagemaker_client = self.get_sagemaker_client()
@@ -276,81 +276,61 @@ class HyperPodShellApp(cmd2.Cmd):
                         self.poutput("---")
 
 
-    argparser = cmd2.Cmd2ArgumentParser(description="Wait cluster creation / deletion")
+    argparser = cmd2.Cmd2ArgumentParser(description="Wait asynchronous cluster operations")
+    argparser.add_argument("cluster_name", metavar="CLUSTER_NAME", action="store", choices_provider=choices_cluster_names, nargs='?', default=None, help="Name of cluster. Wait instance level operations when specified.")
 
     @cmd2.with_category(CATEGORY_HYPERPOD)
     @cmd2.with_argparser(argparser)
-    def do_wait_clusters(self, args):
+    def do_wait(self, args):
 
         sagemaker_client = self.get_sagemaker_client()
 
         progress_dots = ProgressDots()
 
-        # list the clusters that are being created/deleted.
-        cluster_names_to_watch = set()
-        clusters = list_clusters_all(sagemaker_client)
-        for cluster in clusters:
-            if cluster["ClusterStatus"] not in ["InService","Failed"]:
-                cluster_names_to_watch.add(cluster["ClusterName"])
+        if args.cluster_name is None:
 
-        if not cluster_names_to_watch:
-            self.poutput("Nothing to wait.")
-            return
-
-        # Monitor status until everything finishes
-        while True:
-            num_in_progress = 0
-            status_list = []
-            clusters = list_clusters_all(sagemaker_client)
-            for cluster in clusters:
-                if cluster["ClusterName"] in cluster_names_to_watch:
-                    status_list.append( cluster["ClusterName"] + ":" + cluster["ClusterStatus"] )
+            # Wait cluster creation/deletion
+            while True:
+                status_list = []
+                clusters = list_clusters_all(sagemaker_client)
+                for cluster in clusters:
                     if cluster["ClusterStatus"] not in ["InService","Failed"]:
+                        status_list.append( cluster["ClusterName"] + ":" + cluster["ClusterStatus"] )
+
+                progress_dots.tick(", ".join(status_list))
+
+                if not status_list:
+                    progress_dots.tick(None)
+                    break
+
+                time.sleep(5)
+
+        else:
+
+            # Wait instance creation/deletion
+            while True:
+                num_in_progress = 0
+                status_list = []
+
+                nodes = list_cluster_nodes_all( sagemaker_client, args.cluster_name )
+
+                for node in nodes:
+
+                    instance_group_name = node["InstanceGroupName"]
+                    node_id = node["InstanceId"]
+                    node_status = node["InstanceStatus"]["Status"]
+
+                    if node_status not in ["Running","Failed"]:
+                        status_list.append(f"{instance_group_name}:{node_id}:{node_status}")
                         num_in_progress += 1
-            progress_dots.tick(", ".join(status_list))
 
-            if num_in_progress==0:
-                progress_dots.tick(None)
-                break
+                progress_dots.tick(", ".join(status_list))
 
-            time.sleep(5)
+                if num_in_progress==0:
+                    progress_dots.tick(None)
+                    break
 
-
-    argparser = cmd2.Cmd2ArgumentParser(description="Wait node creation / deletion")
-    argparser.add_argument("cluster_name", metavar="CLUSTER_NAME", action="store", choices_provider=choices_cluster_names, help="Name of cluster")
-
-    @cmd2.with_category(CATEGORY_HYPERPOD)
-    @cmd2.with_argparser(argparser)
-    def do_wait_nodes(self, args):
-
-        sagemaker_client = self.get_sagemaker_client()
-
-        progress_dots = ProgressDots()
-
-        # Monitor status until everything finishes
-        while True:
-            num_in_progress = 0
-            status_list = []
-
-            nodes = list_cluster_nodes_all( sagemaker_client, args.cluster_name )
-
-            for node in nodes:
-
-                instance_group_name = node["InstanceGroupName"]
-                node_id = node["InstanceId"]
-                node_status = node["InstanceStatus"]["Status"]
-
-                if node_status not in ["Running","Failed"]:
-                    status_list.append(f"{instance_group_name}:{node_id}:{node_status}")
-                    num_in_progress += 1
-
-            progress_dots.tick(", ".join(status_list))
-
-            if num_in_progress==0:
-                progress_dots.tick(None)
-                break
-
-            time.sleep(5)
+                time.sleep(5)
 
 
     argparser = cmd2.Cmd2ArgumentParser(description="Print log from a cluster node")
