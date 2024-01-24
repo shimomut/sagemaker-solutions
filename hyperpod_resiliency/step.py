@@ -38,8 +38,9 @@ if args.gpu_failure:
         
             print(f"[{args.name}] Simulating GPU failure.", flush=True)
 
-            # Some code to simulate GPU failure
-            subprocess.run(["sudo", "python3", "simulate_gpu_failure.py"])
+            # simulate GPU failure
+            # https://docs.nvidia.com/datacenter/dcgm/latest/user-guide/dcgm-error-injection.html#overview
+            subprocess.run(["dcgmi", "test", "--inject", "--gpuid", "0", "-f", "319", "-v", "4"])
 
             sys.exit(1)
 
