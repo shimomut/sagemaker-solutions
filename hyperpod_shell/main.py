@@ -17,8 +17,8 @@ from misc import *
 
 # TODO:
 # - Improve output from create/delete commands
-# - Make public-key-file positional
-# - Enable file path completion for public-key-file
+# - Hitting Ctrl-C during ssm command, ssm command and HyperPod shell prompt mix.
+#   Refer to do_shell() in cmd2/cmd2.py. Use self.sigint_protection?
 
 
 cmd_aws = ["aws"]
@@ -417,10 +417,10 @@ class HyperPodShellApp(cmd2.Cmd):
 
         ssm_target = f"sagemaker-cluster:{cluster_id}_{instance_group_name}-{node_id}"
 
-
         if 1:
-            cmd = ["aws", "ssm", "start-session", "--target", ssm_target]
-            subprocess.run(cmd)
+            with self.sigint_protection:
+                cmd = ["aws", "ssm", "start-session", "--target", ssm_target]
+                subprocess.run(cmd)
 
         # use pexpect to automatically switch to ubuntu user
         elif 0:
@@ -491,7 +491,7 @@ class HyperPodShellApp(cmd2.Cmd):
 
     argparser = cmd2.Cmd2ArgumentParser(description="Install SSH public key to all cluster nodes")
     argparser.add_argument("cluster_name", metavar="CLUSTER_NAME", action="store", choices_provider=choices_cluster_names, help="Name of cluster")
-    argparser.add_argument("--public-key-file", action="store", required=True, completer=cmd2.Cmd.path_complete, help="SSH public key file")
+    argparser.add_argument("public_key_file", metavar="PUBLIC_KEY_FILE", action="store", completer=cmd2.Cmd.path_complete, help="SSH public key file")
 
     @cmd2.with_category(CATEGORY_HYPERPOD)
     @cmd2.with_argparser(argparser)
