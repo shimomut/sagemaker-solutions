@@ -79,6 +79,28 @@ def init_worker():
     # sudo kubeadm join 10.1.13.99:6443 --token h30cuw.bhh0btd05z04gcf3 --discovery-token-ca-cert-hash sha256:5df3a09f5e5c591375e0cd909d5b468f99e7d65d64119f57823779ecb44cd367 --cri-socket unix:///var/run/cri-dockerd.sock
 
 
+def install_flannel():
+    pass
+
+    # wget https://github.com/flannel-io/flannel/releases/latest/download/kube-flannel.yml
+
+    # modify CIDR
+    """
+    net-conf.json: |
+        {
+        "Network": "10.1.0.0/17",
+    """
+
+    # kubectl apply -f ./kube-flannel.yml
+
+
+def post_fixup_master():
+
+    pass
+
+    # kubectl label node ip-10-1-85-123 node-role.kubernetes.io/worker=worker
+
+
 def main():
 
     print("Starting Kubernetes configuration steps")
