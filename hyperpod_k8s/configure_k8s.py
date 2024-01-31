@@ -16,6 +16,16 @@ docker_users = [
     "ubuntu"
 ]
 
+# ---------------------------------
+# Templates for configuration files
+
+containerd_config = f"""
+[plugins."io.containerd.grpc.v1.cri".containerd.runtimes.runc]
+  [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.runc.options]
+    SystemdCgroup = true
+"""
+
+
 # ---
 
 # This step may not be needed when using containerd as the container runtime
@@ -34,14 +44,27 @@ def install_docker():
 
 def configure_cri_containerd():
 
-    # configure /etc/containerd/config.toml 
-    """
-    [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.runc]
-      [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.runc.options]
-        SystemdCgroup = true
-    """
+    print("---")
+    print("Configuring containerd config file")
 
-    # sudo systemctl restart containerd
+    dst_filename = "/etc/containerd/config.toml"
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        tmp_filename = os.path.join(tmp_dir, os.path.basename(dst_filename))
+
+        d = containerd_config.strip()
+        print(d)
+
+        with open(tmp_filename,"w") as fd:
+            fd.write(d)
+
+        subprocess.run( [ *sudo_command, "chmod", "644", tmp_filename ] )
+        subprocess.run( [ *sudo_command, "chown", "root:root", tmp_filename ] )
+        subprocess.run( [ *sudo_command, "cp", tmp_filename, dst_filename ] )
+
+    print("---")
+    print("Restarting containerd")
+
+    subprocess.run( [ *sudo_command, "systemctl", "restart", "containerd" ], check=True )
     
 
 def install_kubernetes():
