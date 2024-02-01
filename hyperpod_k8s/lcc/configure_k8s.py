@@ -314,32 +314,36 @@ def install_cni_flannel():
     print("---")
     print(f"Installing flannel")
 
-    subprocess.run( [ "wget", "https://github.com/flannel-io/flannel/releases/latest/download/kube-flannel.yml" ], check=True )
+    # Current directory is not read/write for ubuntu user. Create a temporary directory.
+    with tempfile.TemporaryDirectory() as tmp_dir:
 
-    with open("kube-flannel.yml") as fd_src:
-        d = fd_src.read()
+        tmp_filename = os.path.join(tmp_dir, "kube-flannel.yml")
+        subprocess.run( [ "wget", "https://github.com/flannel-io/flannel/releases/latest/download/kube-flannel.yml", "-o", tmp_filename ], check=True )
 
-    d = re.sub( r'"Network": "[0-9./]+"', f'"Network": "{IpAddressInfo.instance().cidr}"', d )
-    print(d)
+        with open(tmp_filename) as fd_src:
+            d = fd_src.read()
 
-    with open("kube-flannel.yml","w") as fd_dst:
-        fd_dst.write(d)
+        d = re.sub( r'"Network": "[0-9./]+"', f'"Network": "{IpAddressInfo.instance().cidr}"', d )
+        print(d)
 
-    # kubectl apply fails with "error validating data: failed to download openapi".
-    # checking if this can be solved by retrying.
-    print("---")
-    print(f"Applying kube-flannel.yml")
-    i_retry = 0
-    while True:
-        try:
-            subprocess.run(["kubectl", "apply", "-f", "./kube-flannel.yml"], check=True)
-            break
-        except subprocess.CalledProcessError:
-            if i_retry >= kubectl_apply_max_retries:
-                raise
-            i_retry += 1
-            time.sleep(10)
-            print("Retrying")
+        with open(tmp_filename,"w") as fd_dst:
+            fd_dst.write(d)
+
+        # kubectl apply fails with "error validating data: failed to download openapi".
+        # checking if this can be solved by retrying.
+        print("---")
+        print(f"Applying kube-flannel.yml")
+        i_retry = 0
+        while True:
+            try:
+                subprocess.run(["kubectl", "apply", "-f", tmp_filename], check=True)
+                break
+            except subprocess.CalledProcessError:
+                if i_retry >= kubectl_apply_max_retries:
+                    raise
+                i_retry += 1
+                time.sleep(10)
+                print("Retrying")
 
 
 def configure_k8s( is_master_node ):
