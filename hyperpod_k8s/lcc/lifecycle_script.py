@@ -158,7 +158,17 @@ def main(args):
         # ExecuteBashScript("./utils/install_enroot_pyxis.sh").run(node_type)
 
         # Configure Kubernetes
-        configure_k8s.configure_k8s( node_type == SlurmNodeType.HEAD_NODE )
+        if 0:
+            # Run in this Python context, as root user
+            configure_k8s.configure_k8s( node_type == SlurmNodeType.HEAD_NODE )
+        else:
+            # Run in new Python context, as ubuntu user
+            if node_type == SlurmNodeType.HEAD_NODE:
+                node_type_arg = ["--master-node"]
+            else:
+                node_type_arg = []
+            subprocess.run(["sudo", "-u", "ubuntu", "python3.9", "./configure_k8s.py", *node_type_arg], check=True)
+            
         
     print("[INFO]: Success: All provisioning scripts completed")
 
