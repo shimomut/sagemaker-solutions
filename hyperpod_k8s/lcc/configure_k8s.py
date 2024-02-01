@@ -319,6 +319,7 @@ def install_cni_flannel():
         d = fd_src.read()
 
     d = re.sub( r'"Network": "[0-9./]+"', f'"Network": "{IpAddressInfo.instance().cidr}"', d )
+    print(d)
 
     with open("kube-flannel.yml","w") as fd_dst:
         fd_dst.write(d)
