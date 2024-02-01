@@ -13,6 +13,7 @@ import fcntl
 import struct
 import uuid
 import urllib.request
+import io
 
 import boto3
 
@@ -71,8 +72,8 @@ class ResourceConfig:
         with tempfile.TemporaryDirectory() as tmp_dir:
             tmp_filename = os.path.join(tmp_dir, os.path.basename(resource_config_filename))
 
-            subprocess.run( [ *sudo_command, "cp", resource_config_filename, tmp_filename ] )
-            subprocess.run( [ *sudo_command, "chmod", "644", tmp_filename ] )
+            run_subprocess_wrap( [ *sudo_command, "cp", resource_config_filename, tmp_filename ] )
+            run_subprocess_wrap( [ *sudo_command, "chmod", "644", tmp_filename ] )
 
             with open(tmp_filename) as fd:
                 d = fd.read()
@@ -159,18 +160,34 @@ class IpAddressInfo:
         self.cidr = str(ipaddress.IPv4Network(self.addr+"/"+self.mask, strict=False))
 
 
+def run_subprocess_wrap(cmd):
+
+    captured_stdout = io.StringIO()
+
+    p = subprocess.Popen( cmd, bufsize=1, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT )
+    for line in iter(p.stdout.readline, ""):
+        captured_stdout.write(line)
+        print( line, end="", flush=True )
+    p.wait()
+
+    if p.returncode != 0:
+        raise ChildProcessError("Subprocess {cmd} returned non-zero exit code {p.returncode}.")
+    
+    return captured_stdout.getvalue()
+
+
 def install_python_packages():
 
     print("---")
     print("Installing Python packages")
-    subprocess.run( [ "pip3", "install", "boto3" ], check=True )
+    run_subprocess_wrap( [ "pip3", "install", "boto3" ] )
 
 
 def configure_bridged_traffic():
 
     print("---")
     print("Configuring bridged traffic")
-    subprocess.run( [ "bash", "./utils/configure_bridged_traffic.sh" ], check=True )
+    run_subprocess_wrap( [ "bash", "./utils/configure_bridged_traffic.sh" ] )
 
 
 def configure_cri_containerd():
@@ -188,14 +205,14 @@ def configure_cri_containerd():
         with open(tmp_filename,"w") as fd:
             fd.write(d)
 
-        subprocess.run( [ *sudo_command, "chmod", "644", tmp_filename ] )
-        subprocess.run( [ *sudo_command, "chown", "root:root", tmp_filename ] )
-        subprocess.run( [ *sudo_command, "cp", tmp_filename, dst_filename ] )
+        run_subprocess_wrap( [ *sudo_command, "chmod", "644", tmp_filename ] )
+        run_subprocess_wrap( [ *sudo_command, "chown", "root:root", tmp_filename ] )
+        run_subprocess_wrap( [ *sudo_command, "cp", tmp_filename, dst_filename ] )
 
     print("---")
     print("Restarting containerd")
 
-    subprocess.run( [ *sudo_command, "systemctl", "restart", "containerd" ], check=True )
+    run_subprocess_wrap( [ *sudo_command, "systemctl", "restart", "containerd" ] )
     
 
 def install_kubernetes():
@@ -207,7 +224,7 @@ def install_kubernetes():
     i_retry = 0
     while True:
         try:
-            subprocess.run( [ "bash", "./utils/install_kubernetes.sh" ], check=True )
+            run_subprocess_wrap([ "bash", "./utils/install_kubernetes.sh" ])
             break
         except subprocess.CalledProcessError:
             if i_retry >= kubectl_apply_max_retries:
@@ -216,8 +233,8 @@ def install_kubernetes():
             time.sleep(10)
             print("Retrying")
 
-    subprocess.run( [ *sudo_command, "systemctl", "enable", "kubelet" ], check=True )
-    subprocess.run( [ *sudo_command, "systemctl", "start", "kubelet" ], check=True )
+    run_subprocess_wrap( [ *sudo_command, "systemctl", "enable", "kubelet" ] )
+    run_subprocess_wrap( [ *sudo_command, "systemctl", "start", "kubelet" ] )
 
 
 def get_secret_name():
@@ -270,11 +287,8 @@ def init_master_node():
 
     join_info = {}
 
-    # capture output from kubeadm init command
-    # FIXME : want to print and capture output at the same time
-    p = subprocess.run( [ *sudo_command, "kubeadm", "init", f"--apiserver-advertise-address={IpAddressInfo.instance().addr}", f"--pod-network-cidr={IpAddressInfo.instance().cidr}" ], check=True, capture_output=True )
-    for line in p.stdout.decode("utf-8").splitlines():
-        print(line)
+    captured_output = run_subprocess_wrap( [ *sudo_command, "kubeadm", "init", f"--apiserver-advertise-address={IpAddressInfo.instance().addr}", f"--pod-network-cidr={IpAddressInfo.instance().cidr}" ] )
+    for line in captured_output.splitlines():
         re_result = re.match(r"kubeadm join ([0-9.:]+) --token ([a-z0-9.]+)", line)
         if re_result:
             join_info["master_addr_port"] = re_result.group(1)
@@ -292,7 +306,7 @@ def init_master_node():
 
     print("---")
     print("Copying kube config")
-    subprocess.run( [ "bash", "./utils/copy_kube_config.sh" ], check=True )
+    run_subprocess_wrap([ "bash", "./utils/copy_kube_config.sh" ])
 
 
 def init_worker_node():
@@ -310,7 +324,7 @@ def init_worker_node():
 
     print("---")
     print("Joining to the cluster")
-    subprocess.run( [ *sudo_command, "kubeadm", "join", join_info["master_addr_port"], "--token", join_info["token"], "--discovery-token-ca-cert-hash", "sha256:"+join_info["discovery_token_ca_cert_hash"] ], check=True )
+    run_subprocess_wrap([ *sudo_command, "kubeadm", "join", join_info["master_addr_port"], "--token", join_info["token"], "--discovery-token-ca-cert-hash", "sha256:"+join_info["discovery_token_ca_cert_hash"] ])
 
 
 # This is needed only on master node
@@ -340,7 +354,7 @@ def install_cni_flannel():
         i_retry = 0
         while True:
             try:
-                subprocess.run(["kubectl", "apply", "-f", tmp_filename], check=True)
+                run_subprocess_wrap(["kubectl", "apply", "-f", tmp_filename])
                 break
             except subprocess.CalledProcessError:
                 if i_retry >= kubectl_apply_max_retries:
