@@ -30,6 +30,7 @@ if getpass.getuser() == "root":
 else:
     sudo_command = ["sudo","-E"]
 
+apt_install_max_retries = 10
 
 # ---------------------------------
 # Templates for configuration files
@@ -195,7 +196,19 @@ def install_kubernetes():
 
     print("---")
     print("Installing Kubernetes")
-    subprocess.run( [ "bash", "./utils/install_kubernetes.sh" ], check=True )
+
+    # Kubernetes installation could fail with "Could not get lock /var/lib/dpkg/lock-frontend. It is held by process 4065 (apt-get)"
+    for i_retry in range(apt_install_max_retries):
+        
+        if i_retry>0:
+            time.sleep(10)
+            print("Retrying")
+
+        try:
+            subprocess.run( [ "bash", "./utils/install_kubernetes.sh" ], check=True )
+            break
+        except subprocess.CalledProcessError:
+            continue
 
     subprocess.run( [ *sudo_command, "systemctl", "enable", "kubelet" ], check=True )
     subprocess.run( [ *sudo_command, "systemctl", "start", "kubelet" ], check=True )
