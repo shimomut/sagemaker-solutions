@@ -488,6 +488,8 @@ class HyperPodShellApp(cmd2.Cmd):
 
                     node_index += 1
 
+        self.poutput("")                
+
 
     argparser = cmd2.Cmd2ArgumentParser(description="Install SSH public key to all cluster nodes")
     argparser.add_argument("cluster_name", metavar="CLUSTER_NAME", action="store", choices_provider=choices_cluster_names, help="Name of cluster")
