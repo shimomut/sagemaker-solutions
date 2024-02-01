@@ -8,6 +8,9 @@ import json
 import argparse
 import ipaddress
 import getpass
+import socket
+import fcntl
+import struct
 
 import boto3
 
@@ -146,7 +149,7 @@ class IpAddressInfo:
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.addr = socket.inet_ntoa(fcntl.ioctl(sock, 35095, struct.pack('256s', interface_name))[20:24])
         self.mask = socket.inet_ntoa(fcntl.ioctl(sock, 35099, struct.pack('256s', interface_name))[20:24])
-        self.cidr = str(ipaddress.IPv4Network(addr+"/"+mask, strict=False))
+        self.cidr = str(ipaddress.IPv4Network(self.addr+"/"+self.mask, strict=False))
 
 
 def install_python_packages():
