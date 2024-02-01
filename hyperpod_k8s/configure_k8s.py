@@ -26,9 +26,6 @@ sudo_command = ["sudo","-E"]
 # FIXME : can we get CIDR automatically? (from the output from ip addr command)
 network_cidr = "10.1.0.0/17"
 
-secret_name = "hyperpod-2"
-region_name = "us-west-2"
-
 
 # ---------------------------------
 # Templates for configuration files
@@ -41,6 +38,96 @@ containerd_config = f"""
 
 
 # ---
+
+class ResourceConfig:
+
+    _instance = None
+
+    @staticmethod
+    def instance():
+        if ResourceConfig._instance is None:
+            ResourceConfig._instance = ResourceConfig()
+        return ResourceConfig._instance
+
+
+    def __init__(self):
+
+        if "SAGEMAKER_RESOURCE_CONFIG_PATH" in os.environ:
+            resource_config_filename = os.environ["SAGEMAKER_RESOURCE_CONFIG_PATH"]
+        else:
+            resource_config_filename = "/opt/ml/config/resource_config.json"
+
+        # due to directory permission, regular user cannot open the file.
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_filename = os.path.join(tmp_dir, os.path.basename(resource_config_filename))
+
+            subprocess.run( [ *sudo_command, "cp", resource_config_filename, tmp_filename ] )
+            subprocess.run( [ *sudo_command, "chmod", "644", tmp_filename ] )
+
+            with open(tmp_filename) as fd:
+                d = fd.read()
+
+        self.d = json.loads(d)
+
+        """
+        {
+            'ClusterConfig': {
+                'ClusterArn': 'arn:aws:sagemaker:us-west-2:842413447717:cluster/kb8v11zrrpvr',
+                'ClusterName': 'K8-1'
+            },
+            'InstanceGroups': [
+                {
+                    'InstanceType': 'ml.t3.xlarge',
+                    'Instances': [
+                        {
+                            'AgentIpAddress': '172.16.102.203',
+                            'CustomerIpAddress': '10.1.113.28',
+                            'InstanceId': 'i-07259dd159a1c7130',
+                            'InstanceName': 'ControllerGroup-1'
+                        }
+                    ],
+                    'Name': 'ControllerGroup'
+                },
+                {
+                    'InstanceType': 'ml.t3.xlarge',
+                    'Instances': [
+                        {
+                            'AgentIpAddress': '172.16.100.157',
+                            'CustomerIpAddress': '10.1.38.128',
+                            'InstanceId': 'i-0cbbe3075137ffa1d',
+                            'InstanceName': 'WorkerGroup-1'
+                        },
+                        {
+                            'AgentIpAddress': '172.16.98.182',
+                            'CustomerIpAddress': '10.1.29.16',
+                            'InstanceId': 'i-0cc2532921ec06344',
+                            'InstanceName': 'WorkerGroup-2'
+                        }
+                    ],
+                    'Name': 'WorkerGroup'
+                }
+            ]
+        }
+        """
+
+    def get_cluster_name(self):
+        return self.d["ClusterConfig"]["ClusterName"]
+
+    def get_cluster_arn(self):
+        return self.d["ClusterConfig"]["ClusterArn"]
+
+    def get_region(self):
+        arn = self.get_cluster_arn()
+        re_result = re.match( "arn:aws:sagemaker:([a-z0-9-]+):([0-9]+):cluster/([a-z0-9]+)", arn )
+        assert re_result, "Region name not found in cluster ARN"
+        return re_result.group(1)
+
+    def get_cluster_id(self):
+        arn = self.get_cluster_arn()
+        re_result = re.match( "arn:aws:sagemaker:([a-z0-9-]+):([0-9]+):cluster/([a-z0-9]+)", arn )
+        assert re_result, "Cluster ID not found in cluster ARN"
+        return re_result.group(3)
+
 
 def install_python_packages():
 
@@ -102,7 +189,13 @@ def get_ip_addr():
         raise ValueError("Cannot find IP address")
 
 
+def get_secret_name():
+    cluster_id = ResourceConfig.instance().get_cluster_id()
+    return f"hyperpod-k8s-{cluster_id}"
+
 def put_join_info_from_master_node(join_info):
+
+    region_name = ResourceConfig.instance().get_region()
 
     session = boto3.session.Session()
     secretsmanager_client = session.client(
@@ -111,12 +204,14 @@ def put_join_info_from_master_node(join_info):
     )
 
     secretsmanager_client.create_secret(
-        Name=secret_name,
+        Name=get_secret_name(),
         SecretString=json.dumps(join_info)
     )
 
 
 def get_join_info_from_master_node():
+
+    region_name = ResourceConfig.instance().get_region()
 
     session = boto3.session.Session()
     secretsmanager_client = session.client(
@@ -125,7 +220,7 @@ def get_join_info_from_master_node():
     )
 
     response = secretsmanager_client.get_secret_value(
-        SecretId=secret_name
+        SecretId=get_secret_name()
     )
 
     return json.loads(response["SecretString"])
