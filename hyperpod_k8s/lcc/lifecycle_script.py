@@ -167,7 +167,7 @@ def main(args):
                 node_type_arg = ["--master-node"]
             else:
                 node_type_arg = []
-            subprocess.run(["sudo", "-u", "ubuntu", "python3.9", "./configure_k8s.py", *node_type_arg], check=True)
+            subprocess.run(["sudo", "-u", "ubuntu", "python3.9", "-u", "./configure_k8s.py", *node_type_arg], check=True)
             
         
     print("[INFO]: Success: All provisioning scripts completed")
