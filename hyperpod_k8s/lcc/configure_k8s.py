@@ -31,6 +31,7 @@ else:
     sudo_command = ["sudo","-E"]
 
 apt_install_max_retries = 10
+kubectl_apply_max_retries = 10
 
 # ---------------------------------
 # Templates for configuration files
@@ -197,18 +198,18 @@ def install_kubernetes():
     print("---")
     print("Installing Kubernetes")
 
-    # Kubernetes installation could fail with "Could not get lock /var/lib/dpkg/lock-frontend. It is held by process 4065 (apt-get)"
-    for i_retry in range(apt_install_max_retries):
-        
-        if i_retry>0:
-            time.sleep(10)
-            print("Retrying")
-
+    # Kubernetes installation sometimes fail with "Could not get lock /var/lib/dpkg/lock-frontend. It is held by process 4065 (apt-get)"
+    i_retry = 0
+    while True:
         try:
             subprocess.run( [ "bash", "./utils/install_kubernetes.sh" ], check=True )
             break
         except subprocess.CalledProcessError:
-            continue
+            if i_retry >= kubectl_apply_max_retries:
+                raise
+            i_retry += 1
+            time.sleep(10)
+            print("Retrying")
 
     subprocess.run( [ *sudo_command, "systemctl", "enable", "kubelet" ], check=True )
     subprocess.run( [ *sudo_command, "systemctl", "start", "kubelet" ], check=True )
@@ -324,8 +325,21 @@ def install_cni_flannel():
     with open("kube-flannel.yml","w") as fd_dst:
         fd_dst.write(d)
 
-    subprocess.run( [ "kubectl", "apply", "-f", "./kube-flannel.yml" ], check=True )
-
+    # kubectl apply fails with "error validating data: failed to download openapi".
+    # checking if this can be solved by retrying.
+    print("---")
+    print(f"Applying kube-flannel.yml")
+    i_retry = 0
+    while True:
+        try:
+            subprocess.run(["kubectl", "apply", "-f", "./kube-flannel.yml"], check=True)
+            break
+        except subprocess.CalledProcessError:
+            if i_retry >= kubectl_apply_max_retries:
+                raise
+            i_retry += 1
+            time.sleep(10)
+            print("Retrying")
 
 
 def configure_k8s( is_master_node ):
