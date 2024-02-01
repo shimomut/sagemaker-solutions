@@ -171,7 +171,7 @@ def run_subprocess_wrap(cmd):
     p.wait()
 
     if p.returncode != 0:
-        raise ChildProcessError("Subprocess {cmd} returned non-zero exit code {p.returncode}.")
+        raise ChildProcessError(f"Subprocess {cmd} returned non-zero exit code {p.returncode}.")
     
     return captured_stdout.getvalue()
 
