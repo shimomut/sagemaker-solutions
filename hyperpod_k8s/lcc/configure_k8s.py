@@ -11,6 +11,8 @@ import getpass
 import socket
 import fcntl
 import struct
+import uuid
+import urllib.request
 
 import boto3
 
@@ -29,6 +31,9 @@ if getpass.getuser() == "root":
     sudo_command = []
 else:
     sudo_command = ["sudo","-E"]
+
+secret_name_prefix = "hyperpod-k8s-"
+#secret_name_prefix = "hyperpod-k8s-" + str(uuid.uuid4())[:8] + "-" # for local testing purpose
 
 apt_install_max_retries = 10
 kubectl_apply_max_retries = 10
@@ -217,7 +222,7 @@ def install_kubernetes():
 
 def get_secret_name():
     cluster_id = ResourceConfig.instance().get_cluster_id()
-    return f"hyperpod-k8s-{cluster_id}"
+    return f"{secret_name_prefix}{cluster_id}"
 
 
 def put_join_info_from_master_node(join_info):
@@ -318,10 +323,9 @@ def install_cni_flannel():
     with tempfile.TemporaryDirectory() as tmp_dir:
 
         tmp_filename = os.path.join(tmp_dir, "kube-flannel.yml")
-        subprocess.run( [ "wget", "https://github.com/flannel-io/flannel/releases/latest/download/kube-flannel.yml", "-o", tmp_filename ], check=True )
 
-        with open(tmp_filename) as fd_src:
-            d = fd_src.read()
+        with urllib.request.urlopen("https://github.com/flannel-io/flannel/releases/latest/download/kube-flannel.yml") as fd:
+            d = fd.read().decode("utf-8")
 
         d = re.sub( r'"Network": "[0-9./]+"', f'"Network": "{IpAddressInfo.instance().cidr}"', d )
         print(d)
