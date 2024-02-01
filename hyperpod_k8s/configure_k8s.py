@@ -1,8 +1,19 @@
+import sys
 import os
+import time
 import subprocess
 import tempfile
 import re
+import json
 import argparse
+
+import boto3
+
+
+# TODO:
+# - logging when using capture_output
+# - eliminate configuration fields as much as possible
+# - use FSx to store join information instead of SecretsManager
 
 
 # ---------------------------------
@@ -12,9 +23,12 @@ import argparse
 sudo_command = ["sudo","-E"]
 #sudo_command = []
 
-docker_users = [
-    "ubuntu"
-]
+# FIXME : can we get CIDR automatically? (from the output from ip addr command)
+network_cidr = "10.1.0.0/17"
+
+secret_name = "hyperpod-2"
+region_name = "us-west-2"
+
 
 # ---------------------------------
 # Templates for configuration files
@@ -28,18 +42,18 @@ containerd_config = f"""
 
 # ---
 
-# This step may not be needed when using containerd as the container runtime
-def install_docker():
+def install_python_packages():
 
     print("---")
-    print("Installing Docker")
-    subprocess.run( [ "bash", "./utils/install_docker.sh" ], check=True )
+    print("Installing Python packages")
+    subprocess.run( [ "pip3", "install", "boto3" ], check=True )
+
+
+def configure_bridged_traffic():
 
     print("---")
-    print("Add ubuntu user to docker group")
-    for user in docker_users:
-        subprocess.run( [ *sudo_command, "gpasswd", "-a", user, "docker" ], check=True )
-    subprocess.run( [ "newgrp", "docker" ], check=True )
+    print("Configuring bridged traffic")
+    subprocess.run( [ "bash", "./utils/configure_bridged_traffic.sh" ], check=True )
 
 
 def configure_cri_containerd():
@@ -77,53 +91,122 @@ def install_kubernetes():
     subprocess.run( [ *sudo_command, "systemctl", "start", "kubelet" ], check=True )
 
 
-# Swap is disabled by default on HyperPod, we should be able to remove this step.
-def disable_swap():
+def get_ip_addr():
+    
+    p = subprocess.run( [ "ip", "addr", "show", "dev", "ens6" ], check=True, capture_output=True )
+    for line in p.stdout.decode("utf-8").splitlines():
+        re_result = re.match(r"\s+inet ([0-9.]+)/[0-9]+ brd [0-9.]+ scope global dynamic ens6", line)
+        if re_result:
+            return re_result.group(1)
+    else:
+        raise ValueError("Cannot find IP address")
 
-    subprocess.run( [ *sudo_command, "swapoff", "-a" ], check=True )
+
+def put_join_info_from_master_node(join_info):
+
+    session = boto3.session.Session()
+    secretsmanager_client = session.client(
+        service_name="secretsmanager",
+        region_name=region_name,
+    )
+
+    secretsmanager_client.create_secret(
+        Name=secret_name,
+        SecretString=json.dumps(join_info)
+    )
+
+
+def get_join_info_from_master_node():
+
+    session = boto3.session.Session()
+    secretsmanager_client = session.client(
+        service_name="secretsmanager",
+        region_name=region_name
+    )
+
+    response = secretsmanager_client.get_secret_value(
+        SecretId=secret_name
+    )
+
+    return json.loads(response["SecretString"])
 
 
 def init_master_node():
 
-    pass
-
     # https://kubernetes.io/docs/reference/setup-tools/kubeadm/kubeadm-init/
 
-    # sudo kubeadm init --apiserver-advertise-address=10.1.13.99 --pod-network-cidr=10.1.0.0/17
+    ip_addr = get_ip_addr()
+
+    print("---")
+    print("Initializing master node")
+
+    join_info = {}
 
     # capture output from kubeadm init command
     #    kubeadm join 10.1.13.99:6443 --token k20a86.1zq19kucigr2g9y7 \
     #            --discovery-token-ca-cert-hash sha256:13818de7009f31f4d899f2d3c4f81aad68ff53b3895955f4d83c52bc5b9c7a14 
+    # FIXME : want to print and capture output at the same time
+    p = subprocess.run( [ *sudo_command, "kubeadm", "init", f"--apiserver-advertise-address={ip_addr}", f"--pod-network-cidr={network_cidr}" ], check=True, capture_output=True )
+    for line in p.stdout.decode("utf-8").splitlines():
+        print(line)
+        re_result = re.match(r"kubeadm join ([0-9.:]+) --token ([a-z0-9.]+)", line)
+        if re_result:
+            join_info["master_addr_port"] = re_result.group(1)
+            join_info["token"] = re_result.group(2)
+            continue
 
-    #mkdir -p $HOME/.kube
-    #sudo cp -i /etc/kubernetes/admin.conf $HOME/.kube/config
-    #sudo chown $(id -u):$(id -g) $HOME/.kube/config
+        re_result = re.match(r"\s+--discovery-token-ca-cert-hash sha256:([a-f0-9]+)", line)
+        if re_result:
+            join_info["discovery_token_ca_cert_hash"] = re_result.group(1)
+            continue
+
+    
+    print("---")
+    print("Storing join information for worker nodes")
+    put_join_info_from_master_node(join_info)
+
+
+    print("---")
+    print("Copying kube config")
+    subprocess.run( [ "bash", "./utils/copy_kube_config.sh" ], check=True )
 
 
 def init_worker_node():
 
-    pass
-
     # https://kubernetes.io/docs/reference/setup-tools/kubeadm/kubeadm-join/
 
-    # Run the kubeadm join command captured in init_master_node().
-    # sudo kubeadm join 10.1.13.99:6443 --token k20a86.1zq19kucigr2g9y7 --discovery-token-ca-cert-hash sha256:13818de7009f31f4d899f2d3c4f81aad68ff53b3895955f4d83c52bc5b9c7a14
+    print("---")
+    print("Getting join token from master node.")
+    while True:
+        join_info = get_join_info_from_master_node()
+        if join_info is not None:
+            break
+        print("Join information is not ready in SecretsManager. Retrying...")
+        time.sleep(10)
+
+    print("---")
+    print("Joining to the cluster")
+    subprocess.run( [ *sudo_command, "kubeadm", "join", join_info["master_addr_port"], "--token", join_info["token"], "--discovery-token-ca-cert-hash", "sha256:"+join_info["discovery_token_ca_cert_hash"] ], check=True )
 
 
 # This is needed only on master node
 def install_cni_flannel():
-    pass
 
-    # wget https://github.com/flannel-io/flannel/releases/latest/download/kube-flannel.yml
+    print("---")
+    print(f"Installing flannel")
 
-    # modify CIDR
-    """
-    net-conf.json: |
-        {
-        "Network": "10.1.0.0/17",
-    """
+    subprocess.run( [ "wget", "https://github.com/flannel-io/flannel/releases/latest/download/kube-flannel.yml" ], check=True )
 
-    # kubectl apply -f ./kube-flannel.yml
+    with open("kube-flannel.yml") as fd_src:
+        d = fd_src.read()
+
+    d = re.sub( r'"Network": "[0-9./]+"', f'"Network": "{network_cidr}"', d )
+
+    with open("kube-flannel.yml","w") as fd_dst:
+        fd_dst.write(d)
+
+    subprocess.run( [ "kubectl", "apply", "-f", "./kube-flannel.yml" ], check=True )
+
 
 
 def configure_k8s( is_master_node ):
@@ -131,10 +214,10 @@ def configure_k8s( is_master_node ):
     print("Starting Kubernetes configuration steps")
 
     # common
-    #install_docker()
+    install_python_packages()
+    configure_bridged_traffic()
     configure_cri_containerd()
     install_kubernetes()
-    disable_swap()
 
     if is_master_node:
         # master node
