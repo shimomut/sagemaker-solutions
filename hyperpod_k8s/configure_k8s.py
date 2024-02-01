@@ -6,6 +6,8 @@ import tempfile
 import re
 import json
 import argparse
+import ipaddress
+import getpass
 
 import boto3
 
@@ -20,11 +22,10 @@ import boto3
 # Configurations you need to modify
 
 # If this script is executed by root already, this variable can be empty
-sudo_command = ["sudo","-E"]
-#sudo_command = []
-
-# FIXME : can we get CIDR automatically? (from the output from ip addr command)
-network_cidr = "10.1.0.0/17"
+if getpass.getuser() == "root":
+    sudo_command = []
+else:
+    sudo_command = ["sudo","-E"]
 
 
 # ---------------------------------
@@ -48,7 +49,6 @@ class ResourceConfig:
         if ResourceConfig._instance is None:
             ResourceConfig._instance = ResourceConfig()
         return ResourceConfig._instance
-
 
     def __init__(self):
 
@@ -129,6 +129,26 @@ class ResourceConfig:
         return re_result.group(3)
 
 
+class IpAddressInfo:
+
+    _instance = None
+
+    @staticmethod
+    def instance():
+        if IpAddressInfo._instance is None:
+            IpAddressInfo._instance = IpAddressInfo()
+        return IpAddressInfo._instance
+
+    def __init__(self):
+
+        interface_name = b"ens6"
+
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        self.addr = socket.inet_ntoa(fcntl.ioctl(sock, 35095, struct.pack('256s', interface_name))[20:24])
+        self.mask = socket.inet_ntoa(fcntl.ioctl(sock, 35099, struct.pack('256s', interface_name))[20:24])
+        self.cidr = str(ipaddress.IPv4Network(addr+"/"+mask, strict=False))
+
+
 def install_python_packages():
 
     print("---")
@@ -178,20 +198,10 @@ def install_kubernetes():
     subprocess.run( [ *sudo_command, "systemctl", "start", "kubelet" ], check=True )
 
 
-def get_ip_addr():
-    
-    p = subprocess.run( [ "ip", "addr", "show", "dev", "ens6" ], check=True, capture_output=True )
-    for line in p.stdout.decode("utf-8").splitlines():
-        re_result = re.match(r"\s+inet ([0-9.]+)/[0-9]+ brd [0-9.]+ scope global dynamic ens6", line)
-        if re_result:
-            return re_result.group(1)
-    else:
-        raise ValueError("Cannot find IP address")
-
-
 def get_secret_name():
     cluster_id = ResourceConfig.instance().get_cluster_id()
     return f"hyperpod-k8s-{cluster_id}"
+
 
 def put_join_info_from_master_node(join_info):
 
@@ -230,18 +240,14 @@ def init_master_node():
 
     # https://kubernetes.io/docs/reference/setup-tools/kubeadm/kubeadm-init/
 
-    ip_addr = get_ip_addr()
-
     print("---")
     print("Initializing master node")
 
     join_info = {}
 
     # capture output from kubeadm init command
-    #    kubeadm join 10.1.13.99:6443 --token k20a86.1zq19kucigr2g9y7 \
-    #            --discovery-token-ca-cert-hash sha256:13818de7009f31f4d899f2d3c4f81aad68ff53b3895955f4d83c52bc5b9c7a14 
     # FIXME : want to print and capture output at the same time
-    p = subprocess.run( [ *sudo_command, "kubeadm", "init", f"--apiserver-advertise-address={ip_addr}", f"--pod-network-cidr={network_cidr}" ], check=True, capture_output=True )
+    p = subprocess.run( [ *sudo_command, "kubeadm", "init", f"--apiserver-advertise-address={IpAddressInfo.instance().addr}", f"--pod-network-cidr={IpAddressInfo.instance().cidr}" ], check=True, capture_output=True )
     for line in p.stdout.decode("utf-8").splitlines():
         print(line)
         re_result = re.match(r"kubeadm join ([0-9.:]+) --token ([a-z0-9.]+)", line)
@@ -254,12 +260,10 @@ def init_master_node():
         if re_result:
             join_info["discovery_token_ca_cert_hash"] = re_result.group(1)
             continue
-
     
     print("---")
     print("Storing join information for worker nodes")
     put_join_info_from_master_node(join_info)
-
 
     print("---")
     print("Copying kube config")
@@ -295,7 +299,7 @@ def install_cni_flannel():
     with open("kube-flannel.yml") as fd_src:
         d = fd_src.read()
 
-    d = re.sub( r'"Network": "[0-9./]+"', f'"Network": "{network_cidr}"', d )
+    d = re.sub( r'"Network": "[0-9./]+"', f'"Network": "{IpAddressInfo.instance().cidr}"', d )
 
     with open("kube-flannel.yml","w") as fd_dst:
         fd_dst.write(d)
