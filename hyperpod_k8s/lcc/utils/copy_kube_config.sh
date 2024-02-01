@@ -1,6 +1,6 @@
 #!/bin/bash
 
-set -e
+set -ex
 
 # FIXME : LCC script is run as root. This script should be run as ubuntu user.
 

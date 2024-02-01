@@ -1,6 +1,6 @@
 #!/bin/bash
 
-set -e
+set -ex
 
 # https://kubernetes.io/docs/setup/production-environment/container-runtimes/#forwarding-ipv4-and-letting-iptables-see-bridged-traffic
 
