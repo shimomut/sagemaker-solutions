@@ -232,9 +232,12 @@ def get_join_info_from_master_node():
         region_name=region_name
     )
 
-    response = secretsmanager_client.get_secret_value(
-        SecretId=get_secret_name()
-    )
+    try:
+        response = secretsmanager_client.get_secret_value(
+            SecretId=get_secret_name()
+        )
+    except secretsmanager_client.exceptions.ResourceNotFoundException:
+        return None
 
     return json.loads(response["SecretString"])
 
