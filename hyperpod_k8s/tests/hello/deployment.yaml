@@ -1,6 +1,7 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
+  namespace: myhello
   name: hello-deployment
   labels:
     app: hello
@@ -17,4 +18,7 @@ spec:
     spec:
       containers:
         - name: myhello
-          image: myhello
+          image: 842413447717.dkr.ecr.us-west-2.amazonaws.com/myhello:latest
+          imagePullPolicy: Always
+      imagePullSecrets:
+        - name: regcred
