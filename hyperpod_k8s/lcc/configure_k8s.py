@@ -226,7 +226,7 @@ def install_kubernetes():
         try:
             run_subprocess_wrap([ "bash", "./utils/install_kubernetes.sh" ])
             break
-        except subprocess.CalledProcessError:
+        except ChildProcessError:
             if i_retry >= kubectl_apply_max_retries:
                 raise
             i_retry += 1
@@ -356,7 +356,7 @@ def install_cni_flannel():
             try:
                 run_subprocess_wrap(["kubectl", "apply", "-f", tmp_filename])
                 break
-            except subprocess.CalledProcessError:
+            except ChildProcessError:
                 if i_retry >= kubectl_apply_max_retries:
                     raise
                 i_retry += 1
