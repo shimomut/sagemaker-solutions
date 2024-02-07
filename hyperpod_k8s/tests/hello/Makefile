@@ -20,9 +20,8 @@ push:
 namespace:
 	kubectl create namespace myhello
 
-# FIXME : this doesn't work in Makefile
 secret:
-	kubectl create secret docker-registry regcred --docker-server=842413447717.dkr.ecr.us-west-2.amazonaws.com --docker-username=AWS --docker-password=$(aws --region us-west-2 ecr get-login-password) --namespace=myhello
+	kubectl create secret docker-registry regcred --docker-server=842413447717.dkr.ecr.us-west-2.amazonaws.com --docker-username=AWS --docker-password=$$(aws --region us-west-2 ecr get-login-password) --namespace=myhello
 
 deploy:
 	kubectl apply -f deployment.yaml
