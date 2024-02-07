@@ -17,6 +17,7 @@ from misc import *
 
 # TODO:
 # - Improve output from create/delete commands
+# - Allow using instance group names to specify instance, for ssm command, log command, etc
 # - Hitting Ctrl-C during ssm command, ssm command and HyperPod shell prompt mix.
 #   Refer to do_shell() in cmd2/cmd2.py. Use self.sigint_protection?
 

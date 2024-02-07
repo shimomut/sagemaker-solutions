@@ -36,6 +36,9 @@ else:
 secret_name_prefix = "hyperpod-k8s-"
 #secret_name_prefix = "hyperpod-k8s-" + str(uuid.uuid4())[:8] + "-" # for local testing purpose
 
+# Pod network CIDR has to be different range from Node level network.
+pod_cidr = "10.244.0.0/16"
+
 apt_install_max_retries = 10
 kubectl_apply_max_retries = 10
 
@@ -226,7 +229,7 @@ def install_kubernetes():
         try:
             run_subprocess_wrap([ "bash", "./utils/install_kubernetes.sh" ])
             break
-        except subprocess.CalledProcessError:
+        except ChildProcessError:
             if i_retry >= kubectl_apply_max_retries:
                 raise
             i_retry += 1
@@ -287,7 +290,7 @@ def init_master_node():
 
     join_info = {}
 
-    captured_output = run_subprocess_wrap( [ *sudo_command, "kubeadm", "init", f"--apiserver-advertise-address={IpAddressInfo.instance().addr}", f"--pod-network-cidr={IpAddressInfo.instance().cidr}" ] )
+    captured_output = run_subprocess_wrap( [ *sudo_command, "kubeadm", "init", f"--apiserver-advertise-address={IpAddressInfo.instance().addr}", f"--pod-network-cidr={pod_cidr}" ] )
     for line in captured_output.splitlines():
         re_result = re.match(r"kubeadm join ([0-9.:]+) --token ([a-z0-9.]+)", line)
         if re_result:
@@ -341,7 +344,7 @@ def install_cni_flannel():
         with urllib.request.urlopen("https://github.com/flannel-io/flannel/releases/latest/download/kube-flannel.yml") as fd:
             d = fd.read().decode("utf-8")
 
-        d = re.sub( r'"Network": "[0-9./]+"', f'"Network": "{IpAddressInfo.instance().cidr}"', d )
+        d = re.sub( r'"Network": "[0-9./]+"', f'"Network": "{pod_cidr}"', d )
         print(d)
 
         with open(tmp_filename,"w") as fd_dst:
@@ -356,7 +359,7 @@ def install_cni_flannel():
             try:
                 run_subprocess_wrap(["kubectl", "apply", "-f", tmp_filename])
                 break
-            except subprocess.CalledProcessError:
+            except ChildProcessError:
                 if i_retry >= kubectl_apply_max_retries:
                     raise
                 i_retry += 1
