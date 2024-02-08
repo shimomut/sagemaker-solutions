@@ -1,5 +1,7 @@
 SHELL := /bin/bash
 
+all:
+
 build:
 	docker build --tag myhello .
 
