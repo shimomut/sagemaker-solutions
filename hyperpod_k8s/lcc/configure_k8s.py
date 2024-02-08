@@ -42,15 +42,22 @@ pod_cidr = "10.244.0.0/16"
 apt_install_max_retries = 10
 kubectl_apply_max_retries = 10
 
+# If NVMe is available, use it as containerd data path
+if os.path.exists("/opt/dlami/nvme"):
+    containerd_root = "/opt/dlami/nvme/containerd"
+else:
+    containerd_root = "/var/lib/containerd"
+
 # ---------------------------------
 # Templates for configuration files
 
 containerd_config = f"""
+root = "{containerd_root}"
+
 [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.runc]
   [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.runc.options]
     SystemdCgroup = true
 """
-
 
 # ---
 
