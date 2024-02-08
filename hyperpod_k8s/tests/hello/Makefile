@@ -26,3 +26,14 @@ secret:
 deploy:
 	kubectl apply -f deployment.yaml
 
+delete:
+	kubectl delete deployment hello-deployment -n myhello
+
+list-pods:
+	kubectl get pods -n myhello -o wide
+
+# ---
+
+containerd-config:
+	sudo vi /etc/containerd/config.toml
+	sudo systemctl restart containerd.service
