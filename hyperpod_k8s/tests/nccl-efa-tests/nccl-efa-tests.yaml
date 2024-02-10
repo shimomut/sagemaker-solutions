@@ -93,7 +93,7 @@ spec:
               emptyDir:
                 medium: Memory
           nodeSelector:
-            node.kubernetes.io/instance-type: p4d.24xlarge
+            node.kubernetes.io/instance-type: p5.48xlarge
           containers:
             - image: public.ecr.aws/w6p6i9i7/aws-efa-nccl-rdma:22.03-pt-py3
               imagePullPolicy: Always
