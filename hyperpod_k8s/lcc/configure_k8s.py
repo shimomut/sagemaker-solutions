@@ -229,8 +229,30 @@ def configure_cri_containerd():
         run_subprocess_wrap( [ *sudo_command, "cp", tmp_filename, dst_filename ] )
 
     print("---")
+    print("Configuring containerd.service")
+
+    dst_filename = "/usr/lib/systemd/system/containerd.service"
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        tmp_filename = os.path.join(tmp_dir, os.path.basename(dst_filename))
+
+        with open(dst_filename) as fd_src:
+            d = fd_src.read()
+
+        # Equivalent to "ulimit -l unlimited"  
+        d = re.sub( r"\[Service\]", "[Service]\nLimitMEMLOCK=infinity", d )
+        print(d)
+
+        with open(tmp_filename,"w") as fd:
+            fd.write(d)
+
+        run_subprocess_wrap( [ *sudo_command, "chmod", "644", tmp_filename ] )
+        run_subprocess_wrap( [ *sudo_command, "chown", "root:root", tmp_filename ] )
+        run_subprocess_wrap( [ *sudo_command, "cp", tmp_filename, dst_filename ] )
+
+    print("---")
     print("Restarting containerd")
 
+    run_subprocess_wrap( [ *sudo_command, "systemctl", "daemon-reload" ] )
     run_subprocess_wrap( [ *sudo_command, "systemctl", "restart", "containerd" ] )
     
 
