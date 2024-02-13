@@ -24,7 +24,18 @@ login-efa-device-plugin-reg:
 	kubectl create secret docker-registry regcred-efa --docker-server=602401143452.dkr.ecr.us-west-2.amazonaws.com --docker-username=AWS --docker-password=$$(aws --region us-west-2 ecr get-login-password) --namespace=kube-system
 
 install-efa-device-plugin:
-	kubectl apply -f efa-k8s-device-plugin.yaml
+	kubectl apply -f efa-k8s-device-plugin-cred.yaml
 
-login-nccl-test:
+login-nccl-efa-test:
 	kubectl create secret docker-registry regcred-nccl-test --docker-server=842413447717.dkr.ecr.us-west-2.amazonaws.com --docker-username=AWS --docker-password=$$(aws --region us-west-2 ecr get-login-password)
+
+run:
+	kubectl apply -f nccl-efa-tests-p5-debug.yaml
+
+stop:
+	kubectl delete -f nccl-efa-tests-p5-debug.yaml
+
+status:
+	kubectl get pods
+
+
