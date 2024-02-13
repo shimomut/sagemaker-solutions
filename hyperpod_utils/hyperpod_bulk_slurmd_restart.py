@@ -8,7 +8,7 @@ import pexpect.popen_spawn
 # Please configure following fields for your environment
 
 class Config:
-    cluster_name = "M5-K8-1"
+    cluster_name = "G5-1"
     cmd_aws = ["aws"]
     worker_instance_group_name = "WorkerGroup"
 
