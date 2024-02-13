@@ -149,6 +149,15 @@ class ResourceConfig:
         assert re_result, "Cluster ID not found in cluster ARN"
         return re_result.group(3)
 
+    def iter_instances(self):
+        for instance_group in self.d["InstanceGroups"]:
+            for instance in instance_group["Instances"]:
+                instance2 = instance.copy()
+                instance2["InstanceType"] = instance_group["InstanceType"]
+                instance2["InstanceGroupName"] = instance_group["Name"]
+                instance2["Name"] = "ip-" + instance["CustomerIpAddress"].replace(".","-")
+                yield instance2
+
 
 class IpAddressInfo:
 
@@ -374,6 +383,59 @@ def install_cni_flannel():
                 print("Retrying")
 
 
+def wait_until_all_nodes_become_ready():
+
+    print("---")
+    print(f"Waiting for all nodes become ready")
+
+    while True:
+
+        ready_state_nodes = set()
+        found_not_ready = False
+
+        """
+        NAME             STATUS   ROLES           AGE     VERSION
+        ip-10-2-79-131   Ready    control-plane   3h14m   v1.29.1
+        ip-10-2-91-139   Ready    <none>          3h14m   v1.29.1
+        ip-10-2-92-5     Ready    <none>          3h14m   v1.29.1
+        """
+
+        captured_output = run_subprocess_wrap( [ "kubectl", "get", "nodes" ] )
+        for line in captured_output.splitlines():
+            re_result = re.match(r"(ip-[0-9]+-[0-9]+-[0-9]+-[0-9]+)\s+Ready\s+.*", line)
+            if re_result:
+                ready_state_nodes.add(re_result.group(1))
+                continue
+
+        for instance in ResourceConfig.instance().iter_instances():
+            if instance["Name"] not in ready_state_nodes:
+                found_not_ready = True
+                break
+
+        if not found_not_ready:
+            break
+
+        time.sleep(10)
+
+    print(f"All nodes are ready now")
+
+
+def add_labels_to_nodes():
+
+    print("---")
+    print(f"Adding label (node.kubernetes.io/instance-type) to nodes")
+
+    for instance in ResourceConfig.instance().iter_instances():
+        name = instance["Name"]
+        instance_type = instance["InstanceType"]
+
+        # trim "ml." prefix
+        if instance_type.startswith("ml."):
+            instance_type = instance_type[3:]
+
+        run_subprocess_wrap( [ "kubectl", "label", "node", name, f"node.kubernetes.io/instance-type={instance_type}" ] )
+
+
 def configure_k8s( is_master_node ):
 
     print("Starting Kubernetes configuration steps")
@@ -388,6 +450,8 @@ def configure_k8s( is_master_node ):
         # master node
         init_master_node()
         install_cni_flannel()
+        wait_until_all_nodes_become_ready()
+        add_labels_to_nodes()
     else:
         # workder node
         init_worker_node()
