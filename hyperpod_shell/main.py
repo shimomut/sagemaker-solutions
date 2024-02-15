@@ -16,10 +16,6 @@ from misc import *
 from config import Config
 
 
-# TODO:
-# - Allow using instance group names to specify instance, for ssm command, log command, etc
-
-
 class HyperPodShellApp(cmd2.Cmd):
 
     CATEGORY_HYPERPOD = "HyperPod operations"
@@ -35,11 +31,27 @@ class HyperPodShellApp(cmd2.Cmd):
         self.intro = style("Welcome to HyperPod Shell", fg=Fg.RED, bg=Bg.WHITE, bold=True)
         self.prompt = style("HyperPod $ ", fg=Fg.GREEN, bg=None, bold=False)
 
+        self.register_postcmd_hook(self.on_command_executed)
+
         # Allow access to your application in py and ipy via self
         self.self_in_py = True
 
         # Set the default category name
         self.default_category = "cmd2 Built-in Commands"
+
+        self.cached_cluster_name_choices = []
+        self.cached_node_id_choices = {}
+
+
+    # -----
+    # Hooks
+    def on_command_executed(self, data: cmd2.plugin.PostcommandData) -> cmd2.plugin.PostcommandData:
+
+        # Clean completer cache after each command execution
+        self.cached_cluster_name_choices = []
+        self.cached_node_id_choices = {}
+
+        return data
 
 
     # -------------
@@ -65,14 +77,15 @@ class HyperPodShellApp(cmd2.Cmd):
 
     def choices_cluster_names(self, arg_tokens):
 
-        choices = []
+        if self.cached_cluster_name_choices:
+            return self.cached_cluster_name_choices
 
         sagemaker_client = self.get_sagemaker_client()
         clusters = list_clusters_all(sagemaker_client)
         for cluster in clusters:
-            choices.append( cluster["ClusterName"] )
+            self.cached_cluster_name_choices.append( cluster["ClusterName"] )
 
-        return choices
+        return self.cached_cluster_name_choices
 
 
     def choices_node_ids(self, arg_tokens):
@@ -82,7 +95,11 @@ class HyperPodShellApp(cmd2.Cmd):
         if len(cluster_names)==1:
             cluster_name = cluster_names[0]
 
-        choices = []
+        if cluster_name in self.cached_node_id_choices:
+            return self.cached_node_id_choices[cluster_name]
+
+        self.cached_node_id_choices[cluster_name] = []
+        choices = self.cached_node_id_choices[cluster_name]
 
         sagemaker_client = self.get_sagemaker_client()
         logs_client = self.get_logs_client()
