@@ -103,8 +103,10 @@ class HyperPodShellApp(cmd2.Cmd):
         
         for node in nodes:
             node_id = node["InstanceId"]
+            instance_group_name = node["InstanceGroupName"]
             choices.append(node_id)
             choices.append( hostnames.get_hostname(node_id) )
+            choices.append( instance_group_name + "/" + node_id )
 
         return choices
 
@@ -422,6 +424,10 @@ class HyperPodShellApp(cmd2.Cmd):
         nodes = list_cluster_nodes_all( sagemaker_client, args.cluster_name )
 
         cluster_id = cluster["ClusterArn"].split("/")[-1]
+
+        # Remove instance group name part
+        if "/" in args.node_id:
+            args.node_id = args.node_id.split("/")[-1]
 
         # Convert hostname to node id
         if args.node_id.startswith("ip-"):
