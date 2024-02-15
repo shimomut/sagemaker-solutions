@@ -150,11 +150,11 @@ class HyperPodShellApp(cmd2.Cmd):
             "ClusterName" : args.cluster_name,
         }
 
-        with open(args.instances) as fd:
+        with open(os.path.expanduser(args.instances)) as fd:
             params["InstanceGroups"] = json.loads(fd.read())
 
         if args.vpc:
-            with open(args.vpc) as fd:
+            with open(os.path.expanduser(args.vpc)) as fd:
                 params["VpcConfig"] = json.loads(fd.read())
 
         sagemaker_client = self.get_sagemaker_client()
