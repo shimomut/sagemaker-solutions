@@ -13,13 +13,11 @@ import boto3
 
 import logs
 from misc import *
+from config import Config
 
 
 # TODO:
-# - Improve output from create/delete commands
 # - Allow using instance group names to specify instance, for ssm command, log command, etc
-
-cmd_aws = ["aws"]
 
 
 class HyperPodShellApp(cmd2.Cmd):
@@ -237,6 +235,7 @@ class HyperPodShellApp(cmd2.Cmd):
             self.poutput(f"Cluster [{args.cluster_name}] not found.")
             return
         
+        cluster_id = cluster["ClusterArn"].split("/")[-1]
         nodes = list_cluster_nodes_all( sagemaker_client, args.cluster_name )
 
         self.poutput(f"Cluster name : {cluster['ClusterName']}")
@@ -248,22 +247,24 @@ class HyperPodShellApp(cmd2.Cmd):
 
         self.poutput("")
 
-        format_string = "{:<%d} : {} : {:<%d} : {} : {}" % (get_max_len(nodes,"InstanceGroupName"), get_max_len(nodes,("InstanceStatus","Status"))+1)
+        nodes = Hostnames.instance().resolve(cluster, nodes)
+
+        format_string = "{:<%d} : {} : {:<%d} : {:<%d} : {} : {}" % (get_max_len(nodes,"InstanceGroupName"), get_max_len(nodes,"Hostname"), get_max_len(nodes,("InstanceStatus","Status"))+1)
 
         for instance_group in cluster["InstanceGroups"]:
             for node in nodes:
                 if node["InstanceGroupName"]==instance_group["InstanceGroupName"]:
 
-                    cluster_id = cluster["ClusterArn"].split("/")[-1]
                     instance_group_name = node["InstanceGroupName"]
                     node_id = node["InstanceId"]
+                    hostname = node["Hostname"]
                     node_status = node["InstanceStatus"]["Status"]
                     ssm_target = f"sagemaker-cluster:{cluster_id}_{instance_group_name}-{node_id}"
 
                     if node_status in ["Pending"]:
                         node_status = "*" + node_status
 
-                    self.poutput(format_string.format( instance_group_name, node_id, node_status, node["LaunchTime"].strftime("%Y/%m/%d %H:%M:%S"), ssm_target ))
+                    self.poutput(format_string.format( instance_group_name, node_id, hostname, node_status, node["LaunchTime"].strftime("%Y/%m/%d %H:%M:%S"), ssm_target ))
 
                     if "Message" in node["InstanceStatus"] and node["InstanceStatus"]["Message"]:
                         message = node["InstanceStatus"]["Message"]
@@ -441,9 +442,6 @@ class HyperPodShellApp(cmd2.Cmd):
             p.terminate(force=True)
 
 
-
-
-
     argparser = cmd2.Cmd2ArgumentParser(description="Set up SSH acccess to all cluster nodes")
     subparsers = argparser.add_subparsers(title="sub-commands")
 
@@ -537,7 +535,7 @@ class HyperPodShellApp(cmd2.Cmd):
 
             self.poutput(f"Installing ssh public key to {node_id}")
 
-            p = pexpect.popen_spawn.PopenSpawn([*cmd_aws, "ssm", "start-session", "--target", ssm_target])
+            p = pexpect.popen_spawn.PopenSpawn([*Config.cmd_aws, "ssm", "start-session", "--target", ssm_target])
             p.expect("#")
             cmd = f"cat /home/ubuntu/.ssh/authorized_keys"
             p.sendline(cmd)
@@ -590,7 +588,7 @@ class HyperPodShellApp(cmd2.Cmd):
                 self.poutput(f"Running command in {node_id}")
                 self.poutput("")
 
-                p = pexpect.popen_spawn.PopenSpawn([*cmd_aws, "ssm", "start-session", "--target", ssm_target])
+                p = pexpect.popen_spawn.PopenSpawn([*Config.cmd_aws, "ssm", "start-session", "--target", ssm_target])
                 p.expect("#")
                 self.poutput(p.after.decode("utf-8"),end="")
                 p.sendline(args.command)

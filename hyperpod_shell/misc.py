@@ -1,5 +1,12 @@
 
+import concurrent.futures
+import pexpect
+import pexpect.popen_spawn
+import signal
+
 import boto3
+
+from config import Config
 
 
 def get_region():
@@ -84,6 +91,56 @@ def list_log_streams_all(logs_client, log_group):
 
     return streams
 
+
+class Hostnames:
+
+    _instance = None
+
+    @staticmethod
+    def instance():
+        if Hostnames._instance is None:
+            Hostnames._instance = Hostnames()
+        return Hostnames._instance
+
+    def __init__(self):
+        self.cache = {}
+
+    def resolve(self, cluster, nodes):
+
+        cluster_id = cluster["ClusterArn"].split("/")[-1]
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=16) as thread_pool:
+            
+            def resolve_hostname(node):
+
+                node_id = node["InstanceId"]
+
+                if node_id in self.cache:
+                    return self.cache[node_id]
+
+                instance_group_name = node["InstanceGroupName"]
+                ssm_target = f"sagemaker-cluster:{cluster_id}_{instance_group_name}-{node_id}"
+
+                p = pexpect.popen_spawn.PopenSpawn([*Config.cmd_aws, "ssm", "start-session", "--target", ssm_target])
+                p.expect("#")
+                cmd = f"hostname"
+                p.sendline(cmd)
+                p.expect("#")
+
+                output = p.before.decode("utf-8").strip().splitlines()
+                assert len(output)==2 and output[1].startswith("ip-"), f"Unexpected output from hostname command {[output]}"
+                hostname = output[1]
+
+                p.kill(signal.SIGINT)
+
+                self.cache[node_id] = hostname
+
+                return hostname
+
+            for node, hostname in zip( nodes, thread_pool.map(resolve_hostname, nodes) ):
+                node["Hostname"] = hostname
+
+        return nodes
 
 def get_max_len( d, keys ):
 
