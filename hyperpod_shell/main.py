@@ -160,7 +160,7 @@ class HyperPodShellApp(cmd2.Cmd):
         sagemaker_client = self.get_sagemaker_client()
         response = sagemaker_client.create_cluster(**params)
 
-        self.poutput(pprint.pformat(response))
+        self.poutput("Creation started :", response["ClusterArn"])
 
 
     argparser = cmd2.Cmd2ArgumentParser(description="Delete a cluster")
@@ -186,7 +186,7 @@ class HyperPodShellApp(cmd2.Cmd):
             self.poutput(f"Cluster [{args.cluster_name}] not found.")
             return
 
-        self.poutput(pprint.pformat(response))
+        self.poutput("Deletion started :", response["ClusterArn"])
 
 
     argparser = cmd2.Cmd2ArgumentParser(description="List clusters in human readable format")
