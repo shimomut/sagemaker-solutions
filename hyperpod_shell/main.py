@@ -85,6 +85,7 @@ class HyperPodShellApp(cmd2.Cmd):
         choices = []
 
         sagemaker_client = self.get_sagemaker_client()
+        logs_client = self.get_logs_client()
 
         try:
             cluster = sagemaker_client.describe_cluster(
@@ -101,34 +102,13 @@ class HyperPodShellApp(cmd2.Cmd):
         hostnames = Hostnames.instance()
         hostnames.resolve(cluster, nodes)
         
+        # add choice from existing nodes
         for node in nodes:
             node_id = node["InstanceId"]
             instance_group_name = node["InstanceGroupName"]
             choices.append(node_id)
             choices.append( hostnames.get_hostname(node_id) )
             choices.append( instance_group_name + "/" + node_id )
-
-        return choices
-
-
-    def choices_node_ids_from_log_streams(self, arg_tokens):
-
-        cluster_name = None
-        cluster_names = arg_tokens["cluster_name"]
-        if len(cluster_names)==1:
-            cluster_name = cluster_names[0]
-
-        choices = []
-
-        sagemaker_client = self.get_sagemaker_client()
-        logs_client = self.get_logs_client()
-
-        try:
-            cluster = sagemaker_client.describe_cluster(
-                ClusterName = cluster_name
-            )
-        except sagemaker_client.exceptions.ResourceNotFound:
-            raise cmd2.CompletionError(f"Cluster [{cluster_name}] not found.")
 
         cluster_id = cluster["ClusterArn"].split("/")[-1]
         log_group = f"/aws/sagemaker/Clusters/{cluster_name}/{cluster_id}"
@@ -138,10 +118,13 @@ class HyperPodShellApp(cmd2.Cmd):
         except logs_client.exceptions.ResourceNotFoundException:
             raise cmd2.CompletionError(f"Log group [{log_group}] not found.")
 
+        # add choice from log stream names
         for stream in streams:
             stream_name = stream["logStreamName"]
+            instance_group_name = stream_name.split("/")[-2]
             node_id = stream_name.split("/")[-1]
             choices.append(node_id)
+            choices.append( instance_group_name + "/" + node_id )
 
         return choices
 
@@ -354,7 +337,7 @@ class HyperPodShellApp(cmd2.Cmd):
 
     argparser = cmd2.Cmd2ArgumentParser(description="Print log from a cluster node")
     argparser.add_argument("cluster_name", metavar="CLUSTER_NAME", action="store", choices_provider=choices_cluster_names, help="Name of cluster")
-    argparser.add_argument("node_id", metavar="NODE_ID", action="store", choices_provider=choices_node_ids_from_log_streams, help="Id of node")
+    argparser.add_argument("node_id", metavar="NODE_ID", action="store", choices_provider=choices_node_ids, help="Id of node")
 
     @cmd2.with_category(CATEGORY_HYPERPOD)
     @cmd2.with_argparser(argparser)
@@ -380,8 +363,16 @@ class HyperPodShellApp(cmd2.Cmd):
             self.poutput(f"Log group [{log_group}] not found.")
             return
 
-        if args.node_id=="*":
-            for stream in streams:
+        # Convert hostname to node id
+        if args.node_id.startswith("ip-"):
+            nodes = list_cluster_nodes_all( sagemaker_client, args.cluster_name )
+            hostnames = Hostnames.instance()
+            hostnames.resolve(cluster, nodes)
+            args.node_id = hostnames.get_node_id(args.node_id)
+
+        found = False
+        for stream in streams:
+            if args.node_id=="*" or stream["logStreamName"].endswith(args.node_id):
                 stream = stream["logStreamName"]
                 
                 header = f"--- {log_group} {stream} ---"
@@ -390,17 +381,11 @@ class HyperPodShellApp(cmd2.Cmd):
                 self.poutput("-" * len(header))
                 logs.print_log(logs_client, log_group, stream)
                 self.poutput(f"")
-        else:
-            for stream in streams:
-                if stream["logStreamName"].endswith(args.node_id):
-                    stream = stream["logStreamName"]
-                    break
-            else:
-                self.poutput(f"Log stream for [{args.node_id}] not found.")
-                return
 
-            logs.print_log(logs_client, log_group, stream)
-            self.poutput(f"")
+                found = True
+
+        if not found:
+            self.poutput(f"Log stream for [{args.node_id}] not found.")
 
 
     argparser = cmd2.Cmd2ArgumentParser(description="Login to a cluster node with SSM")
