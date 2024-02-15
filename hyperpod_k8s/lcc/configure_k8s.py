@@ -18,14 +18,8 @@ import io
 import boto3
 
 
-# TODO:
-# - logging when using capture_output
-# - eliminate configuration fields as much as possible
-# - use FSx to store join information instead of SecretsManager
-
-
-# ---------------------------------
-# Configurations you need to modify
+# --------------
+# Configurations
 
 # If this script is executed by root already, this variable can be empty
 if getpass.getuser() == "root":
@@ -47,6 +41,7 @@ if os.path.exists("/opt/dlami/nvme"):
     containerd_root = "/opt/dlami/nvme/containerd"
 else:
     containerd_root = "/var/lib/containerd"
+
 
 # ---------------------------------
 # Templates for configuration files
