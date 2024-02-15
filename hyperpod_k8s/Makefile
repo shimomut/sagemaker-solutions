@@ -1,4 +1,5 @@
 SHELL := /bin/bash
+HOSTNAME := undefined
 
 all:
 
@@ -38,4 +39,5 @@ stop:
 status:
 	kubectl get pods
 
-
+replace-instance:
+	python3.9 tools/replace-instance.py --hostname $(HOSTNAME)
