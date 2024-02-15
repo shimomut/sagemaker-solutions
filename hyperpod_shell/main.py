@@ -265,7 +265,7 @@ class HyperPodShellApp(cmd2.Cmd):
 
                     self.poutput(format_string.format( instance_group_name, node_id, node_status, node["LaunchTime"].strftime("%Y/%m/%d %H:%M:%S"), ssm_target ))
 
-                    if "Message" in node["InstanceStatus"]:
+                    if "Message" in node["InstanceStatus"] and node["InstanceStatus"]["Message"]:
                         message = node["InstanceStatus"]["Message"]
                         self.poutput("")
                         for line in message.splitlines():
