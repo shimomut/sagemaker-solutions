@@ -87,12 +87,24 @@ class HyperPodShellApp(cmd2.Cmd):
         sagemaker_client = self.get_sagemaker_client()
 
         try:
+            cluster = sagemaker_client.describe_cluster(
+                ClusterName = cluster_name
+            )
+        except sagemaker_client.exceptions.ResourceNotFound:
+            raise cmd2.CompletionError(f"Cluster [{cluster_name}] not found.")
+        
+        try:
             nodes = list_cluster_nodes_all( sagemaker_client, cluster_name )
         except sagemaker_client.exceptions.ResourceNotFound:
             raise cmd2.CompletionError(f"Cluster [{cluster_name}] not found.")
-
+        
+        hostnames = Hostnames.instance()
+        hostnames.resolve(cluster, nodes)
+        
         for node in nodes:
-            choices.append( node["InstanceId"] )
+            node_id = node["InstanceId"]
+            choices.append(node_id)
+            choices.append( hostnames.get_hostname(node_id) )
 
         return choices
 
@@ -411,6 +423,12 @@ class HyperPodShellApp(cmd2.Cmd):
 
         cluster_id = cluster["ClusterArn"].split("/")[-1]
 
+        # Convert hostname to node id
+        if args.node_id.startswith("ip-"):
+            hostnames = Hostnames.instance()
+            hostnames.resolve(cluster, nodes)
+            args.node_id = hostnames.get_node_id(args.node_id)
+
         for node in nodes:
             instance_group_name = node["InstanceGroupName"]
             node_id = node["InstanceId"]
@@ -567,7 +585,7 @@ class HyperPodShellApp(cmd2.Cmd):
 
     @cmd2.with_category(CATEGORY_HYPERPOD)
     @cmd2.with_argparser(argparser)
-    def do_bulk_run_command(self, args):
+    def do_run(self, args):
 
         sagemaker_client = self.get_sagemaker_client()
 
