@@ -15,6 +15,9 @@ import logs
 from misc import *
 from config import Config
 
+# TODO:
+# - parallelize ssh key installation 
+
 
 class HyperPodShellApp(cmd2.Cmd):
 
@@ -172,7 +175,8 @@ class HyperPodShellApp(cmd2.Cmd):
         sagemaker_client = self.get_sagemaker_client()
         response = sagemaker_client.create_cluster(**params)
 
-        self.poutput("Creation started :", response["ClusterArn"])
+        cluster_arn = response["ClusterArn"]
+        self.poutput(f"Creation started : {cluster_arn}")
 
 
     argparser = cmd2.Cmd2ArgumentParser(description="Delete a cluster")
@@ -198,7 +202,8 @@ class HyperPodShellApp(cmd2.Cmd):
             self.poutput(f"Cluster [{args.cluster_name}] not found.")
             return
 
-        self.poutput("Deletion started :", response["ClusterArn"])
+        cluster_arn = response["ClusterArn"]
+        self.poutput(f"Deletion started : {cluster_arn}")
 
 
     argparser = cmd2.Cmd2ArgumentParser(description="List clusters in human readable format")
