@@ -103,7 +103,8 @@ class Hostnames:
         return Hostnames._instance
 
     def __init__(self):
-        self.cache = {}
+        self.node_id_to_hostname = {}
+        self.hostname_to_node_id = {}
 
     def resolve(self, cluster, nodes):
 
@@ -115,8 +116,8 @@ class Hostnames:
 
                 node_id = node["InstanceId"]
 
-                if node_id in self.cache:
-                    return self.cache[node_id]
+                if node_id in self.node_id_to_hostname:
+                    return self.node_id_to_hostname[node_id]
 
                 instance_group_name = node["InstanceGroupName"]
                 ssm_target = f"sagemaker-cluster:{cluster_id}_{instance_group_name}-{node_id}"
@@ -133,14 +134,19 @@ class Hostnames:
 
                 p.kill(signal.SIGINT)
 
-                self.cache[node_id] = hostname
-
                 return hostname
 
             for node, hostname in zip( nodes, thread_pool.map(resolve_hostname, nodes) ):
-                node["Hostname"] = hostname
+                node_id = node["InstanceId"]
+                self.node_id_to_hostname[node_id] = hostname
+                self.hostname_to_node_id[hostname] = node_id
 
-        return nodes
+    def get_hostname(self, node_id):
+        return self.node_id_to_hostname[node_id]
+
+    def get_node_id(self, hostname):
+        return self.hostname_to_node_id[hostname]
+
 
 def get_max_len( d, keys ):
 

@@ -238,6 +238,9 @@ class HyperPodShellApp(cmd2.Cmd):
         cluster_id = cluster["ClusterArn"].split("/")[-1]
         nodes = list_cluster_nodes_all( sagemaker_client, args.cluster_name )
 
+        hostnames = Hostnames.instance()
+        hostnames.resolve(cluster, nodes)
+
         self.poutput(f"Cluster name : {cluster['ClusterName']}")
         self.poutput(f"Cluster Arn : {cluster['ClusterArn']}")
         self.poutput(f"Cluster status : {cluster['ClusterStatus']}")
@@ -247,9 +250,12 @@ class HyperPodShellApp(cmd2.Cmd):
 
         self.poutput("")
 
-        nodes = Hostnames.instance().resolve(cluster, nodes)
+        max_hostname_len = 0
+        for node in nodes:
+            hostname = hostnames.get_hostname(node["InstanceId"])
+            max_hostname_len = max(max_hostname_len,len(hostname))
 
-        format_string = "{:<%d} : {} : {:<%d} : {:<%d} : {} : {}" % (get_max_len(nodes,"InstanceGroupName"), get_max_len(nodes,"Hostname"), get_max_len(nodes,("InstanceStatus","Status"))+1)
+        format_string = "{:<%d} : {} : {:<%d} : {:<%d} : {} : {}" % (get_max_len(nodes,"InstanceGroupName"), max_hostname_len, get_max_len(nodes,("InstanceStatus","Status"))+1)
 
         for instance_group in cluster["InstanceGroups"]:
             for node in nodes:
@@ -257,7 +263,7 @@ class HyperPodShellApp(cmd2.Cmd):
 
                     instance_group_name = node["InstanceGroupName"]
                     node_id = node["InstanceId"]
-                    hostname = node["Hostname"]
+                    hostname = hostnames.get_hostname(node_id)
                     node_status = node["InstanceStatus"]["Status"]
                     ssm_target = f"sagemaker-cluster:{cluster_id}_{instance_group_name}-{node_id}"
 
