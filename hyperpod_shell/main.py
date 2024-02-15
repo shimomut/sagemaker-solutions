@@ -18,9 +18,6 @@ from misc import *
 # TODO:
 # - Improve output from create/delete commands
 # - Allow using instance group names to specify instance, for ssm command, log command, etc
-# - Hitting Ctrl-C during ssm command, ssm command and HyperPod shell prompt mix.
-#   Refer to do_shell() in cmd2/cmd2.py. Use self.sigint_protection?
-
 
 cmd_aws = ["aws"]
 
@@ -444,12 +441,26 @@ class HyperPodShellApp(cmd2.Cmd):
             p.terminate(force=True)
 
 
-    argparser = cmd2.Cmd2ArgumentParser(description="Print SSH config for cluster nodes")
-    argparser.add_argument("cluster_name", metavar="CLUSTER_NAME", action="store", choices_provider=choices_cluster_names, help="Name of cluster")
+
+
+
+    argparser = cmd2.Cmd2ArgumentParser(description="Set up SSH acccess to all cluster nodes")
+    subparsers = argparser.add_subparsers(title="sub-commands")
 
     @cmd2.with_category(CATEGORY_HYPERPOD)
     @cmd2.with_argparser(argparser)
-    def do_print_ssh_config(self, args):
+    def do_ssh(self, args):
+        func = getattr(args, "func", None)
+        if func is not None:
+            func(self, args)
+        else:
+            self.do_help("ssh")
+
+
+    subparser_print_config = subparsers.add_parser('print-config', help='Print SSH config for cluster nodes')
+    subparser_print_config.add_argument("cluster_name", metavar="CLUSTER_NAME", action="store", choices_provider=choices_cluster_names, help="Name of cluster")
+
+    def _do_ssh_print_config(self, args):
 
         sagemaker_client = self.get_sagemaker_client()
 
@@ -489,16 +500,16 @@ class HyperPodShellApp(cmd2.Cmd):
 
                     node_index += 1
 
-        self.poutput("")                
+        self.poutput("")
+
+    subparser_print_config.set_defaults(func=_do_ssh_print_config)
 
 
-    argparser = cmd2.Cmd2ArgumentParser(description="Install SSH public key to all cluster nodes")
-    argparser.add_argument("cluster_name", metavar="CLUSTER_NAME", action="store", choices_provider=choices_cluster_names, help="Name of cluster")
-    argparser.add_argument("public_key_file", metavar="PUBLIC_KEY_FILE", action="store", completer=cmd2.Cmd.path_complete, help="SSH public key file")
-
-    @cmd2.with_category(CATEGORY_HYPERPOD)
-    @cmd2.with_argparser(argparser)
-    def do_install_ssh_key(self, args):
+    subparser_install_key = subparsers.add_parser('install-key', help='Install SSH public key to all cluster nodes')
+    subparser_install_key.add_argument("cluster_name", metavar="CLUSTER_NAME", action="store", choices_provider=choices_cluster_names, help="Name of cluster")
+    subparser_install_key.add_argument("public_key_file", metavar="PUBLIC_KEY_FILE", action="store", completer=cmd2.Cmd.path_complete, help="SSH public key file")
+    
+    def _do_ssh_install_key(self, args):
 
         sagemaker_client = self.get_sagemaker_client()
 
@@ -541,6 +552,8 @@ class HyperPodShellApp(cmd2.Cmd):
                 self.poutput("Done")
 
             p.kill(signal.SIGINT)
+
+    subparser_install_key.set_defaults(func=_do_ssh_install_key)
 
 
     argparser = cmd2.Cmd2ArgumentParser(description="Run single line command in all nodes of specified instance group")
