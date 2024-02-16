@@ -1,3 +1,4 @@
+import sys
 import os
 import time
 import subprocess
@@ -220,11 +221,11 @@ def get_join_info_from_master_node():
     return json.loads(response["SecretString"])
 
 
-def generate_new_join_token():
+def generate_new_token():
 
     print(f"Generating new join token")
 
-    captured_output = run_subprocess_wrap(["kubeadm", "token", "create", "--description", "Bootstrap token generated for instance replacement"])
+    captured_output = run_subprocess_wrap(["kubeadm", "token", "create", "--description", "Bootstrap token generated for instance replacement"], print_output=False)
     captured_output = captured_output.strip()
     output_lines = captured_output.strip().splitlines()
     assert len(output_lines)==1, f"Unexpected output from kubeadm token create command [{captured_output}]"
@@ -275,17 +276,29 @@ def wait_for_replacement_completion(hostname):
     progress_dots.tick(None)
 
 
-def replace_instance(hostname):
+def replace_instance(args):
 
-    generate_new_join_token()
-    trigger_replacement(hostname)
-    wait_for_replacement_completion(hostname)
+    generate_new_token()
+    trigger_replacement(args.hostname)
+    wait_for_replacement_completion(args.hostname)
 
 
 if __name__ == "__main__":
 
-    argparser = argparse.ArgumentParser(description="Script to replace faulty node")
-    argparser.add_argument('--hostname', action="store", required=True, help="Hostname (e.g. ip-10.0.12.34)")
-    args = argparser.parse_args()
+    argparser1 = argparse.ArgumentParser( description = 'K8 on HyperPod operation tool' )
+    subparsers = argparser1.add_subparsers()
 
-    replace_instance( hostname=args.hostname )
+    help = 'Replace an instance'
+    argparser2 = subparsers.add_parser( "replace-instance", help=help, description=help )
+    argparser2.add_argument('hostname', metavar="HOSTNAME", action="store", help="Hostname to replace (e.g. ip-10.0.12.34)")
+    argparser2.set_defaults(func=replace_instance)
+
+    help = 'Generate a new token for scaling-up'
+    argparser2 = subparsers.add_parser( "generate-new-token", help=help, description=help )
+    argparser2.set_defaults(func=generate_new_token)
+
+    args = argparser1.parse_args( sys.argv[1:] )
+    if hasattr(args,"func"):
+        args.func(args)
+    else:
+        argparser1.print_usage()

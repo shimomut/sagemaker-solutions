@@ -42,5 +42,5 @@ status:
 replace-instance:
 	kubectl drain $(HOSTNAME) --ignore-daemonsets
 	kubectl delete node $(HOSTNAME)
-	python3.9 tools/replace-instance.py --hostname $(HOSTNAME)
+	python3.9 tools/hyperpod_k8s_op.py replace-instance $(HOSTNAME)
 
