@@ -22,7 +22,6 @@ else:
     sudo_command = ["sudo","-E"]
 
 secret_name_prefix = "hyperpod-k8s-"
-#secret_name_prefix = "hyperpod-k8s-" + str(uuid.uuid4())[:8] + "-" # for local testing purpose
 
 
 # ---
@@ -276,11 +275,20 @@ def wait_for_replacement_completion(hostname):
     progress_dots.tick(None)
 
 
-def replace_instance(args):
+def cmd_replace_instance(args):
 
     generate_new_token()
     trigger_replacement(args.hostname)
     wait_for_replacement_completion(args.hostname)
+
+    print("Finished replacing instance")
+
+
+def cmd_generate_new_token(args):
+
+    generate_new_token()
+
+    print("Finished")
 
 
 if __name__ == "__main__":
@@ -291,11 +299,11 @@ if __name__ == "__main__":
     help = 'Replace an instance'
     argparser2 = subparsers.add_parser( "replace-instance", help=help, description=help )
     argparser2.add_argument('hostname', metavar="HOSTNAME", action="store", help="Hostname to replace (e.g. ip-10.0.12.34)")
-    argparser2.set_defaults(func=replace_instance)
+    argparser2.set_defaults(func=cmd_replace_instance)
 
     help = 'Generate a new token for scaling-up'
     argparser2 = subparsers.add_parser( "generate-new-token", help=help, description=help )
-    argparser2.set_defaults(func=generate_new_token)
+    argparser2.set_defaults(func=cmd_generate_new_token)
 
     args = argparser1.parse_args( sys.argv[1:] )
     if hasattr(args,"func"):
