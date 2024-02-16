@@ -40,4 +40,7 @@ status:
 	kubectl get pods
 
 replace-instance:
+	kubectl drain $(HOSTNAME) --ignore-daemonsets
+	kubectl delete node $(HOSTNAME)
 	python3.9 tools/replace-instance.py --hostname $(HOSTNAME)
+

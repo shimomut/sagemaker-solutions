@@ -27,6 +27,33 @@ secret_name_prefix = "hyperpod-k8s-"
 # ---
 
 # FIXME : move to common module with LCC script
+class ProgressDots:
+
+    def __init__(self):
+        self.status = None
+
+    def tick(self,status):
+
+        if self.status != status:
+
+            # first line doesn't require line break
+            if self.status is not None:
+                print()
+
+            self.status = status
+
+            # print new status if not ending
+            if self.status is not None:
+                print(self.status, end=" ", flush=True)
+
+            return
+
+        # print dots if status didn't change
+        if self.status is not None:
+            print(".", end="", flush=True)
+
+
+# FIXME : move to common module with LCC script
 class ResourceConfig:
 
     _instance = None
@@ -126,14 +153,15 @@ class ResourceConfig:
 
 
 # FIXME : move to common module with LCC script
-def run_subprocess_wrap(cmd):
+def run_subprocess_wrap(cmd, print_output=True):
 
     captured_stdout = io.StringIO()
 
     p = subprocess.Popen( cmd, bufsize=1, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT )
     for line in iter(p.stdout.readline, ""):
         captured_stdout.write(line)
-        print( line, end="", flush=True )
+        if print_output:
+            print( line, end="", flush=True )
     p.wait()
 
     if p.returncode != 0:
@@ -192,14 +220,8 @@ def get_join_info_from_master_node():
     return json.loads(response["SecretString"])
 
 
-# TODO : implement
-def check_node_drain_status(hostname):
-    pass
-
-
 def generate_new_join_token():
 
-    print("---")
     print(f"Generating new join token")
 
     captured_output = run_subprocess_wrap(["kubeadm", "token", "create", "--description", "Bootstrap token generated for instance replacement"])
@@ -221,37 +243,23 @@ def generate_new_join_token():
     put_join_info_from_master_node(join_info, update_existing=True)
 
 
-def remove_node(hostname):
-
-    print("---")
-    print(f"Removing the node from cluster")
-
-    captured_output = run_subprocess_wrap(["kubectl", "delete", "node", hostname])
-    captured_output = captured_output.strip()
-    output_lines = captured_output.strip().splitlines()
-    assert len(output_lines)==1, f"Unexpected output from kubectl delete node command [{captured_output}]"
-
-    re_result = re.match(r"node \"ip-[0-9]+-[0-9]+-[0-9]+-[0-9]+\" deleted", output_lines[0])
-    assert re_result is not None, f"Unexpected output from kubectl delete node command [{captured_output}]"
-
-
 def trigger_replacement(hostname):
 
-    print("---")
     print(f"Triggering instance replacement")
 
-    run_subprocess_wrap([*sudo_command, "scontrol", "update", f"node={hostname}", "state=fail", 'reason="Action:Replace"'])
+    run_subprocess_wrap([*sudo_command, "scontrol", "update", f"node={hostname}", "state=fail", 'reason="Action:Replace"'], print_output=False)
 
 
 def wait_for_replacement_completion(hostname):
 
-    print("---")
-    print(f"Waiting for instance replacement completion")
+    status_message = "Instance replacement in-progress"
+
+    progress_dots = ProgressDots()
 
     while True:
         
         status = None
-        captured_output = run_subprocess_wrap(["sinfo", "--node", hostname])
+        captured_output = run_subprocess_wrap(["sinfo", "--node", hostname], print_output=False)
         for line in captured_output.splitlines():
             re_result = re.match(r"([^\s]+)\s+([^\s]+)\s+([^\s]+)\s+([^\s]+)\s+([^\s]+)\s+([^\s]+)", line)
             if re_result and re_result.group(6)==hostname:
@@ -260,67 +268,24 @@ def wait_for_replacement_completion(hostname):
         if status=="idle":
             break
 
-        time.sleep(10)
-
-
-def wait_until_all_nodes_become_ready():
-
-    print("---")
-    print(f"Waiting for all nodes become ready")
-
-    while True:
-
-        ready_state_nodes = set()
-        found_not_ready = False
-
-        """
-        NAME             STATUS   ROLES           AGE     VERSION
-        ip-10-2-79-131   Ready    control-plane   3h14m   v1.29.1
-        ip-10-2-91-139   Ready    <none>          3h14m   v1.29.1
-        ip-10-2-92-5     Ready    <none>          3h14m   v1.29.1
-        """
-
-        captured_output = run_subprocess_wrap( [ "kubectl", "get", "nodes" ] )
-        for line in captured_output.splitlines():
-            re_result = re.match(r"(ip-[0-9]+-[0-9]+-[0-9]+-[0-9]+)\s+Ready\s+.*", line)
-            if re_result:
-                ready_state_nodes.add(re_result.group(1))
-                continue
-
-        for instance in ResourceConfig.instance().iter_instances():
-            if instance["Name"] not in ready_state_nodes:
-                found_not_ready = True
-                break
-
-        if not found_not_ready:
-            break
+        progress_dots.tick(status_message)
 
         time.sleep(10)
 
-    print(f"All nodes are ready now")
+    progress_dots.tick(None)
 
 
 def replace_instance(hostname):
 
-    check_node_drain_status(hostname)
     generate_new_join_token()
-    remove_node(hostname)
     trigger_replacement(hostname)
     wait_for_replacement_completion(hostname)
-    wait_until_all_nodes_become_ready()
 
 
 if __name__ == "__main__":
 
     argparser = argparse.ArgumentParser(description="Script to replace faulty node")
-    argparser.add_argument('--debug', action="store_true", help="Print full exception information")
     argparser.add_argument('--hostname', action="store", required=True, help="Hostname (e.g. ip-10.0.12.34)")
     args = argparser.parse_args()
 
-    try:
-        replace_instance( hostname=args.hostname )
-    except Exception as e:
-        if args.debug:
-            raise
-        else:
-            print(e)
+    replace_instance( hostname=args.hostname )
