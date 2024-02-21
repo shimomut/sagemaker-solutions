@@ -33,7 +33,8 @@ secret_name_prefix = "hyperpod-k8s-"
 # Pod network CIDR has to be different range from Node level network.
 pod_cidr = "10.244.0.0/16"
 
-apt_install_max_retries = 10
+join_info_timeout = 5 * 60 # 5min
+nodes_ready_timeout = 5 * 60 # 5min
 kubectl_apply_max_retries = 10
 
 # If NVMe is available, use it as containerd data path
@@ -256,18 +257,7 @@ def install_kubernetes():
     print("---")
     print("Installing Kubernetes")
 
-    # Kubernetes installation sometimes fail with "Could not get lock /var/lib/dpkg/lock-frontend. It is held by process 4065 (apt-get)"
-    i_retry = 0
-    while True:
-        try:
-            run_subprocess_wrap([ "bash", "./utils/install_kubernetes.sh" ])
-            break
-        except ChildProcessError:
-            if i_retry >= kubectl_apply_max_retries:
-                raise
-            i_retry += 1
-            time.sleep(10)
-            print("Retrying")
+    run_subprocess_wrap([ "bash", "./utils/install_kubernetes.sh" ])
 
     run_subprocess_wrap( [ *sudo_command, "systemctl", "enable", "kubelet" ] )
     run_subprocess_wrap( [ *sudo_command, "systemctl", "start", "kubelet" ] )
@@ -351,10 +341,14 @@ def init_worker_node():
 
     print("---")
     print("Getting join token from master node.")
+
+    t0 = time.time()
     while True:
         join_info = get_join_info_from_master_node()
         if join_info is not None:
             break
+        if time.time() - t0 >= join_info_timeout:
+            raise TimeoutError("Getting join token timed out.")
         print("Join information is not ready in SecretsManager. Retrying...")
         time.sleep(10)
 
@@ -405,6 +399,7 @@ def wait_until_all_nodes_become_ready():
     print("---")
     print(f"Waiting for all nodes become ready")
 
+    t0 = time.time()
     while True:
 
         ready_state_nodes = set()
@@ -431,6 +426,9 @@ def wait_until_all_nodes_become_ready():
 
         if not found_not_ready:
             break
+
+        if time.time() - t0 >= nodes_ready_timeout:
+            raise TimeoutError("Waiting for nodes ready timed out.")
 
         time.sleep(10)
 
