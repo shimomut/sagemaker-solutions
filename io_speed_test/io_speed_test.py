@@ -1,3 +1,4 @@
+import os
 import time
 import re
 import io
@@ -64,6 +65,9 @@ def main():
         size_wrote += src_buffer.write( random.randbytes(size_to_write) )
     
     s3_paths = [ Config.s3_location + "large_%04d.bin" % i for i in range(Config.num_files) ]
+    fsx_paths = [ os.path.join( Config.fsx_location, ("large_%04d.bin" % i) ) for i in range(Config.num_files) ]
+
+    os.makedirs(Config.fsx_location, exist_ok=True)
 
     #s3_client = boto3.client("s3")
     s3_resource = boto3.resource("s3")
@@ -135,6 +139,39 @@ def main():
         return s3_path
 
     run_and_measure("Download from S3", download_single_file, s3_paths)
+
+
+    # --------------
+    # Write to FSx
+
+    def write_single_file(fsx_path):
+
+        print(f"Writing to {fsx_path}")
+
+        with open( os.path.join(Config.fsx_location, fsx_path), "wb" ) as fd:
+            fd.write(src_buffer.getvalue())
+
+        return fsx_path
+
+    run_and_measure("Upload to S3", write_single_file, fsx_paths)
+
+
+    # --------------
+    # Read from FSx
+
+    def read_single_file(fsx_path):
+
+        print(f"Reading {fsx_path}")
+
+        with open( os.path.join(Config.fsx_location, fsx_path), "rb" ) as fd:
+            d = fd.read()
+
+        assert len(d)==Config.file_size
+
+        return fsx_path
+
+    run_and_measure("Upload to S3", read_single_file, fsx_paths)
+
 
 
 if __name__ == "__main__":
