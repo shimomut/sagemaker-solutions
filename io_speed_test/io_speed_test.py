@@ -11,14 +11,15 @@ from boto3.s3.transfer import TransferConfig
 class Config:
 
     s3_location = "s3://shimomut-files-vpce-us-east-2-842413447717/tmp/"
+    fsx_location = "/fsx/ubuntu/tmp"
 
-    if 0:
-        file_size = 1024 * 1024 * 1024 # 1 GB
+    if 1:
+        file_size = 100 * 1024 * 1024 # 100 MB
         num_files = 10
         max_workers = 10
         s3_transfer_config = None
-    elif 1:
-        file_size = 100 * 1024 * 1024 # 100 MB
+    elif 0:
+        file_size = 1024 * 1024 * 1024 # 1 GB
         num_files = 10
         max_workers = 10
         s3_transfer_config = None
@@ -68,7 +69,27 @@ def main():
     s3_resource = boto3.resource("s3")
 
 
-    # ---
+    def run_and_measure( subject, func, input ):
+
+        t0 = time.time()
+
+        thread_pool = concurrent.futures.ThreadPoolExecutor(max_workers=Config.max_workers)
+        map_result = thread_pool.map(
+            func,
+            input
+        )
+
+        map_result = list(map_result)
+        assert len(map_result)==len(input)
+
+        t1 = time.time()
+
+        print(f"{subject} : Time spent : {t1-t0}")
+        print(f"{subject} : Bandwidth  : {(Config.file_size * Config.num_files) /(t1-t0) / (1024*1024)} MB/s")
+
+
+    # --------------
+    # Upload to S3
 
     def upload_single_file(s3_path):
 
@@ -89,29 +110,16 @@ def main():
 
         return s3_path
 
-    t0 = time.time()
+    run_and_measure("Upload to S3", upload_single_file, s3_paths)
 
-    thread_pool = concurrent.futures.ThreadPoolExecutor(max_workers=Config.max_workers)
-    map_result = thread_pool.map(
-        upload_single_file,
-        s3_paths
-    )
-
-    map_result = list(map_result)
-    assert len(map_result)==len(s3_paths)
-
-    t1 = time.time()
-
-    print(f"Total time spent for uplading : {t1-t0}")
-    print(f"Bandwidth : {(Config.file_size * Config.num_files) /(t1-t0) / (1024*1024)} MB/s")
-
-
-    # ---
+    # -----------------
+    # Download from S3
 
     def download_single_file(s3_path):
 
-        buffer = io.BytesIO()
         print(f"Downloading {s3_path}")
+
+        buffer = io.BytesIO()
         bucket_name, key = split_s3_path(s3_path)
 
         params = {
@@ -126,23 +134,7 @@ def main():
 
         return s3_path
 
-
-    t0 = time.time()
-
-    thread_pool = concurrent.futures.ThreadPoolExecutor(max_workers=Config.max_workers)
-    map_result = thread_pool.map(
-        download_single_file,
-        s3_paths
-    )
-
-    map_result = list(map_result)
-    assert len(map_result)==len(s3_paths)
-
-    t1 = time.time()
-
-    print(f"Total time spent for downloading : {t1-t0}")
-    print(f"Bandwidth : {(Config.file_size * Config.num_files) /(t1-t0) / (1024*1024)} MB/s")
-
+    run_and_measure("Download from S3", download_single_file, s3_paths)
 
 
 if __name__ == "__main__":
