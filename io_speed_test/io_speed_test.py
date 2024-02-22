@@ -153,7 +153,7 @@ def main():
 
         return fsx_path
 
-    run_and_measure("Upload to S3", write_single_file, fsx_paths)
+    run_and_measure("Write to FSx", write_single_file, fsx_paths)
 
 
     # --------------
@@ -170,7 +170,7 @@ def main():
 
         return fsx_path
 
-    run_and_measure("Upload to S3", read_single_file, fsx_paths)
+    run_and_measure("Read from FSx", read_single_file, fsx_paths)
 
 
 
