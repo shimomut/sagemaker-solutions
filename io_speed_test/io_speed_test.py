@@ -1,9 +1,46 @@
-import os
 import time
 import re
-import subprocess
+import io
+import random
+import concurrent.futures
 
 import boto3
+from boto3.s3.transfer import TransferConfig
+
+
+class Config:
+
+    s3_location = "s3://shimomut-files-vpce-us-east-2-842413447717/tmp/"
+
+    if 0:
+        file_size = 1024 * 1024 * 1024 # 1 GB
+        num_files = 10
+        max_workers = 10
+        s3_transfer_config = None
+    elif 1:
+        file_size = 100 * 1024 * 1024 # 100 MB
+        num_files = 10
+        max_workers = 10
+        s3_transfer_config = None
+    elif 0:
+        file_size = 100 * 1024 * 1024 # 100 MB
+        num_files = 100
+        max_workers = 10
+        s3_transfer_config = None
+    elif 0:
+        file_size = 100 * 1024 * 1024 # 100 MB
+        num_files = 100
+        max_workers = 30
+        s3_transfer_config = None
+    elif 0:
+        file_size = 100 * 1024 * 1024 # 100 MB
+        num_files = 100
+        max_workers = 10
+        s3_transfer_config = TransferConfig(
+            max_concurrency = 10,
+            multipart_threshold = 10 * 1024 * 1024,
+            multipart_chunksize = 10 * 1024 * 1024
+            )
 
 
 def split_s3_path( s3_path ):
@@ -15,63 +52,99 @@ def split_s3_path( s3_path ):
     return bucket, key
 
 
-def create_random_big_file(filename, size):
-
-    with open(filename,"wb") as fd:
-        fd.truncate(size)
-
-
-def upload_by_awscli_s3_cp( filename, s3_path ):
-
-    print(f"Uploading {filename} to {s3_path} by `aws s3 cp` command")
-
-    t0 = time.time()
-    subprocess.run(["aws", "s3", "cp", filename, s3_path], check=True )
-    t1 = time.time()
-
-    print(f"Time spent : {t1-t0}")
-
-
-def upload_by_boto3_client( filename, s3_path ):
-
-    print(f"Uploading {filename} to {s3_path} by boto3 s3 client")
-
-    s3_client = boto3.client("s3")
-    bucket, key = split_s3_path(s3_path)
-
-    t0 = time.time()
-    s3_client.upload_file( filename, bucket, key )
-    t1 = time.time()
-
-    print(f"Time spent : {t1-t0}")
-
-
-def upload_by_boto3_resource( filename, s3_path ):
-
-    print(f"Uploading {filename} to {s3_path} by boto3 s3 client")
-
-    s3_resource = boto3.resource("s3")
-    bucket_name, key = split_s3_path(s3_path)
-
-    t0 = time.time()
-    s3_resource.Bucket(bucket_name).upload_file(filename, key)
-    t1 = time.time()
-
-    print(f"Time spent : {t1-t0}")
-
-
 def main():
 
-    local_filename = "./large.bin"
-    s3_path = "s3://shimomut-files-us-east-2-842413447717/tmp/" + os.path.basename(local_filename)
-    file_size = 1024 * 1024 * 1024 # 1GB
+    print("Creating random bytes")
+    src_buffer = io.BytesIO()
+    size_wrote = 0
+    while size_wrote < Config.file_size:
+        size_left = Config.file_size-size_wrote
+        size_to_write = min(size_left, 100 * 1024 * 1024)
+        size_wrote += src_buffer.write( random.randbytes(size_to_write) )
+    
+    s3_paths = [ Config.s3_location + "large_%04d.bin" % i for i in range(Config.num_files) ]
 
-    create_random_big_file("./large.bin", file_size)
+    #s3_client = boto3.client("s3")
+    s3_resource = boto3.resource("s3")
 
-    upload_by_awscli_s3_cp( local_filename, s3_path )
-    upload_by_boto3_client(local_filename, s3_path)
-    upload_by_boto3_resource(local_filename, s3_path)
+
+    # ---
+
+    def upload_single_file(s3_path):
+
+        print(f"Uploading to {s3_path}")
+
+        buffer = io.BytesIO(src_buffer.getvalue())
+        bucket_name, key = split_s3_path(s3_path)
+
+        params = {
+            "Fileobj" : buffer,
+            "Key" : key,
+        }
+
+        if Config.s3_transfer_config:
+            params["Config"] = Config.s3_transfer_config
+
+        s3_resource.Bucket(bucket_name).upload_fileobj(**params)
+
+        return s3_path
+
+    t0 = time.time()
+
+    thread_pool = concurrent.futures.ThreadPoolExecutor(max_workers=Config.max_workers)
+    map_result = thread_pool.map(
+        upload_single_file,
+        s3_paths
+    )
+
+    map_result = list(map_result)
+    assert len(map_result)==len(s3_paths)
+
+    t1 = time.time()
+
+    print(f"Total time spent for uplading : {t1-t0}")
+    print(f"Bandwidth : {(Config.file_size * Config.num_files) /(t1-t0) / (1024*1024)} MB/s")
+
+
+    # ---
+
+    def download_single_file(s3_path):
+
+        buffer = io.BytesIO()
+        print(f"Downloading {s3_path}")
+        bucket_name, key = split_s3_path(s3_path)
+
+        params = {
+            "Key" : key,
+            "Fileobj" : buffer,
+        }
+
+        if Config.s3_transfer_config:
+            params["Config"] = Config.s3_transfer_config
+
+        s3_resource.Bucket(bucket_name).download_fileobj(key,buffer,Config=Config.s3_transfer_config)
+
+        return s3_path
+
+
+    t0 = time.time()
+
+    thread_pool = concurrent.futures.ThreadPoolExecutor(max_workers=Config.max_workers)
+    map_result = thread_pool.map(
+        download_single_file,
+        s3_paths
+    )
+
+    map_result = list(map_result)
+    assert len(map_result)==len(s3_paths)
+
+    t1 = time.time()
+
+    print(f"Total time spent for downloading : {t1-t0}")
+    print(f"Bandwidth : {(Config.file_size * Config.num_files) /(t1-t0) / (1024*1024)} MB/s")
+
 
 
 if __name__ == "__main__":
     main()
+    
