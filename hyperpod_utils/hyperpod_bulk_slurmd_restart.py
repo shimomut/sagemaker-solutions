@@ -53,12 +53,14 @@ def main():
             ClusterName = Config.cluster_name
         )
     except sagemaker_client.exceptions.ResourceNotFound:
-        self.poutput(f"Cluster [{Config.cluster_name}] not found.")
+        print(f"Cluster [{Config.cluster_name}] not found.")
         return
     
     nodes = list_cluster_nodes_all( sagemaker_client, Config.cluster_name )
 
     cluster_id = cluster["ClusterArn"].split("/")[-1]
+    
+    num_restarted = 0
 
     for node in nodes:
         
@@ -85,5 +87,10 @@ def main():
         print("")
         print(f"Done {node_id}.")
         print("")
+        
+        num_restarted += 1
+
+    print(f"Restarted slurmd in {num_restarted} instances")
+    
 
 main()
