@@ -39,12 +39,12 @@ class Config:
         num_files = 10
         max_workers = 10
         s3_transfer_config = None
-    elif 1:
+    elif 0:
         file_size = 100 * 1024 * 1024 # 100 MB
         num_files = 100
         max_workers = 10
         s3_transfer_config = None
-    elif 0:
+    elif 1:
         file_size = 1024 * 1024 * 1024 # 1 GB
         num_files = 100
         max_workers = 1
@@ -222,7 +222,7 @@ class App:
 
             t0 = time.time()
 
-            with concurrent.futures.ThreadPoolExecutor(max_workers=Config.max_workers, initializer=App.init_worker, initargs=[src_buffer.getvalue()]) as pool_executer:
+            with PoolExecuterClass(max_workers=Config.max_workers, initializer=App.init_worker, initargs=[src_buffer.getvalue()]) as pool_executer:
                 map_result = pool_executer.map(
                     func,
                     input
