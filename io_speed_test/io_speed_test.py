@@ -3,6 +3,8 @@ import time
 import re
 import io
 import random
+import tempfile
+import subprocess
 import concurrent.futures
 
 import boto3
@@ -14,10 +16,15 @@ class Config:
     s3_location = "s3://shimomut-files-vpce-us-east-2-842413447717/tmp/"
     fsx_location = "/fsx/ubuntu/tmp"
 
-    if 1:
+    if 0:
         file_size = 100 * 1024 * 1024 # 100 MB
         num_files = 10
         max_workers = 10
+        s3_transfer_config = None
+    elif 1:
+        file_size = 1024 * 1024 * 1024 # 1 GB
+        num_files = 10
+        max_workers = 1
         s3_transfer_config = None
     elif 0:
         file_size = 1024 * 1024 * 1024 # 1 GB
@@ -28,6 +35,26 @@ class Config:
         file_size = 100 * 1024 * 1024 # 100 MB
         num_files = 100
         max_workers = 10
+        s3_transfer_config = None
+    elif 0:
+        file_size = 1024 * 1024 * 1024 # 1 GB
+        num_files = 100
+        max_workers = 1
+        s3_transfer_config = None
+    elif 0:
+        file_size = 1024 * 1024 * 1024 # 1 GB
+        num_files = 100
+        max_workers = 10
+        s3_transfer_config = None
+    elif 0:
+        file_size = 1024 * 1024 * 1024 # 1 GB
+        num_files = 100
+        max_workers = 20
+        s3_transfer_config = None
+    elif 0:
+        file_size = 1024 * 1024 * 1024 # 1 GB
+        num_files = 100
+        max_workers = 30
         s3_transfer_config = None
     elif 0:
         file_size = 100 * 1024 * 1024 # 100 MB
@@ -95,82 +122,103 @@ def main():
     # --------------
     # Upload to S3
 
-    def upload_single_file(s3_path):
+    if 0:
+        def upload_single_file(s3_path):
 
-        print(f"Uploading to {s3_path}")
+            print(f"Uploading to {s3_path}")
 
-        buffer = io.BytesIO(src_buffer.getvalue())
-        bucket_name, key = split_s3_path(s3_path)
+            buffer = io.BytesIO(src_buffer.getvalue())
+            bucket_name, key = split_s3_path(s3_path)
 
-        params = {
-            "Fileobj" : buffer,
-            "Key" : key,
-        }
+            params = {
+                "Fileobj" : buffer,
+                "Key" : key,
+            }
 
-        if Config.s3_transfer_config:
-            params["Config"] = Config.s3_transfer_config
+            if Config.s3_transfer_config:
+                params["Config"] = Config.s3_transfer_config
 
-        s3_resource.Bucket(bucket_name).upload_fileobj(**params)
+            s3_resource.Bucket(bucket_name).upload_fileobj(**params)
 
-        return s3_path
+            return s3_path
 
-    run_and_measure("Upload to S3", upload_single_file, s3_paths)
+        run_and_measure("Upload to S3", upload_single_file, s3_paths)
 
     # -----------------
     # Download from S3
 
-    def download_single_file(s3_path):
+    if 0:
+        def download_single_file(s3_path):
 
-        print(f"Downloading {s3_path}")
+            print(f"Downloading {s3_path}")
 
-        buffer = io.BytesIO()
-        bucket_name, key = split_s3_path(s3_path)
+            buffer = io.BytesIO()
+            bucket_name, key = split_s3_path(s3_path)
 
-        params = {
-            "Key" : key,
-            "Fileobj" : buffer,
-        }
+            params = {
+                "Key" : key,
+                "Fileobj" : buffer,
+            }
 
-        if Config.s3_transfer_config:
-            params["Config"] = Config.s3_transfer_config
+            if Config.s3_transfer_config:
+                params["Config"] = Config.s3_transfer_config
 
-        s3_resource.Bucket(bucket_name).download_fileobj(key,buffer,Config=Config.s3_transfer_config)
+            s3_resource.Bucket(bucket_name).download_fileobj(key,buffer,Config=Config.s3_transfer_config)
 
-        return s3_path
+            return s3_path
 
-    run_and_measure("Download from S3", download_single_file, s3_paths)
+        run_and_measure("Download from S3", download_single_file, s3_paths)
+
+
+    # -----------------
+    # Download from S3 with AWS CLI with transfer client = CRT
+
+    if 0:
+        def download_single_file_with_awscli_crt(s3_path):
+
+            print(f"Downloading {s3_path} with AWSCLI(CRT)")
+
+            with tempfile.TemporaryDirectory() as tmp_dir:
+                tmp_filename = os.path.join(tmp_dir, os.path.basename(s3_path))
+                subprocess.run(["aws", "s3", "cp", s3_path, tmp_filename ])
+
+            return s3_path
+
+        run_and_measure("Download from S3 with AWSCLI(CRT)", download_single_file_with_awscli_crt, s3_paths)
 
 
     # --------------
     # Write to FSx
 
-    def write_single_file(fsx_path):
+    if 0:
+        def write_single_file(fsx_path):
 
-        print(f"Writing to {fsx_path}")
+            print(f"Writing to {fsx_path}")
 
-        with open( os.path.join(Config.fsx_location, fsx_path), "wb" ) as fd:
-            fd.write(src_buffer.getvalue())
+            with open( os.path.join(Config.fsx_location, fsx_path), "wb" ) as fd:
+                fd.write(src_buffer.getvalue())
 
-        return fsx_path
+            return fsx_path
 
-    run_and_measure("Write to FSx", write_single_file, fsx_paths)
+        run_and_measure("Write to FSx", write_single_file, fsx_paths)
 
 
     # --------------
     # Read from FSx
 
-    def read_single_file(fsx_path):
+    if 1:
+        def read_single_file(fsx_path):
 
-        print(f"Reading {fsx_path}")
+            print(f"Reading {fsx_path}")
 
-        with open( os.path.join(Config.fsx_location, fsx_path), "rb" ) as fd:
-            d = fd.read()
+            with open( os.path.join(Config.fsx_location, fsx_path), "rb" ) as fd:
+                d = fd.read()
 
-        assert len(d)==Config.file_size
+            assert len(d)==Config.file_size
 
-        return fsx_path
+            return fsx_path
 
-    run_and_measure("Read from FSx", read_single_file, fsx_paths)
+        run_and_measure("Read from FSx", read_single_file, fsx_paths)
 
 
 
