@@ -19,6 +19,9 @@ class Config:
     #concurrent_executor = "thread"
     concurrent_executor = "process"
 
+    #s5cmd_concurrency = 10
+    s5cmd_concurrency = 100
+
     if 0:
         file_size = 10 * 1024 * 1024 # 100 MB
         num_files = 10
@@ -29,7 +32,7 @@ class Config:
         num_files = 10
         max_workers = 10
         s3_transfer_config = None
-    elif 0:
+    elif 1:
         file_size = 1024 * 1024 * 1024 # 1 GB
         num_files = 10
         max_workers = 1
@@ -44,7 +47,7 @@ class Config:
         num_files = 100
         max_workers = 10
         s3_transfer_config = None
-    elif 1:
+    elif 0:
         file_size = 1024 * 1024 * 1024 # 1 GB
         num_files = 100
         max_workers = 1
@@ -169,6 +172,16 @@ class App:
             tmp_filename = os.path.join(tmp_dir, os.path.basename(s3_path))
             subprocess.run(["aws", "s3", "cp", s3_path, tmp_filename ])
 
+
+    @staticmethod
+    def download_single_file_with_s5cmd(s3_path):
+
+        print(f"Downloading {s3_path} with s5cmd")
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_filename = os.path.join(tmp_dir, os.path.basename(s3_path))
+            subprocess.run(["s5cmd", "cp", "--concurrency", f"{Config.s5cmd_concurrency}", s3_path, tmp_filename ])
+
         return s3_path
 
 
@@ -237,9 +250,10 @@ class App:
             print(f"{subject} : Bandwidth  : {(Config.file_size * Config.num_files) /(t1-t0) / (1024*1024)} MB/s")
 
 
-        run_and_measure("Upload to S3", App.upload_single_file, s3_paths)
-        run_and_measure("Download from S3", App.download_single_file, s3_paths)
+        run_and_measure("Upload to S3 with Boto3", App.upload_single_file, s3_paths)
+        run_and_measure("Download from S3 with Boto3", App.download_single_file, s3_paths)
         run_and_measure("Download from S3 with AWSCLI(CRT)", App.download_single_file_with_awscli_crt, s3_paths)
+        run_and_measure("Download from S3 with s5cmd", App.download_single_file_with_s5cmd, s3_paths)
         run_and_measure("Write to FSx", App.write_single_file, fsx_paths)
         run_and_measure("Read from FSx", App.read_single_file, fsx_paths)
 
