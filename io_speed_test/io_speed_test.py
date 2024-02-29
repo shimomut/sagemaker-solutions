@@ -15,13 +15,13 @@ class Config:
 
     s3_location = "s3://shimomut-files-vpce-us-east-2-842413447717/tmp/"
     fsx_location = "/fsx/ubuntu/tmp"
-    tmp_location = "/opt/dlami/nvme"
+    nvme_location = "/opt/dlami/nvme/io_speed_test"
+    tmp_location = "/opt/dlami/nvme/io_speed_test/tmp"
 
     #concurrent_executor = "thread"
     concurrent_executor = "process"
 
-    #s5cmd_concurrency = 10
-    s5cmd_concurrency = 100
+    s5cmd_concurrency = 30
 
     if 0:
         file_size = 10 * 1024 * 1024 # 100 MB
@@ -68,7 +68,7 @@ class Config:
         num_files = 100
         max_workers = 30
         s3_transfer_config = None
-    elif 0:
+    elif 1:
         file_size = 100 * 1024 * 1024 # 100 MB
         num_files = 100
         max_workers = 30
@@ -82,7 +82,7 @@ class Config:
             multipart_threshold = 10 * 1024 * 1024,
             multipart_chunksize = 10 * 1024 * 1024
             )
-    elif 1:
+    elif 0:
         file_size = 50 * 1024 * 1024 * 1024 # 50 GB
         num_files = 1
         max_workers = 1
@@ -93,6 +93,7 @@ class Config:
 
         print(f"s3_location : {Config.s3_location}")
         print(f"fsx_location : {Config.fsx_location}")
+        print(f"nvme_location : {Config.nvme_location}")
         print(f"tmp_location : {Config.tmp_location}")
         print(f"concurrent_executor : {Config.concurrent_executor}")
         print(f"s5cmd_concurrency : {Config.s5cmd_concurrency}")
@@ -253,8 +254,11 @@ class App:
         prefix_file_size = get_file_size_string(Config.file_size)
         s3_paths = [ Config.s3_location + f"{prefix_file_size}_{i:04d}.bin" for i in range(Config.num_files) ]
         fsx_paths = [ os.path.join( Config.fsx_location, f"{prefix_file_size}_{i:04d}.bin" ) for i in range(Config.num_files) ]
+        nvme_paths = [ os.path.join( Config.nvme_location, f"{prefix_file_size}_{i:04d}.bin" ) for i in range(Config.num_files) ]
 
         os.makedirs(Config.fsx_location, exist_ok=True)
+        os.makedirs(Config.nvme_location, exist_ok=True)
+        os.makedirs(Config.tmp_location, exist_ok=True)
 
 
         def run_and_measure( subject, func, input ):
@@ -281,12 +285,14 @@ class App:
             print(f"{subject} : Bandwidth  : {(Config.file_size * Config.num_files) /(t1-t0) / (1024*1024)} MB/s")
 
 
-        run_and_measure("Upload to S3 with Boto3", App.upload_single_file, s3_paths)
-        run_and_measure("Download from S3 with Boto3", App.download_single_file, s3_paths)
-        run_and_measure("Download from S3 with AWSCLI(CRT)", App.download_single_file_with_awscli_crt, s3_paths)
-        run_and_measure("Download from S3 with s5cmd", App.download_single_file_with_s5cmd, s3_paths)
+        #run_and_measure("Upload to S3 with Boto3", App.upload_single_file, s3_paths)
+        #run_and_measure("Download from S3 with Boto3", App.download_single_file, s3_paths)
+        #run_and_measure("Download from S3 with AWSCLI(CRT)", App.download_single_file_with_awscli_crt, s3_paths)
+        #run_and_measure("Download from S3 with s5cmd", App.download_single_file_with_s5cmd, s3_paths)
         run_and_measure("Write to FSx", App.write_single_file, fsx_paths)
         run_and_measure("Read from FSx", App.read_single_file, fsx_paths)
+        run_and_measure("Write to NVMe", App.write_single_file, nvme_paths)
+        run_and_measure("Read from NVMe", App.read_single_file, nvme_paths)
 
 
 if __name__ == "__main__":
