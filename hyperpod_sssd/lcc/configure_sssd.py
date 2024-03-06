@@ -6,9 +6,9 @@ import re
 # ---------------------------------
 # Configurations you need to modify
 
-ec2_test_env = False
+ec2_test_env = True
 
-ad_domain = "cluster-test3.amazonaws.com"
+ad_domain = "cluster-test.amazonaws.com"
 
 # If this script is executed by root already, this variable can be empty
 sudo_command = ["sudo","-E"]
@@ -25,13 +25,12 @@ packages_to_install = [
 netplan_filename_for_custom_dns = "/etc/netplan/99-custom-dns.yaml"
 
 if ec2_test_env:
-    network_interface_name = "eth0"
+    network_interface_name = "ens5"
 else:
     network_interface_name = "ens6"
 
 dns_server_addresses = [ 
-    #"10.3.73.85", "10.2.82.19" # for cluster-test.amazonaws.com
-    "10.3.24.253", "10.2.5.177" # for cluster-test3.amazonaws.com
+    "10.2.36.9", "10.1.31.42" # for cluster-test.amazonaws.com
 ]
 
 sshd_config_filename = "/etc/ssh/sshd_config"
@@ -83,9 +82,9 @@ id_provider = ldap
 auth_provider = krb5
 cache_credentials = True
 ldap_uri = ldap://{ad_domain}
-ldap_search_base = dc=cluster-test3,dc=amazonaws,dc=com
+ldap_search_base = dc=cluster-test,dc=amazonaws,dc=com
 ldap_schema = AD
-ldap_default_bind_dn = cn=Admin,ou=Users,ou=cluster-test3,dc=cluster-test3,dc=amazonaws,dc=com
+ldap_default_bind_dn = cn=Admin,ou=Users,ou=cluster-test,dc=cluster-test,dc=amazonaws,dc=com
 ldap_default_authtok_type = obfuscated_password
 ldap_default_authtok = {ad_admin_obfuscated_password}
 ldap_tls_reqcert = never
