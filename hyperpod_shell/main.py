@@ -574,14 +574,14 @@ class HyperPodShellApp(cmd2.Cmd):
 
             p = pexpect.popen_spawn.PopenSpawn([*Config.cmd_aws, "ssm", "start-session", "--target", ssm_target])
             p.expect("#")
-            cmd = f"cat /home/ubuntu/.ssh/authorized_keys"
+            cmd = f"cat {Config.home_dir}/.ssh/authorized_keys"
             p.sendline(cmd)
             p.expect("#")
 
             if public_key in p.before.decode("utf-8"):
                 self.poutput("Already installed")
             else:
-                cmd = f"echo {public_key} >> /home/ubuntu/.ssh/authorized_keys"
+                cmd = f"echo {public_key} >> {Config.home_dir}/.ssh/authorized_keys"
                 p.sendline(cmd)
                 p.expect("#")
                 self.poutput("Done")
