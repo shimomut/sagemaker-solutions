@@ -9,6 +9,7 @@ import re
 ec2_test_env = True
 
 ad_domain = "cluster-test.amazonaws.com"
+ldap_uri = "ldaps://ldap-lb-69fea12ccf01759e.elb.us-west-2.amazonaws.com"
 
 # If this script is executed by root already, this variable can be empty
 sudo_command = ["sudo","-E"]
@@ -18,82 +19,49 @@ packages_to_install = [
     "sssd",
     "ldap-utils",
     "sssd-tools",
-    "sssd-krb5",
-    "krb5-user",
 ]
 
-netplan_filename_for_custom_dns = "/etc/netplan/99-custom-dns.yaml"
-
-if ec2_test_env:
-    network_interface_name = "ens5"
-else:
-    network_interface_name = "ens6"
-
-dns_server_addresses = [ 
-    "10.2.36.9", "10.1.31.42" # for cluster-test.amazonaws.com
-]
 
 sshd_config_filename = "/etc/ssh/sshd_config"
 
 sssd_config_filename = "/etc/sssd/sssd.conf"
+cert_filename = "/etc/ldap/ldap-cert1.pem"
 
-krb5_config_filename = "/etc/krb5.conf"
+#krb5_config_filename = "/etc/krb5.conf"
 
 # you can get obfuscated password by sss_obfuscate command
-# FIXME : should read from Secrets Manager
-ad_admin_obfuscated_password = "placeholder"
 
-assert ad_admin_obfuscated_password != "placeholder", "You need to configure ad_admin_obfuscated_password"
+# FIXME : should read from Secrets Manager
+
+if 0:
+    ldap_default_authtok_type = "obfuscated_password"
+    ldap_default_authtok = "placeholder"
+else:
+    ldap_default_authtok_type = "password"
+    ldap_default_authtok = "placeholder"
+
+assert ldap_default_authtok != "placeholder", "You need to configure ldap_default_authtok"
 
 # ---------------------------------
 # Templates for configuration files
 
-netplan_custom_dns_yaml = f"""
-network:
-    version: 2
-    ethernets:
-        {network_interface_name}:
-            nameservers:
-                addresses: [{", ".join(dns_server_addresses)}]
-            dhcp4-overrides:
-                use-dns: false
-"""
-
-krb5_conf = f"""
-[libdefaults]
-	default_realm = {ad_domain.upper()}
-	ccache_type = 4
-	forwardable = true
-	proxiable = true
-	rdns = false
-	dns_lookup_realm = true
-	dns_lookup_kdc = true
-	ticket_lifetime = 24h
-	renew_lifetime = 7d
-
-[realms]
-
-[domain_realm]
-"""
-
 sssd_conf = f"""
 [domain/{ad_domain}]
 id_provider = ldap
-auth_provider = krb5
-cache_credentials = True
-ldap_uri = ldap://{ad_domain}
+cache_credentials = False
+ldap_uri = {ldap_uri}
 ldap_search_base = dc=cluster-test,dc=amazonaws,dc=com
 ldap_schema = AD
 ldap_default_bind_dn = cn=Admin,ou=Users,ou=cluster-test,dc=cluster-test,dc=amazonaws,dc=com
-ldap_default_authtok_type = obfuscated_password
-ldap_default_authtok = {ad_admin_obfuscated_password}
-ldap_tls_reqcert = never
+ldap_default_authtok_type = {ldap_default_authtok_type}
+ldap_default_authtok = {ldap_default_authtok}
+ldap_tls_cacert = {cert_filename}
+ldap_tls_reqcert = hard
 ldap_id_mapping = True
-ldap_referrals = True
+ldap_referrals = False
 #ldap_user_extra_attrs = altSecurityIdentities:altSecurityIdentities
+ldap_user_ssh_public_key = altSecurityIdentities
 ldap_use_tokengroups = True
-krb5_realm = {ad_domain.upper()}
-krb5_canonicalize = True
 enumerate = False
 fallback_homedir = /home/%u@%d
 default_shell = /bin/bash
@@ -232,10 +200,8 @@ def restart_services():
 print("Starting SSSD configuration steps")
 
 install_apt_packages()
-configure_custom_dns()
 enable_password_authentication()
 enable_automatic_homedir_creation()
-configure_krb5()
 configure_sssd()
 restart_services()
 
