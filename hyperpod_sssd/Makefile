@@ -23,10 +23,10 @@ check4:
 	su -l user1@cluster-test.amazonaws.com
 
 check5:
-	sssctl domain-status cluster-test3.amazonaws.com
+	sssctl domain-status cluster-test.amazonaws.com
 
 clear-cache:
 	sudo sssctl cache-remove
 
 obfuscate:
-	sudo sss_obfuscate -d cluster-test3.amazonaws.com
+	sudo sss_obfuscate -d cluster-test.amazonaws.com
