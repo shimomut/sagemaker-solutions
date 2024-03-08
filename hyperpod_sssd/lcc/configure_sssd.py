@@ -8,7 +8,8 @@ import re
 
 ec2_test_env = True
 
-ad_domain = "cluster-test.amazonaws.com"
+ad_domain = "default"
+
 ldap_uri = "ldaps://ldap-lb-69fea12ccf01759e.elb.us-west-2.amazonaws.com"
 
 # If this script is executed by root already, this variable can be empty
@@ -21,24 +22,13 @@ packages_to_install = [
     "sssd-tools",
 ]
 
-
 sshd_config_filename = "/etc/ssh/sshd_config"
-
 sssd_config_filename = "/etc/sssd/sssd.conf"
 cert_filename = "/etc/ldap/ldap-cert1.pem"
 
-#krb5_config_filename = "/etc/krb5.conf"
-
-# you can get obfuscated password by sss_obfuscate command
-
-# FIXME : should read from Secrets Manager
-
-if 0:
-    ldap_default_authtok_type = "obfuscated_password"
-    ldap_default_authtok = "placeholder"
-else:
-    ldap_default_authtok_type = "password"
-    ldap_default_authtok = "placeholder"
+# you can get obfuscated password by tools/obfuscate_password.py
+ldap_default_authtok_type = "obfuscated_password"
+ldap_default_authtok = "placeholder"
 
 assert ldap_default_authtok != "placeholder", "You need to configure ldap_default_authtok"
 
@@ -48,7 +38,7 @@ assert ldap_default_authtok != "placeholder", "You need to configure ldap_defaul
 sssd_conf = f"""
 [domain/{ad_domain}]
 id_provider = ldap
-cache_credentials = False
+cache_credentials = True
 ldap_uri = {ldap_uri}
 ldap_search_base = dc=cluster-test,dc=amazonaws,dc=com
 ldap_schema = AD
@@ -59,19 +49,19 @@ ldap_tls_cacert = {cert_filename}
 ldap_tls_reqcert = hard
 ldap_id_mapping = True
 ldap_referrals = False
-#ldap_user_extra_attrs = altSecurityIdentities:altSecurityIdentities
+ldap_user_extra_attrs = altSecurityIdentities:altSecurityIdentities
 ldap_user_ssh_public_key = altSecurityIdentities
 ldap_use_tokengroups = True
 enumerate = False
-fallback_homedir = /home/%u@%d
+fallback_homedir = /home/%u
 default_shell = /bin/bash
-use_fully_qualified_names = True
+#use_fully_qualified_names = True
 #debug_level = 6
 
 [sssd]
-domains = {ad_domain}
 config_file_version = 2
-services = nss, pam
+domains = {ad_domain}
+services = nss, pam, ssh
 #debug_level = 6
 
 [pam]
@@ -95,29 +85,6 @@ def install_apt_packages():
     print("---")
     print("Installing packages - ", packages_to_install)
     subprocess.run( [ *sudo_command, "DEBIAN_FRONTEND=noninteractive", "apt", "install", "-y", *packages_to_install ] )
-
-
-def configure_custom_dns():
-
-    print("---")
-    print("Creating netplan config file for custom DNS server addresses")
-
-    with tempfile.TemporaryDirectory() as tmp_dir:
-        tmp_yaml_filename = os.path.join(tmp_dir, os.path.basename(netplan_filename_for_custom_dns))
-
-        d = netplan_custom_dns_yaml.strip()
-        print(d)
-
-        with open(tmp_yaml_filename,"w") as fd:
-            fd.write(d)
-
-        subprocess.run( [ *sudo_command, "chmod", "644", tmp_yaml_filename ] )
-        subprocess.run( [ *sudo_command, "chown", "root:root", tmp_yaml_filename ] )
-        subprocess.run( [ *sudo_command, "cp", tmp_yaml_filename, netplan_filename_for_custom_dns ] )
-
-    print("---")
-    print("Applying netplan change (warning about ens5 can be ignored)")
-    subprocess.run( [ *sudo_command, "netplan", "apply" ] )
 
 
 def enable_password_authentication():
@@ -148,25 +115,6 @@ def enable_automatic_homedir_creation():
     print(f"Enabling automatic home directory creation")
 
     subprocess.run( [ *sudo_command, "pam-auth-update", "--enable", "mkhomedir" ] )
-
-
-def configure_krb5():
-
-    print("---")
-    print("Configuring Kerberos")
-
-    with tempfile.TemporaryDirectory() as tmp_dir:
-        tmp_config_filename = os.path.join(tmp_dir,os.path.basename(krb5_config_filename))
-
-        d = krb5_conf.strip()
-        print(d)
-
-        with open(tmp_config_filename,"w") as fd_dst:
-            fd_dst.write(d)
-
-        subprocess.run( [ *sudo_command, "chmod", "644", tmp_config_filename ] )
-        subprocess.run( [ *sudo_command, "chown", "root:root", tmp_config_filename ] )
-        subprocess.run( [ *sudo_command, "cp", tmp_config_filename, krb5_config_filename ] )
 
 
 def configure_sssd():
