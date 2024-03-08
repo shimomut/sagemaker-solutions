@@ -19,6 +19,10 @@ packages_to_install = [
     "sssd-tools",
 ]
 
+packages_to_uninstall = [
+    "ec2-instance-connect",
+]
+
 sshd_config_filename = "/etc/ssh/sshd_config"
 sssd_config_filename = "/etc/sssd/sssd.conf"
 cert_filename = "/etc/ldap/ldap-cert1.pem"
@@ -94,6 +98,13 @@ def install_apt_packages():
     subprocess.run( [ *sudo_command, "DEBIAN_FRONTEND=noninteractive", "apt", "install", "-y", *packages_to_install ] )
 
 
+def uninstall_apt_packages():
+
+    print("---")
+    print("Uninstalling packages - ", packages_to_uninstall)
+    subprocess.run( [ *sudo_command, "apt", "remove", "-y", *packages_to_uninstall ] )
+
+
 def configure_sssd():
 
     print("---")
@@ -160,6 +171,7 @@ def restart_services():
 print("Starting SSSD configuration steps")
 
 install_apt_packages()
+uninstall_apt_packages()
 configure_sssd()
 configure_ssh_auth_method()
 enable_automatic_homedir_creation()
