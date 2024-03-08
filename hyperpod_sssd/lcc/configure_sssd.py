@@ -2,6 +2,7 @@ import os
 import subprocess
 import tempfile
 import re
+import getpass
 
 # ---------------------------------
 # Configurations you need to modify
@@ -11,10 +12,6 @@ ec2_test_env = True
 ad_domain = "default"
 
 ldap_uri = "ldaps://ldap-lb-69fea12ccf01759e.elb.us-west-2.amazonaws.com"
-
-# If this script is executed by root already, this variable can be empty
-sudo_command = ["sudo","-E"]
-#sudo_command = []
 
 packages_to_install = [
     "sssd",
@@ -26,11 +23,14 @@ sshd_config_filename = "/etc/ssh/sshd_config"
 sssd_config_filename = "/etc/sssd/sssd.conf"
 cert_filename = "/etc/ldap/ldap-cert1.pem"
 
-# you can get obfuscated password by tools/obfuscate_password.py
 ldap_default_authtok_type = "obfuscated_password"
 ldap_default_authtok = "placeholder"
 
-assert ldap_default_authtok != "placeholder", "You need to configure ldap_default_authtok"
+assert ldap_default_authtok != "placeholder", "You need to configure ldap_default_authtok. You can use tools/obfuscate_password.py to get obfuscated password"
+
+ssh_auth_method = "publickey" # "password" or "publickey"
+
+assert ssh_auth_method in ["password", "publickey"]
 
 # ---------------------------------
 # Templates for configuration files
@@ -76,6 +76,13 @@ filter_groups = nobody,root
 
 # ---
 
+if getpass.getuser() == "root":
+    sudo_command = []
+else:
+    sudo_command = ["sudo","-E"]
+
+# ---
+
 def install_apt_packages():
 
     print("---")
@@ -85,36 +92,6 @@ def install_apt_packages():
     print("---")
     print("Installing packages - ", packages_to_install)
     subprocess.run( [ *sudo_command, "DEBIAN_FRONTEND=noninteractive", "apt", "install", "-y", *packages_to_install ] )
-
-
-def enable_password_authentication():
-
-    print("---")
-    print(f"Enabling password authentication in {sshd_config_filename}")
-
-    with tempfile.TemporaryDirectory() as tmp_dir:
-        tmp_sshd_config_filename = os.path.join(tmp_dir,"sshd_config")
-
-        with open(sshd_config_filename) as fd_src:
-            d = fd_src.read()
-
-        d = re.sub( r"PasswordAuthentication[ \t]+no", "PasswordAuthentication yes", d )
-        print(d)
-
-        with open(tmp_sshd_config_filename,"w") as fd_dst:
-            fd_dst.write(d)
-
-        subprocess.run( [ *sudo_command, "chmod", "644", tmp_sshd_config_filename ] )
-        subprocess.run( [ *sudo_command, "chown", "root:root", tmp_sshd_config_filename ] )
-        subprocess.run( [ *sudo_command, "cp", tmp_sshd_config_filename, sshd_config_filename ] )
-
-
-def enable_automatic_homedir_creation():
-
-    print("---")
-    print(f"Enabling automatic home directory creation")
-
-    subprocess.run( [ *sudo_command, "pam-auth-update", "--enable", "mkhomedir" ] )
 
 
 def configure_sssd():
@@ -136,6 +113,41 @@ def configure_sssd():
         subprocess.run( [ *sudo_command, "cp", tmp_sssd_config_filename, sssd_config_filename ] )
 
 
+def configure_ssh_auth_method():
+
+    print("---")
+    print(f"Configuring SSH authentication method to {ssh_auth_method}")
+
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        tmp_sshd_config_filename = os.path.join(tmp_dir,"sshd_config")
+
+        with open(sshd_config_filename) as fd_src:
+            d = fd_src.read()
+
+        if ssh_auth_method=="password":
+            d = re.sub( r"[#\t ]*PasswordAuthentication[ \t]+.*$", "PasswordAuthentication yes", d, flags=re.MULTILINE )
+        elif ssh_auth_method=="publickey":
+            d = re.sub( r"[#\t ]*AuthorizedKeysCommand[ \t]+.*$", "AuthorizedKeysCommand /usr/bin/sss_ssh_authorizedkeys", d, flags=re.MULTILINE )
+            d = re.sub( r"[#\t ]*AuthorizedKeysCommandUser[ \t]+.*$", "AuthorizedKeysCommandUser root", d, flags=re.MULTILINE )
+    
+        print(d)
+
+        with open(tmp_sshd_config_filename,"w") as fd_dst:
+            fd_dst.write(d)
+
+        subprocess.run( [ *sudo_command, "chmod", "644", tmp_sshd_config_filename ] )
+        subprocess.run( [ *sudo_command, "chown", "root:root", tmp_sshd_config_filename ] )
+        subprocess.run( [ *sudo_command, "cp", tmp_sshd_config_filename, sshd_config_filename ] )
+
+
+def enable_automatic_homedir_creation():
+
+    print("---")
+    print(f"Enabling automatic home directory creation")
+
+    subprocess.run( [ *sudo_command, "pam-auth-update", "--enable", "mkhomedir" ] )
+
+
 def restart_services():
 
     print("---")
@@ -148,9 +160,9 @@ def restart_services():
 print("Starting SSSD configuration steps")
 
 install_apt_packages()
-enable_password_authentication()
-enable_automatic_homedir_creation()
 configure_sssd()
+configure_ssh_auth_method()
+enable_automatic_homedir_creation()
 restart_services()
 
 print("---")
