@@ -29,4 +29,6 @@ clear-cache:
 	sudo sssctl cache-remove
 
 obfuscate:
-	sudo sss_obfuscate -d cluster-test.amazonaws.com
+	python3 ./tools/obfuscate_password.py
+
+
