@@ -1,17 +1,44 @@
+import sys
 import os
 import subprocess
 import tempfile
 import re
 import getpass
 
+
 # ---------------------------------
 # Configurations you need to modify
 
-ec2_test_env = True
+class Config:
 
-ad_domain = "default"
+    # Name of domain. Can be default if you are not sure.
+    domain = "default"
 
-ldap_uri = "ldaps://ldap-lb-69fea12ccf01759e.elb.us-west-2.amazonaws.com"
+    # Comma separated list of LDAP server URIs
+    ldap_uri = "ldaps://ldap-lb-69fea12ccf01759e.elb.us-west-2.amazonaws.com"
+
+    # The default base DN to use for performing LDAP user operations
+    ldap_search_base = "dc=cluster-test,dc=amazonaws,dc=com"
+
+    # The default bind DN to use for performing LDAP operations
+    ldap_default_bind_dn = "cn=Admin,ou=Users,ou=cluster-test,dc=cluster-test,dc=amazonaws,dc=com"
+    
+    # "password" or "obfuscated_password"
+    ldap_default_authtok_type = "obfuscated_password"
+
+    # You need to modify this parameter with the obfuscated password you got with obfuscate_password.py
+    ldap_default_authtok = "placeholder"
+
+    # SSH authentication method - "password" or "publickey"
+    ssh_auth_method = "publickey"
+
+
+# ---------------------------------
+
+if getpass.getuser() == "root":
+    sudo_command = []
+else:
+    sudo_command = ["sudo","-E"]
 
 packages_to_install = [
     "sssd",
@@ -25,30 +52,29 @@ packages_to_uninstall = [
 
 sshd_config_filename = "/etc/ssh/sshd_config"
 sssd_config_filename = "/etc/sssd/sssd.conf"
-cert_filename = "/etc/ldap/ldap-cert1.pem"
+ldap_config_filename = "/etc/ldap/ldap.conf"
 
-ldap_default_authtok_type = "obfuscated_password"
-ldap_default_authtok = "placeholder"
+cert_filename = "/etc/ldap/ldaps_cert.pem"
+cert_filename_src = os.path.join( os.path.dirname(__file__), os.path.basename(cert_filename) )
 
-assert ldap_default_authtok != "placeholder", "You need to configure ldap_default_authtok. You can use tools/obfuscate_password.py to get obfuscated password"
+assert os.path.exists(cert_filename_src), f"Certificate file not found - {cert_filename_src}"
+assert Config.ldap_default_authtok != "placeholder", "You need to configure Config.ldap_default_authtok. You can use tools/obfuscate_password.py to get obfuscated password"
+assert Config.ssh_auth_method in ["password", "publickey"], f"Config.ssh_auth_method has to be either 'password' or 'publickey'"
 
-ssh_auth_method = "publickey" # "password" or "publickey"
-
-assert ssh_auth_method in ["password", "publickey"]
 
 # ---------------------------------
 # Templates for configuration files
 
 sssd_conf = f"""
-[domain/{ad_domain}]
+[domain/{Config.domain}]
 id_provider = ldap
 cache_credentials = True
-ldap_uri = {ldap_uri}
-ldap_search_base = dc=cluster-test,dc=amazonaws,dc=com
+ldap_uri = {Config.ldap_uri}
+ldap_search_base = {Config.ldap_search_base}
 ldap_schema = AD
-ldap_default_bind_dn = cn=Admin,ou=Users,ou=cluster-test,dc=cluster-test,dc=amazonaws,dc=com
-ldap_default_authtok_type = {ldap_default_authtok_type}
-ldap_default_authtok = {ldap_default_authtok}
+ldap_default_bind_dn = {Config.ldap_default_bind_dn}
+ldap_default_authtok_type = {Config.ldap_default_authtok_type}
+ldap_default_authtok = {Config.ldap_default_authtok}
 ldap_tls_cacert = {cert_filename}
 ldap_tls_reqcert = hard
 ldap_id_mapping = True
@@ -64,7 +90,7 @@ default_shell = /bin/bash
 
 [sssd]
 config_file_version = 2
-domains = {ad_domain}
+domains = {Config.domain}
 services = nss, pam, ssh
 #debug_level = 6
 
@@ -77,13 +103,6 @@ filter_users = nobody,root
 filter_groups = nobody,root
 #debug_level = 6
 """
-
-# ---
-
-if getpass.getuser() == "root":
-    sudo_command = []
-else:
-    sudo_command = ["sudo","-E"]
 
 # ---
 
@@ -103,6 +122,32 @@ def uninstall_apt_packages():
     print("---")
     print("Uninstalling packages - ", packages_to_uninstall)
     subprocess.run( [ *sudo_command, "apt", "remove", "-y", *packages_to_uninstall ] )
+
+
+def install_ldaps_cert():
+
+    print("---")
+    print("Installing cert for LDAPS - ", cert_filename)
+    subprocess.run( [ *sudo_command, "cp", cert_filename_src, cert_filename ] )
+    subprocess.run( [ *sudo_command, "chmod", "644", cert_filename ] )
+
+    print("---")
+    print(f"Updating {ldap_config_filename} ldap utility commands")
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        tmp_ldap_config_filename = os.path.join(tmp_dir, os.path.basename(ldap_config_filename))
+
+        with open(ldap_config_filename) as fd_src:
+            d = fd_src.read()
+
+        d = re.sub( r"[#\t ]*TLS_CACERT[ \t]+.*$", f"TLS_CACERT {cert_filename}", d, flags=re.MULTILINE )    
+        print(d)
+
+        with open(tmp_ldap_config_filename,"w") as fd_dst:
+            fd_dst.write(d)
+
+        subprocess.run( [ *sudo_command, "chmod", "644", tmp_ldap_config_filename ] )
+        subprocess.run( [ *sudo_command, "chown", "root:root", tmp_ldap_config_filename ] )
+        subprocess.run( [ *sudo_command, "cp", tmp_ldap_config_filename, ldap_config_filename ] )
 
 
 def configure_sssd():
@@ -127,17 +172,17 @@ def configure_sssd():
 def configure_ssh_auth_method():
 
     print("---")
-    print(f"Configuring SSH authentication method to {ssh_auth_method}")
+    print(f"Configuring SSH authentication method to {Config.ssh_auth_method}")
 
     with tempfile.TemporaryDirectory() as tmp_dir:
-        tmp_sshd_config_filename = os.path.join(tmp_dir,"sshd_config")
+        tmp_sshd_config_filename = os.path.join(tmp_dir, os.path.basename(sshd_config_filename))
 
         with open(sshd_config_filename) as fd_src:
             d = fd_src.read()
 
-        if ssh_auth_method=="password":
+        if Config.ssh_auth_method=="password":
             d = re.sub( r"[#\t ]*PasswordAuthentication[ \t]+.*$", "PasswordAuthentication yes", d, flags=re.MULTILINE )
-        elif ssh_auth_method=="publickey":
+        elif Config.ssh_auth_method=="publickey":
             d = re.sub( r"[#\t ]*AuthorizedKeysCommand[ \t]+.*$", "AuthorizedKeysCommand /usr/bin/sss_ssh_authorizedkeys", d, flags=re.MULTILINE )
             d = re.sub( r"[#\t ]*AuthorizedKeysCommandUser[ \t]+.*$", "AuthorizedKeysCommandUser root", d, flags=re.MULTILINE )
     
@@ -172,6 +217,7 @@ print("Starting SSSD configuration steps")
 
 install_apt_packages()
 uninstall_apt_packages()
+install_ldaps_cert()
 configure_sssd()
 configure_ssh_auth_method()
 enable_automatic_homedir_creation()
