@@ -119,12 +119,12 @@ def main(args):
     params = ProvisioningParameters(args.provisioning_parameters)
     resource_config = ResourceConfig(args.resource_config)
 
-    ExecuteBashScript("./add_users.sh").run()
-
     fsx_dns_name, fsx_mountname = params.fsx_settings
     if fsx_dns_name and fsx_mountname:
         print(f"Mount fsx: {fsx_dns_name}. Mount point: {fsx_mountname}")
         ExecuteBashScript("./mount_fsx.sh").run(fsx_dns_name, fsx_mountname)
+
+    ExecuteBashScript("./add_users.sh").run()
 
     if params.workload_manager == "slurm":
         # Wait until slurm will be configured
@@ -149,17 +149,28 @@ def main(args):
         if node_type == SlurmNodeType.HEAD_NODE:
             ExecuteBashScript("./setup_mariadb_accounting.sh").run()
 
+        ExecuteBashScript("./utils/motd.sh").run(node_type)
+        ExecuteBashScript("./utils/setup_timesync.sh").run()
+        ExecuteBashScript("./utils/fsx_ubuntu.sh").run()
+
         ExecuteBashScript("./start_slurm.sh").run(node_type, ",".join(controllers))
 
-        # Note: Uncomment the below lines to install docker and enroot
+        ## Note: Uncomment the below lines to install docker and enroot.
         # ExecuteBashScript("./utils/install_docker.sh").run()
         # ExecuteBashScript("./utils/install_enroot_pyxis.sh").run(node_type)
 
+        # # Note: Uncomment the below lines to install DCGM Exporter and EFA Node Exporter and Cluster Nodes. (Docker must also be installed above)
+        # if node_type == SlurmNodeType.COMPUTE_NODE:
+        #     ExecuteBashScript("./utils/install_dcgm_exporter.sh").run()
+        #     ExecuteBashScript("./utils/install_efa_node_exporter.sh").run()
+
+        # # Note: Uncomment the below lines to install Slurm Exporter and Prometheus on the Controller Node.
+        # if node_type == SlurmNodeType.HEAD_NODE:
+        #     ExecuteBashScript("./utils/install_slurm_exporter.sh").run()
+        #     ExecuteBashScript("./utils/install_prometheus.sh").run()
+
         # Enable AcriveDirectory/LDAP integration
-        subprocess.run(
-            ["sudo", "python3", "-u", "configure_sssd.py"], 
-            #check=True # FIXME : not failing cluster creation during LCC development 
-        )
+        subprocess.run(["python3", "-u", "configure_sssd.py"])
 
     print("[INFO]: Success: All provisioning scripts completed")
 
