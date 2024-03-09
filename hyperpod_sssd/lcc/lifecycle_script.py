@@ -170,7 +170,7 @@ def main(args):
         #     ExecuteBashScript("./utils/install_prometheus.sh").run()
 
         # Enable AcriveDirectory/LDAP integration
-        subprocess.run(["python3", "-u", "configure_sssd.py"])
+        subprocess.run(["python3", "-u", "configure_sssd.py"], check=True)
 
     print("[INFO]: Success: All provisioning scripts completed")
 
