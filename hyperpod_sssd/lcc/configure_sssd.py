@@ -32,6 +32,10 @@ class Config:
     # SSH authentication method - "password" or "publickey"
     ssh_auth_method = "publickey"
 
+    # Home directory
+    #override_homedir = "/home/%u"
+    override_homedir = "/fsx/%u"
+
 
 # ---------------------------------
 
@@ -84,6 +88,7 @@ ldap_user_ssh_public_key = altSecurityIdentities
 ldap_use_tokengroups = True
 enumerate = False
 fallback_homedir = /home/%u
+override_homedir = {Config.override_homedir}
 default_shell = /bin/bash
 #use_fully_qualified_names = True
 #debug_level = 6
@@ -114,7 +119,7 @@ def install_apt_packages():
 
     print("---")
     print("Installing packages - ", packages_to_install)
-    subprocess.run( [ *sudo_command, "DEBIAN_FRONTEND=noninteractive", "apt", "install", "-y", *packages_to_install ] )
+    subprocess.run( [ *sudo_command, "apt", "install", "-y", *packages_to_install ] )
 
 
 def uninstall_apt_packages():
