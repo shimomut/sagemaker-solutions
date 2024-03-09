@@ -3,13 +3,6 @@ all:
 run:
 	python3 ./lcc/configure_sssd.py
 
-backup-config:
-	sudo cp /etc/sssd/sssd.conf ./config/sssd.conf
-	sudo chown ubuntu:ubuntu ./config/sssd.conf
-
-	sudo cp /etc/krb5.conf ./config/krb5.conf
-	sudo chown ubuntu:ubuntu ./config/krb5.conf
-
 check1:
 	getent passwd user1@cluster-test.amazonaws.com
 
@@ -31,4 +24,5 @@ clear-cache:
 obfuscate:
 	python3 ./tools/obfuscate_password.py
 
-
+upload-lcc:
+	aws s3 sync ./lcc s3://sagemaker-cluster-842413447717/lcc/sssd/
