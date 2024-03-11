@@ -15,13 +15,13 @@ class Config:
     domain = "default"
 
     # Comma separated list of LDAP server URIs
-    ldap_uri = "ldaps://ldap-lb-69fea12ccf01759e.elb.us-west-2.amazonaws.com"
+    ldap_uri = "ldaps://nlb-ds-97c6de9ec6862771.elb.us-west-2.amazonaws.com"
 
     # The default base DN to use for performing LDAP user operations
-    ldap_search_base = "dc=cluster-test,dc=amazonaws,dc=com"
+    ldap_search_base = "dc=hyperpod,dc=abc123,dc=com"
 
     # The default bind DN to use for performing LDAP operations
-    ldap_default_bind_dn = "cn=Admin,ou=Users,ou=cluster-test,dc=cluster-test,dc=amazonaws,dc=com"
+    ldap_default_bind_dn = "CN=Admin,OU=Users,OU=hyperpod,DC=hyperpod,DC=abc123,DC=com"
     
     # "password" or "obfuscated_password"
     ldap_default_authtok_type = "obfuscated_password"
@@ -33,8 +33,8 @@ class Config:
     ssh_auth_method = "publickey"
 
     # Home directory
-    #override_homedir = "/home/%u"
-    override_homedir = "/fsx/%u"
+    override_homedir = "/home/%u"
+    #override_homedir = "/fsx/%u"
 
 
 # ---------------------------------
