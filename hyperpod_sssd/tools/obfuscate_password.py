@@ -4,7 +4,7 @@ import getpass
 import pysss
 
 
-admin_pw = getpass.getpass("AD Admin password: ").strip()
+admin_pw = getpass.getpass("AD reader user password: ").strip()
 if not admin_pw:
     print("Invalid password")
     sys.exit(1)
