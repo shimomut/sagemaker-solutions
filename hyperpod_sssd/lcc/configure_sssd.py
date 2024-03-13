@@ -36,6 +36,9 @@ class Config:
     override_homedir = "/home/%u"
     #override_homedir = "/fsx/%u"
 
+    # Domain group name for sudoers
+    sudoers_group_name = "ClusterAdmin"
+
 
 # ---------------------------------
 
@@ -57,6 +60,7 @@ packages_to_uninstall = [
 sshd_config_filename = "/etc/ssh/sshd_config"
 sssd_config_filename = "/etc/sssd/sssd.conf"
 ldap_config_filename = "/etc/ldap/ldap.conf"
+sudoers_config_filename = "/etc/sudoers.d/100-ldap-cluster-admin"
 
 cert_filename = "/etc/ldap/ldaps_cert.pem"
 cert_filename_src = os.path.join( os.path.dirname(__file__), os.path.basename(cert_filename) )
@@ -107,6 +111,10 @@ offline_credentials_expiration = 14
 filter_users = nobody,root
 filter_groups = nobody,root
 #debug_level = 6
+"""
+
+sudoers_conf = f"""
+%{Config.sudoers_group_name} ALL=(ALL:ALL) NOPASSWD:ALL
 """
 
 # ---
@@ -209,6 +217,28 @@ def enable_automatic_homedir_creation():
     subprocess.run( [ *sudo_command, "pam-auth-update", "--enable", "mkhomedir" ] )
 
 
+def configure_sudoers():
+
+    if Config.sudoers_group_name is None:
+        return
+
+    print("---")
+    print(f"Configuring sudoers")
+
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        tmp_sudoers_config_filename = os.path.join(tmp_dir, os.path.basename(sudoers_config_filename))
+
+        d = sudoers_conf.strip()
+        print(d)
+
+        with open(tmp_sudoers_config_filename,"w") as fd:
+            fd.write(d)
+
+        subprocess.run( [ *sudo_command, "chmod", "440", tmp_sudoers_config_filename ] )
+        subprocess.run( [ *sudo_command, "chown", "root:root", tmp_sudoers_config_filename ] )
+        subprocess.run( [ *sudo_command, "cp", tmp_sudoers_config_filename, sudoers_config_filename ] )
+
+
 def restart_services():
 
     print("---")
@@ -226,6 +256,7 @@ install_ldaps_cert()
 configure_sssd()
 configure_ssh_auth_method()
 enable_automatic_homedir_creation()
+configure_sudoers()
 restart_services()
 
 print("---")
