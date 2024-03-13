@@ -21,7 +21,7 @@ class Config:
     ldap_search_base = "dc=hyperpod,dc=abc123,dc=com"
 
     # The default bind DN to use for performing LDAP operations
-    ldap_default_bind_dn = "CN=Admin,OU=Users,OU=hyperpod,DC=hyperpod,DC=abc123,DC=com"
+    ldap_default_bind_dn = "CN=ReadOnly,OU=Users,OU=hyperpod,DC=hyperpod,DC=abc123,DC=com"
     
     # "password" or "obfuscated_password"
     ldap_default_authtok_type = "obfuscated_password"
