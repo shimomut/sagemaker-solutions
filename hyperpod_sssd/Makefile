@@ -1,7 +1,7 @@
 all:
 
 run:
-	python3 ./lcc/configure_sssd.py
+	python3 ./lcc/configure_sssd.py --node-type controller
 
 check1:
 	getent passwd user1@cluster-test.amazonaws.com

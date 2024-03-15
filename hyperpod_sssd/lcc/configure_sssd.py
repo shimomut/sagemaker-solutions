@@ -4,6 +4,7 @@ import subprocess
 import tempfile
 import re
 import getpass
+import argparse
 
 
 # ---------------------------------
@@ -36,8 +37,19 @@ class Config:
     override_homedir = "/home/%u"
     #override_homedir = "/fsx/%u"
 
-    # Domain group name for sudoers
-    sudoers_group_name = "ClusterAdmin"
+    # Group names to accept SSH login
+    ssh_allow_groups = {
+        "controller" : ["ClusterAdmin", "ubuntu"],
+        "compute" : ["ClusterAdmin", "ClusterDev", "ubuntu"],
+        "login" : ["ClusterAdmin", "ClusterDev", "ubuntu"],
+    }
+
+    # Group names for sudoers
+    sudoers_groups = {
+        "controller" : ["ClusterAdmin", "ClusterDev"],
+        "compute" : ["ClusterAdmin", "ClusterDev"],
+        "login" : ["ClusterAdmin", "ClusterDev"],
+    }
 
 
 # ---------------------------------
@@ -113,9 +125,6 @@ filter_groups = nobody,root
 #debug_level = 6
 """
 
-sudoers_conf = f"""
-%{Config.sudoers_group_name} ALL=(ALL:ALL) NOPASSWD:ALL
-"""
 
 # ---
 
@@ -182,7 +191,7 @@ def configure_sssd():
         subprocess.run( [ *sudo_command, "cp", tmp_sssd_config_filename, sssd_config_filename ] )
 
 
-def configure_ssh_auth_method():
+def configure_ssh(node_type):
 
     print("---")
     print(f"Configuring SSH authentication method to {Config.ssh_auth_method}")
@@ -199,6 +208,17 @@ def configure_ssh_auth_method():
             d = re.sub( r"[#\t ]*AuthorizedKeysCommand[ \t]+.*$", "AuthorizedKeysCommand /usr/bin/sss_ssh_authorizedkeys", d, flags=re.MULTILINE )
             d = re.sub( r"[#\t ]*AuthorizedKeysCommandUser[ \t]+.*$", "AuthorizedKeysCommandUser root", d, flags=re.MULTILINE )
     
+        for group_name in Config.ssh_allow_groups[node_type]:
+            assert " " not in group_name
+
+        joined_group_names = " ".join(Config.ssh_allow_groups[node_type])
+
+        allow_groups_line = f"""
+        AllowGroups {joined_group_names}
+        """.strip()
+
+        d += "\n\n" + allow_groups_line + "\n"
+
         print(d)
 
         with open(tmp_sshd_config_filename,"w") as fd_dst:
@@ -217,10 +237,7 @@ def enable_automatic_homedir_creation():
     subprocess.run( [ *sudo_command, "pam-auth-update", "--enable", "mkhomedir" ] )
 
 
-def configure_sudoers():
-
-    if Config.sudoers_group_name is None:
-        return
+def configure_sudoers(node_type):
 
     print("---")
     print(f"Configuring sudoers")
@@ -228,11 +245,17 @@ def configure_sudoers():
     with tempfile.TemporaryDirectory() as tmp_dir:
         tmp_sudoers_config_filename = os.path.join(tmp_dir, os.path.basename(sudoers_config_filename))
 
-        d = sudoers_conf.strip()
-        print(d)
-
         with open(tmp_sudoers_config_filename,"w") as fd:
-            fd.write(d)
+
+            for group_name in Config.sudoers_groups[node_type]:
+
+                assert " " not in group_name
+                
+                sudoers_conf_line = f"""
+                %{group_name} ALL=(ALL:ALL) NOPASSWD:ALL
+                """.strip()
+
+                fd.write(sudoers_conf_line + "\n")
 
         subprocess.run( [ *sudo_command, "chmod", "440", tmp_sudoers_config_filename ] )
         subprocess.run( [ *sudo_command, "chown", "root:root", tmp_sudoers_config_filename ] )
@@ -248,16 +271,25 @@ def restart_services():
     subprocess.run( [ *sudo_command, "systemctl", "restart", "sssd.service" ] )
 
 
-print("Starting SSSD configuration steps")
 
-install_apt_packages()
-uninstall_apt_packages()
-install_ldaps_cert()
-configure_sssd()
-configure_ssh_auth_method()
-enable_automatic_homedir_creation()
-configure_sudoers()
-restart_services()
+if __name__ == "__main__":
 
-print("---")
-print("Finished SSSD configuration steps")
+    argparser = argparse.ArgumentParser(description="Script to configure ActiveDirectory/LDAP on SageMaker HyperPod")
+    argparser.add_argument('--node-type', action="store", help='Node type (controller, login, compute)')
+    args = argparser.parse_args()
+
+    assert args.node_type in ["controller", "login", "compute"]
+
+    print("Starting SSSD configuration steps")
+
+    install_apt_packages()
+    uninstall_apt_packages()
+    install_ldaps_cert()
+    configure_sssd()
+    configure_ssh(node_type = args.node_type)
+    enable_automatic_homedir_creation()
+    configure_sudoers(node_type = args.node_type)
+    restart_services()
+
+    print("---")
+    print("Finished SSSD configuration steps")
