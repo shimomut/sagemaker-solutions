@@ -3,3 +3,5 @@ config
 dump.txt
 *.ldif
 *.pem
+*.key
+*.crt
