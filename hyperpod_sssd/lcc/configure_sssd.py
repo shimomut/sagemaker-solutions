@@ -74,7 +74,7 @@ sssd_config_filename = "/etc/sssd/sssd.conf"
 ldap_config_filename = "/etc/ldap/ldap.conf"
 sudoers_config_filename = "/etc/sudoers.d/100-ldap-cluster-admin"
 
-cert_filename = "/etc/ldap/ldaps_cert.pem"
+cert_filename = "/etc/ldap/ldaps.crt"
 cert_filename_src = os.path.join( os.path.dirname(__file__), os.path.basename(cert_filename) )
 
 assert os.path.exists(cert_filename_src), f"Certificate file not found - {cert_filename_src}"
@@ -213,11 +213,11 @@ def configure_ssh(node_type):
 
         joined_group_names = " ".join(Config.ssh_allow_groups[node_type])
 
-        allow_groups_line = f"""
-        AllowGroups {joined_group_names}
-        """.strip()
-
-        d += "\n\n" + allow_groups_line + "\n"
+        d += (
+            f"\n"
+            f"# Allow SSH access only to specific groups\n"
+            f"AllowGroups {joined_group_names}\n"
+        )
 
         print(d)
 
@@ -248,14 +248,8 @@ def configure_sudoers(node_type):
         with open(tmp_sudoers_config_filename,"w") as fd:
 
             for group_name in Config.sudoers_groups[node_type]:
-
-                assert " " not in group_name
-                
-                sudoers_conf_line = f"""
-                %{group_name} ALL=(ALL:ALL) NOPASSWD:ALL
-                """.strip()
-
-                fd.write(sudoers_conf_line + "\n")
+                assert " " not in group_name                
+                fd.write(f"%{group_name} ALL=(ALL:ALL) NOPASSWD:ALL\n")
 
         subprocess.run( [ *sudo_command, "chmod", "440", tmp_sudoers_config_filename ] )
         subprocess.run( [ *sudo_command, "chown", "root:root", tmp_sudoers_config_filename ] )
