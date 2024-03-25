@@ -355,7 +355,7 @@ Resources:
   PrivateSubnet2:
     Condition: SecondSubnetCondition
     Type: AWS::EC2::Subnet
-    DependsOn: [VpcCidrBlock]
+    DependsOn: [VpcCidrBlock2]
     Properties:
       VpcId: !Ref VPC
       CidrBlock: !Select [ 0, !Cidr [ !FindInMap [Networking, VPC, CIDR2], 2, 15 ]]
