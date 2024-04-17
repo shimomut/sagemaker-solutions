@@ -4,7 +4,7 @@ HOSTNAME := undefined
 all:
 
 upload-lcc:
-	aws s3 sync lcc/ s3://sagemaker-cluster-842413447717/lcc/k8s/
+	aws s3 sync lcc/ s3://sagemaker-cluster-842413447717/us-west-2/lcc/k8s/
 
 install-helm:
 	curl -fsSL -o get_helm.sh https://raw.githubusercontent.com/helm/helm/master/scripts/get-helm-3 \
