@@ -121,6 +121,8 @@ class Hostnames:
 
                 instance_group_name = node["InstanceGroupName"]
                 ssm_target = f"sagemaker-cluster:{cluster_id}_{instance_group_name}-{node_id}"
+                
+                hostname = None
 
                 p = pexpect.popen_spawn.PopenSpawn([*Config.cmd_aws, "ssm", "start-session", "--target", ssm_target])
                 try:
@@ -129,11 +131,12 @@ class Hostnames:
                     p.sendline(cmd)
                     p.expect("#")
 
-                    output = p.before.decode("utf-8").strip().splitlines()
-                    assert len(output)==2 and output[1].startswith("ip-"), f"Unexpected output from hostname command {[output]}"
-                    hostname = output[1]
+                    for line in p.before.decode("utf-8").strip().splitlines():
+                        if line.startswith("ip-"):
+                            hostname = line
+                            break
                 except pexpect.exceptions.EOF:
-                    hostname = None
+                    pass
 
                 p.kill(signal.SIGINT)
 
