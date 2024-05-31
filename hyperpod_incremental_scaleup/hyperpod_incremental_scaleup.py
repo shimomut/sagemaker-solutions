@@ -46,7 +46,7 @@ def scaleup_with_loop(cluster_name, instance_group_name, target_instance_count, 
             if instance_group["InstanceGroupName"]==instance_group_name:
                 if instance_group["CurrentCount"] >= target_instance_count:
                     print("Scaling up finished")
-                    return
+                    return None
                 current_instance_count = instance_group["CurrentCount"]
                 next_target_instance_count = min(current_instance_count + increment_by, target_instance_count)
                 print(f"Scaling up {instance_group_name} from {current_instance_count} to {next_target_instance_count}")
@@ -94,10 +94,14 @@ def scaleup_with_loop(cluster_name, instance_group_name, target_instance_count, 
         if "FailureMessage" in cluster_desc and cluster_desc["FailureMessage"]:
             print(f"Failure message : {cluster_desc["FailureMessage"]}")
 
+    # ---
+
     wait_cluster_status()
     while True:
-        construct_new_instance_groups_config = construct_new_instance_groups_config()
-        start_scaleup_single_step(construct_new_instance_groups_config)
+        new_instance_groups = construct_new_instance_groups_config()
+        if new_instance_groups is None:
+            break
+        start_scaleup_single_step(new_instance_groups)
         wait_cluster_status()
 
 
