@@ -87,6 +87,7 @@ def scaleup_with_loop(cluster_name, instance_group_name, target_instance_count, 
             progress_dots.tick(cluster_desc["ClusterStatus"])
 
             if cluster_desc["ClusterStatus"] in ["InService","Failed"]:
+                progress_dots.tick(None)
                 break
 
             time.sleep(30)
