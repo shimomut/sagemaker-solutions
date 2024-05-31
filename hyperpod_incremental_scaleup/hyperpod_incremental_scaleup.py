@@ -78,7 +78,6 @@ def scaleup_with_loop(cluster_name, instance_group_name, target_instance_count, 
 
     def wait_cluster_status():
 
-        # Wait cluster update
         progress_dots = ProgressDots()
 
         while True:
