@@ -15,8 +15,6 @@ import uuid
 import urllib.request
 import io
 
-import boto3
-
 
 # --------------
 # Configurations
@@ -270,6 +268,8 @@ def get_secret_name():
 
 def put_join_info_from_master_node(join_info):
 
+    import boto3
+
     region_name = ResourceConfig.instance().get_region()
 
     session = boto3.session.Session()
@@ -285,6 +285,8 @@ def put_join_info_from_master_node(join_info):
 
 
 def get_join_info_from_master_node():
+
+    import boto3
 
     region_name = ResourceConfig.instance().get_region()
 
