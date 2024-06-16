@@ -17,6 +17,7 @@ In this solution, Kubernetes is automatically installed by the lifecycle script 
 
 * Auto-resume is out-of-scope. (Manual instance replacement is possible)
 * You need to login to master node (head node) to use kubectl command to run workloads. Using kubectl from remote machines would be possible, but it is not tested.
+* When cluster scaling up operation fails and rolls back (e.g., hardware health check failure), you may see garbage nodes in the node list. As of now, this solution doesn't automatically delete nodes when nodes are deleted by cluster rolling back. Please manually delete nodes using `kubectl delete node`.
 * Due to HyperPod’s current limitation, EBS root volume size is limited at 100GB. As a workaround, the lifecycle configuration script automatically change the containerd data path to NVMe if available.
 * Due to HyperPod’s current limitation, cluster cannot be scaled down. Deleting instance group and decreasing the number of instances are not possible today. 
 
