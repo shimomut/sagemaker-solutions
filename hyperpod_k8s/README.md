@@ -150,6 +150,25 @@ In this solution, Kubernetes is automatically installed by the lifecycle script 
             nvidia.com/gpu:     8
             pods:               110
         ```
+
+    3. You can also check multiple nodes in bulk.
+        ```
+        $ kubectl get nodes "-o=custom-columns=NAME:.metadata.name,GPU:.status.allocatable.nvidia\.com/gpu"
+        ```
+
+        ```
+        NAME              GPU
+        ip-10-2-0-25      1
+        ip-10-2-103-146   1
+        ip-10-2-105-39    1
+        ip-10-2-116-255   1
+        ip-10-2-119-24    1
+        ip-10-2-125-107   1
+        ip-10-2-19-110    1
+        ip-10-2-20-114    1
+            :
+            :
+        ```
               
 3. Install EFA Device Plugin
     1. Checkout https://github.com/aws-samples/aws-do-eks.git
