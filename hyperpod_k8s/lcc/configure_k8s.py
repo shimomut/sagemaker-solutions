@@ -35,23 +35,6 @@ join_info_timeout = 5 * 60 # 5min
 nodes_ready_timeout = 5 * 60 # 5min
 kubectl_apply_max_retries = 10
 
-# If NVMe is available, use it as containerd data path
-if os.path.exists("/opt/dlami/nvme"):
-    containerd_root = "/opt/dlami/nvme/containerd"
-else:
-    containerd_root = "/var/lib/containerd"
-
-
-# ---------------------------------
-# Templates for configuration files
-
-containerd_config = f"""
-root = "{containerd_root}"
-
-[plugins."io.containerd.grpc.v1.cri".containerd.runtimes.runc]
-  [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.runc.options]
-    SystemdCgroup = true
-"""
 
 # ---
 
@@ -84,6 +67,7 @@ class ResourceConfig:
 
         self.d = json.loads(d)
 
+        # sample contents of resource_config.json
         """
         {
             'ClusterConfig': {
@@ -212,7 +196,23 @@ def configure_cri_containerd():
     with tempfile.TemporaryDirectory() as tmp_dir:
         tmp_filename = os.path.join(tmp_dir, os.path.basename(dst_filename))
 
-        d = containerd_config.strip()
+        with open("./utils/containerd_config.template") as fd_template:
+            d = fd_template.read()
+
+        # If NVMe is available, use it as containerd data path
+        if os.path.exists("/opt/dlami/nvme"):
+            containerd_root = "/opt/dlami/nvme/containerd"
+        else:
+            containerd_root = "/var/lib/containerd"
+
+        # If GPUs are available, use "nvidia" runtime
+        result = subprocess.run(["nvidia-smi"])
+        if result.returncode==0:
+            default_runtime_name = "nvidia"
+        else:
+            default_runtime_name = "runc"
+
+        d = d.format(root=containerd_root, default_runtime_name=default_runtime_name)
         print(d)
 
         with open(tmp_filename,"w") as fd:
