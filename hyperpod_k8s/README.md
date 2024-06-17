@@ -126,37 +126,15 @@ In this solution, Kubernetes is automatically installed by the lifecycle script 
 
 ##### Environment setup for sample workload
 
-**Note: GPU Operator is not working as expected in some environment. This instruction will be updated soon.**
-
 1. Login to the controller node by SSM or SSH. (You can use VS Code as well)
-2. Install Nvidia GPU Operator (Note: Nvidia’s official installation guide is also available [here](https://docs.nvidia.com/datacenter/cloud-native/gpu-operator/latest/getting-started.html#operator-install-guide))
-    1. Install Helm
-        ```
-        $ curl -fsSL -o get_helm.sh https://raw.githubusercontent.com/helm/helm/master/scripts/get-helm-3 \
-            && chmod 700 get_helm.sh \
-            && ./get_helm.sh
-        ```
-    
-    2. Add Nvidia Helm Repository
-        ```
-        $ helm repo add nvidia https://helm.ngc.nvidia.com/nvidia \
-            && helm repo update
-        ```
-    
-    3. Install NVidia GPU Operator
-    
-        ```
-        $ helm install --wait --generate-name \
-                -n gpu-operator --create-namespace \
-                nvidia/gpu-operator \
-                --set driver.enabled=false
-        ```
-    
-        **Note:** driver installation is disabled.
+2. Install Nvidia device plugin
 
-        **Note:** this step installs NVIDIA Container Toolkit as well.
+    1. Deploy
+        ```
+        $ kubectl apply -f https://raw.githubusercontent.com/NVIDIA/k8s-device-plugin/release-0.15/deployments/static/nvidia-device-plugin.yml
+        ```
     
-    4. Verify “nvidia.com/gpu” field appears in the worker node description.
+    2. Verify “nvidia.com/gpu” field appears in the worker node description.
         
         ```
         $ kubectl describe node {node-name}
