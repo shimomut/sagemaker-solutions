@@ -126,6 +126,8 @@ In this solution, Kubernetes is automatically installed by the lifecycle script 
 
 ##### Environment setup for sample workload
 
+**Note: GPU Operator is not working as expected in some environment. This instruction will be updated soon.**
+
 1. Login to the controller node by SSM or SSH. (You can use VS Code as well)
 2. Install Nvidia GPU Operator (Note: Nvidia’s official installation guide is also available [here](https://docs.nvidia.com/datacenter/cloud-native/gpu-operator/latest/getting-started.html#operator-install-guide))
     1. Install Helm
