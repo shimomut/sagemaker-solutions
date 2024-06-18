@@ -275,6 +275,63 @@ def wait_for_replacement_completion(hostname):
     progress_dots.tick(None)
 
 
+def delete_orphan_nodes():
+
+    # get list of existing nodes from HyperPod's resource_config.json
+    existing_instance_addresses = set()
+    for instance in ResourceConfig.instance().iter_instances():
+        existing_instance_addresses.add(instance["CustomerIpAddress"])
+
+    # get list of nodes from kubectl get nodes
+    captured_output = run_subprocess_wrap(["kubectl", "get", "nodes", "-o", "json"], print_output=False)
+    d = json.loads(captured_output)
+
+    # check the status of nodes and list orphan nodes to delete
+    node_names_to_delete = []
+    for node in d["items"]:
+
+        if node["kind"]!="Node":
+            continue
+
+        if "node-role.kubernetes.io/control-plane" in node["metadata"]["labels"]:
+            continue
+
+        for address in node["status"]["addresses"]:
+            if address["type"]=="InternalIP":
+                instance_address = address["address"]
+                break
+        else:
+            assert False, "IP address not found"
+
+        for status_condition in node["status"]["conditions"]:
+            if status_condition["type"]=="Ready":
+                ready_status = status_condition["status"]
+                break
+        else:
+            assert False, "Ready status not found"
+        
+        if ready_status=="Unknown" and instance_address not in existing_instance_addresses:
+            node_names_to_delete.append(node["metadata"]["name"])
+
+    if not node_names_to_delete:
+        print("No orphan node detected")
+        return
+
+    print("Orphan nodes:")
+    for node_name in node_names_to_delete:
+        print(f"  {node_name}")
+
+    # Confirm deletion
+    answer = input("Delete these orphan nodes? [y/N]")
+
+    # Delete
+    if answer.lower() in ["y", "yes"]:
+        for node_name in node_names_to_delete:
+            print(f"  Deleting {node_name}")
+            run_subprocess_wrap(["kubectl", "delete", "node", node_name], print_output=True)
+
+
+
 def cmd_replace_instance(args):
 
     generate_new_token()
@@ -291,6 +348,11 @@ def cmd_generate_new_token(args):
     print("Finished")
 
 
+def cmd_delete_orphan_nodes(args):
+
+    delete_orphan_nodes()
+    
+    
 if __name__ == "__main__":
 
     argparser1 = argparse.ArgumentParser( description = 'K8 on HyperPod operation tool' )
@@ -304,6 +366,10 @@ if __name__ == "__main__":
     help = 'Generate a new token for scaling-up'
     argparser2 = subparsers.add_parser( "generate-new-token", help=help, description=help )
     argparser2.set_defaults(func=cmd_generate_new_token)
+
+    help = 'Delete orphan nodes (after cluster roll-back)'
+    argparser2 = subparsers.add_parser( "delete-orphan-nodes", help=help, description=help )
+    argparser2.set_defaults(func=cmd_delete_orphan_nodes)
 
     args = argparser1.parse_args( sys.argv[1:] )
     if hasattr(args,"func"):

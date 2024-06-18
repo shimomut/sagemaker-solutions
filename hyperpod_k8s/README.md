@@ -352,3 +352,52 @@ In this solution, Kubernetes is automatically installed by the lifecycle script 
 
 2. Increase the number of instances by “Edit” button on the Management Console, or with “update-cluster” API.
 
+
+
+##### How to delete orphan nodes
+
+When you scale-up your cluster, it is possible HyperPod detects hardware failures in the new instances, and scaling up operation rolls back. But if the failed instances are already added to the Kubernetes cluster, they are not automatically removed. You can use the script to delete those orphan nodes.
+
+1. Run the hyperpod_k8s_op.py delete-orphan-nodes” command.
+    ```
+    $ python3.9 ./hyperpod_k8s_op.py delete-orphan-nodes
+    ```
+
+2. You will be asked before actually deleting them.
+
+    ```
+    Orphan nodes:
+    ip-10-2-118-116
+    ip-10-2-14-164
+    ip-10-2-39-55
+    ip-10-2-69-189
+    ip-10-2-77-176
+    ip-10-2-77-36
+    ip-10-2-93-180
+    ip-10-2-95-229
+    Delete these orphan nodes? [y/N]y
+    ```
+
+3. Enter "y" if you are sure to delete them.
+
+    ```
+    Deleting ip-10-2-118-116
+    node "ip-10-2-118-116" deleted
+    Deleting ip-10-2-14-164
+    node "ip-10-2-14-164" deleted
+    Deleting ip-10-2-39-55
+    node "ip-10-2-39-55" deleted
+    Deleting ip-10-2-69-189
+    node "ip-10-2-69-189" deleted
+    Deleting ip-10-2-77-176
+    node "ip-10-2-77-176" deleted
+    Deleting ip-10-2-77-36
+    node "ip-10-2-77-36" deleted
+    Deleting ip-10-2-93-180
+    node "ip-10-2-93-180" deleted
+    Deleting ip-10-2-95-229
+    node "ip-10-2-95-229" deleted
+    ```
+
+
+
