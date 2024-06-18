@@ -131,7 +131,7 @@ In this solution, Kubernetes is automatically installed by the lifecycle script 
 
     1. Deploy
         ```
-        $ kubectl apply -f https://raw.githubusercontent.com/NVIDIA/k8s-device-plugin/release-0.15/deployments/static/nvidia-device-plugin.yml
+        $ kubectl apply -f https://raw.githubusercontent.com/NVIDIA/k8s-device-plugin/v0.15.0/deployments/static/nvidia-device-plugin.yml
         ```
     
     2. Verify “nvidia.com/gpu” field appears in the worker node description.
