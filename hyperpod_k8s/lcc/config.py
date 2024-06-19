@@ -17,8 +17,9 @@ class Config:
     # Set true to install quality-of-live improvements
     enable_initsmhp = False
 
-
+    # Set true to install self-managed Kubernetes
     enable_kubernetes = True
+
 
 # Configuration parameters for ActiveDirectory/LDAP/SSSD
 class SssdConfig:

@@ -90,10 +90,14 @@ In this solution, Kubernetes is automatically installed by the lifecycle script 
 ##### Create a cluster with Kubernetes enabled lifecycle script
 
 1. Create prerequisite resources (VPC, FSxL, etc) using the CF templates in the workshop
-    1. https://catalog.workshops.aws/sagemaker-hyperpod/en-US/00-setup/02-own-account
+    - https://catalog.workshops.aws/sagemaker-hyperpod/en-US/00-setup/02-own-account
 2. Create a HyperPod cluster with K8s enabled LCC script
-    1. https://github.com/shimomut/sagemaker-solutions/tree/main/hyperpod_k8s/lcc
-    2. Note: make sure your S3 bucket’s name starts with “sagemaker-”.
+    - https://github.com/shimomut/sagemaker-solutions/tree/main/hyperpod_k8s/lcc
+    - Configure CIDR of Pod network as needed, based on the cluster size
+        - By default, CIDR of Pod network is set to "10.244.0.0/16", and each node uses /24 as the mask size of PodCIDR. With this default setting, you can create up to 256 nodes (including master node) in the cluster.
+        If this is not sufficient for you, you can change the "pod_network_cidr" in the lifecycle script. (e.g., 10.244.0.0/14 for 1024 nodes).
+    - **Note:** make sure your S3 bucket’s name starts with “sagemaker-”.
+
 3. Confirm the cluster becomes “InService” status.
 4. Login to the controller node with SSM or SSH.
 5. Confirm nodes are visible in Kubernetes world.
