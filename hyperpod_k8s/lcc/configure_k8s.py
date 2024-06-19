@@ -373,7 +373,7 @@ def install_cni_flannel():
         with urllib.request.urlopen("https://github.com/flannel-io/flannel/releases/latest/download/kube-flannel.yml") as fd:
             d = fd.read().decode("utf-8")
 
-        d = re.sub( r'"Network": "[0-9./]+"', f'"Network": "{pod_cidr}"', d )
+        d = re.sub( r'"Network": "[0-9./]+"', f'"Network": "{pod_network_cidr}"', d )
         print(d)
 
         with open(tmp_filename,"w") as fd_dst:
