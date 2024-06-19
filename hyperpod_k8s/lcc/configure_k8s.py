@@ -29,7 +29,7 @@ secret_name_prefix = "hyperpod-k8s-"
 #secret_name_prefix = "hyperpod-k8s-" + str(uuid.uuid4())[:8] + "-" # for local testing purpose
 
 # Pod network CIDR has to be different range from Node level network.
-pod_cidr = "10.244.0.0/16"
+pod_network_cidr = "10.244.0.0/16"
 
 join_info_timeout = 5 * 60 # 5min
 nodes_ready_timeout = 5 * 60 # 5min
@@ -315,7 +315,7 @@ def init_master_node():
 
     join_info = {}
 
-    captured_output = run_subprocess_wrap( [ *sudo_command, "kubeadm", "init", f"--apiserver-advertise-address={IpAddressInfo.instance().addr}", f"--pod-network-cidr={pod_cidr}" ] )
+    captured_output = run_subprocess_wrap( [ *sudo_command, "kubeadm", "init", f"--apiserver-advertise-address={IpAddressInfo.instance().addr}", f"--pod-network-cidr={pod_network_cidr}" ] )
     for line in captured_output.splitlines():
         re_result = re.match(r"kubeadm join ([0-9.:]+) --token ([a-z0-9.]+)", line)
         if re_result:
