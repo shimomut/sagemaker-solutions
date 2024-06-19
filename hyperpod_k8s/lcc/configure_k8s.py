@@ -25,12 +25,16 @@ if getpass.getuser() == "root":
 else:
     sudo_command = ["sudo","-E"]
 
+# Prefix of SecretsManager secret name
 secret_name_prefix = "hyperpod-k8s-"
-#secret_name_prefix = "hyperpod-k8s-" + str(uuid.uuid4())[:8] + "-" # for local testing purpose
 
-# Pod network CIDR has to be different range from Node level network.
+# Pod network CIDR has to be different range from Node level network
 pod_network_cidr = "10.244.0.0/16"
 
+# Version of flannel to install
+flannel_version = "v0.25.4"
+
+# Configuration for retries and timeout
 join_info_timeout = 5 * 60 # 5min
 nodes_ready_timeout = 5 * 60 # 5min
 kubectl_apply_max_retries = 10
@@ -362,6 +366,8 @@ def init_worker_node():
 # This is needed only on master node
 def install_cni_flannel():
 
+    # FIXME : should install verified version, instead of latest
+
     print("---")
     print(f"Installing flannel")
 
@@ -370,7 +376,7 @@ def install_cni_flannel():
 
         tmp_filename = os.path.join(tmp_dir, "kube-flannel.yml")
 
-        with urllib.request.urlopen("https://github.com/flannel-io/flannel/releases/latest/download/kube-flannel.yml") as fd:
+        with urllib.request.urlopen(f"https://github.com/flannel-io/flannel/releases/download/{flannel_version}/kube-flannel.yml") as fd:
             d = fd.read().decode("utf-8")
 
         d = re.sub( r'"Network": "[0-9./]+"', f'"Network": "{pod_network_cidr}"', d )
