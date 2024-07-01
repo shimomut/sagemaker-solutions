@@ -62,6 +62,7 @@ def scaleup_with_loop(cluster_name, instance_group_name, target_instance_count, 
                     "LifeCycleConfig": instance_group["LifeCycleConfig"],
                     "ExecutionRole": instance_group["ExecutionRole"],
                     "ThreadsPerCore": instance_group["ThreadsPerCore"],
+                    "InstanceStorageConfigs": instance_group["InstanceStorageConfigs"],
                 }
             )
         
