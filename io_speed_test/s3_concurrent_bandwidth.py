@@ -14,8 +14,8 @@ from boto3.s3.transfer import TransferConfig
 
 class Config:
 
-    #region = "us-west-2"
-    region = "ap-southeast-2"
+    region = "us-west-2"
+    #region = "ap-southeast-2"
 
     if region=="us-west-2":
         s3_location = "s3://shimomut-files/tmp/"
@@ -47,38 +47,50 @@ class Config:
         num_files = 100
         max_workers = 64
         s3_transfer_config = None
-        # -> 4MB/s
     elif 0:
         file_size = 100 * 1024 * 1024 # 100 MB
         num_files = 100
         max_workers = 32
         s3_transfer_config = None
-        # -> 10.9MB/s
     elif 0:
         file_size = 100 * 1024 * 1024 # 100 MB
         num_files = 100
         max_workers = 16
         s3_transfer_config = None
-        # -> 31 MB/s
     elif 0:
         file_size = 100 * 1024 * 1024 # 100 MB
         num_files = 100
         max_workers = 8
         s3_transfer_config = None
-        # -> 60 ~ 65 MB/s
     elif 0:
-        file_size = 1024 * 1024 * 1024 # 1 GB
-        num_files = 8
-        max_workers = 8
-        s3_transfer_config = None
-        # -> 64 MB/s
-    elif 1:
         file_size = 1024 * 1024 * 1024 # 1 GB
         num_files = 8
         max_workers = 4
         s3_transfer_config = None
-        # -> 94~132 MB/s
-        # なぜか -N 2 の時の方が速い
+    elif 0:
+        file_size = 1024 * 1024 * 1024 # 1 GB
+        num_files = 16
+        max_workers = 8
+        s3_transfer_config = None
+        # 185 MB/s
+    elif 0:
+        file_size = 1024 * 1024 * 1024 # 1 GB
+        num_files = 32
+        max_workers = 16
+        s3_transfer_config = None
+        # 130 MB/s
+    elif 1:
+        file_size = 1024 * 1024 * 1024 # 1 GB
+        num_files = 64
+        max_workers = 32
+        s3_transfer_config = None
+        # 51 ~ 84 MB/s
+    elif 0:
+        file_size = 1024 * 1024 * 1024 # 1 GB
+        num_files = 128
+        max_workers = 64
+        s3_transfer_config = None
+        # 28 ~ 42 MB/s
 
     @staticmethod
     def print():
