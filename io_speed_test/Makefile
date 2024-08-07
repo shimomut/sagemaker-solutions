@@ -1,7 +1,7 @@
 all:
 
 run:
-	srun -N 1 python3.9 -u io_speed_test.py
+	srun -N 16 python3.9 -u s3_concurrent_bandwidth.py
 	
 clean:
 	rm tmp/*.bin
