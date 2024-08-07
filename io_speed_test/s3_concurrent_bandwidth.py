@@ -14,8 +14,15 @@ from boto3.s3.transfer import TransferConfig
 
 class Config:
 
-    s3_location = "s3://shimomut-files/tmp/"                    # us-west-2
-    #s3_location = "s3://shimomut-files-ap-southeast-2/tmp/"    # ap-southeast-2
+    #region = "us-west-2"
+    region = "ap-southeast-2"
+
+    if region=="us-west-2":
+        s3_location = "s3://shimomut-files/tmp/"
+    elif region=="ap-southeast-2":
+        s3_location = "s3://shimomut-files-ap-southeast-2/tmp/"
+    else:
+        assert False
 
     #concurrent_executor = "thread"
     concurrent_executor = "process"
@@ -76,6 +83,7 @@ class Config:
     @staticmethod
     def print():
 
+        print(f"region : {Config.region}")
         print(f"s3_location : {Config.s3_location}")
         print(f"concurrent_executor : {Config.concurrent_executor}")
         print(f"file_size : {Config.file_size}")
