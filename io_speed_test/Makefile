@@ -1,7 +1,7 @@
 all:
 
 run:
-	srun -N 16 python3.9 -u s3_concurrent_bandwidth.py
+	srun -N 32 python3.9 -u s3_concurrent_bandwidth.py
 	
 clean:
 	rm tmp/*.bin

@@ -14,7 +14,8 @@ from boto3.s3.transfer import TransferConfig
 
 class Config:
 
-    s3_location = "s3://shimomut-files-ap-southeast-2/tmp/"
+    s3_location = "s3://shimomut-files/tmp/"                    # us-west-2
+    #s3_location = "s3://shimomut-files-ap-southeast-2/tmp/"    # ap-southeast-2
 
     #concurrent_executor = "thread"
     concurrent_executor = "process"
