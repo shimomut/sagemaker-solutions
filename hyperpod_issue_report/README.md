@@ -13,18 +13,19 @@ This script gathers issue reporting information from your cluster. By running th
 
 #### Data to be collected
 
-- /opt/ml/config/resource_config.json (on head node)
-- /var/log/aws/clusters/* (on head node)
-- sinfo / sinfo -R (on head node)
-- systemctl status slurmctld (on head node)
-- systemctl status slurmd (on worker nodes)
-- /opt/slurm/etc/* (on head node)
-- nvidia-smi (on worker nodes)
-- nvidia-bug-report (on worker nodes)
-- /var/log/syslog
-- /var/log/kern.log
-- /var/log/slurm/*
-- df
+- Cluster resource configuration file `/opt/ml/config/resource_config.json` (on head node)
+- SageMaker specific logs `/var/log/aws/clusters/*` (on head node)
+- Output of `sinfo` / `sinfo -R` (on head node)
+- Output of `systemctl status slurmctld` (on head node)
+- Output of `systemctl status slurmd` (on worker nodes)
+- Slurm configurations `/opt/slurm/etc/*` (on head node)
+- Ourput of `nvidia-smi` (on worker nodes)
+- Output of `nvidia-bug-report.sh` (on worker nodes)
+- `/var/log/syslog`
+- `/var/log/kern.log`
+- Output of `dmesg -T`
+- Slurm related logs `/var/log/slurm/*`
+- Output of `df`
 
 
 #### Usage
