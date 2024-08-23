@@ -131,6 +131,10 @@ def capture(args):
     cmd = ["sudo", "cp", "-R", "/var/log/slurm", os.path.join(output_path,"var_log_slurm")]
     run_subprocess_wrap(cmd, print_output=False)
 
+    cmd = ["df", "-h"]
+    run_subprocess_wrap(cmd, print_output=False, to_file=os.path.join(output_path, "df.log"))
+
+
 
 
 if __name__ == "__main__":
