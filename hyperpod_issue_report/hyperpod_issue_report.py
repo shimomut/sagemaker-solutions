@@ -8,7 +8,8 @@ import subprocess
 import socket
 import concurrent.futures
 
-def run_subprocess_wrap(cmd, print_output=True, to_file=None):
+
+def run_subprocess_wrap(cmd, print_output=True, to_file=None, raise_non_zero_retcode=True):
 
     captured_stdout = io.StringIO()
 
@@ -23,7 +24,7 @@ def run_subprocess_wrap(cmd, print_output=True, to_file=None):
         with open(to_file,"w") as fd:
             fd.write(captured_stdout.getvalue())
 
-    if p.returncode != 0:
+    if raise_non_zero_retcode and p.returncode != 0:
         raise ChildProcessError(f"Subprocess {cmd} returned non-zero exit code {p.returncode}.")
     
     return captured_stdout.getvalue()
@@ -89,8 +90,6 @@ def capture(args):
 
     os.makedirs( output_path, exist_ok=True )
 
-    run_subprocess_wrap([ "touch", os.path.join(output_path, "some_data.txt") ], print_output=False)
-
     if args.head_node:
 
         cmd = ["sudo", "cp", "/opt/ml/config/resource_config.json", output_path]
@@ -108,21 +107,30 @@ def capture(args):
         cmd = ["systemctl", "status", "slurmctld"]
         run_subprocess_wrap(cmd, print_output=False, to_file=os.path.join(output_path, "slurmctld_status.log"))
 
+        cmd = ["sudo", "cp", "-R", "/opt/slurm/etc", os.path.join(output_path,"opt_slurm_etc")]
+        run_subprocess_wrap(cmd, print_output=False)
+
     else:
 
         cmd = ["systemctl", "status", "slurmd"]
         run_subprocess_wrap(cmd, print_output=False, to_file=os.path.join(output_path, "slurmd_status.log"))
 
+        cmd = ["nvidia-smi"]
+        run_subprocess_wrap(cmd, print_output=False, to_file=os.path.join(output_path, "nvidia-smi.log"), raise_non_zero_retcode=False)
+
+        cmd = ["sudo", "nvidia-bug-report.sh", "--output-file", os.path.join(output_path,"nvidia-bug-report.log")]
+        run_subprocess_wrap(cmd, print_output=False, raise_non_zero_retcode=False)
 
 
-    cmd = ["cp", "/var/log/syslog", os.path.join(output_path,"var_log")]
+    cmd = ["cp", "/var/log/syslog", os.path.join(output_path,"syslog")]
     run_subprocess_wrap(cmd, print_output=False)
 
-    cmd = ["cp", "/var/log/kern.log", os.path.join(output_path,"var_log")]
+    cmd = ["cp", "/var/log/kern.log", os.path.join(output_path,"kern.log")]
     run_subprocess_wrap(cmd, print_output=False)
 
     cmd = ["sudo", "cp", "-R", "/var/log/slurm", os.path.join(output_path,"var_log_slurm")]
     run_subprocess_wrap(cmd, print_output=False)
+
 
 
 if __name__ == "__main__":
