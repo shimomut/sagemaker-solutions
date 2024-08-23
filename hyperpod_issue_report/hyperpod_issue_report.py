@@ -6,6 +6,8 @@ import re
 import argparse
 import subprocess
 import socket
+import shutil
+import datetime
 import concurrent.futures
 
 
@@ -48,14 +50,16 @@ def main(args):
 
     node_names = list_all_nodes()
 
+    timestamp = datetime.datetime.now()
     output_path_top = os.path.abspath(args.output_path)
+    output_basename = timestamp.strftime("hyperpod_issue_report_%Y%m%d_%H%M%S")
 
     cmd = [
         sys.executable,
         os.path.abspath(sys.argv[0]),
         "--capture-single-node",
         "--head-node",
-        "--output-path", os.path.join(output_path_top, f"control"),
+        "--output-path", os.path.join(output_path_top, output_basename, f"control"),
     ]
 
     # Capture report data from current node (head node)
@@ -70,7 +74,7 @@ def main(args):
                 sys.executable,
                 os.path.abspath(sys.argv[0]),
                 "--capture-single-node",
-                "--output-path", os.path.join(output_path_top, f"worker"),
+                "--output-path", os.path.join(output_path_top, output_basename, f"worker"),
             ]
 
             run_subprocess_wrap(["ssh", node_name, *cmd], print_output=True)
@@ -78,6 +82,11 @@ def main(args):
 
         for node_name, result in thread_pool.map(_capture, node_names ):
             pass
+
+    cmd = ["sudo", "chmod", "-R", "ugo+rw", os.path.join(output_path_top, output_basename)]
+    run_subprocess_wrap(cmd, print_output=False)
+    
+    shutil.make_archive( os.path.join(output_path_top, output_basename), "zip", output_path_top, output_basename)
 
 
 def capture(args):
@@ -135,14 +144,12 @@ def capture(args):
     run_subprocess_wrap(cmd, print_output=False, to_file=os.path.join(output_path, "df.log"))
 
 
-
-
 if __name__ == "__main__":
 
     argparser = argparse.ArgumentParser( description="HyperPod issue report data capturing tool" )
     argparser.add_argument('--capture-single-node', action="store_true", help="Capture reporting data from a current single node")
     argparser.add_argument('--head-node', action="store_true", help="Capture head node specific data")
-    argparser.add_argument('--output-path', action="store", required=True, help="Directory path for output files")
+    argparser.add_argument('--output-path', action="store", default="./", help="Directory path for output files")
 
     args = argparser.parse_args()
     if args.capture_single_node:
