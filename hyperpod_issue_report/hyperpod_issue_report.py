@@ -11,6 +11,11 @@ import datetime
 import concurrent.futures
 
 
+# configuration
+skip_ssh_host_key_check = False
+num_capturing_workers = 16
+
+
 def run_subprocess_wrap(cmd, print_output=True, to_file=None, raise_non_zero_retcode=True):
 
     captured_stdout = io.StringIO()
@@ -50,10 +55,20 @@ def main(args):
 
     node_names = list_all_nodes()
 
+    print("Verifying SSH connectivity to all worker nodes")
+    for node_name in node_names:
+        ssh_options = []
+        if skip_ssh_host_key_check:
+            ssh_options = ["-o","StrictHostKeyChecking=no"]
+        run_subprocess_wrap(["ssh", *ssh_options, node_name, "hostname"], print_output=True)
+
+    # Construct output directory name
     timestamp = datetime.datetime.now()
     output_path_top = os.path.abspath(args.output_path)
     output_basename = timestamp.strftime("hyperpod_issue_report_%Y%m%d_%H%M%S")
 
+    print("")
+    print("Capturing issue report data from current node (head node)")
     cmd = [
         sys.executable,
         os.path.abspath(sys.argv[0]),
@@ -61,12 +76,11 @@ def main(args):
         "--head-node",
         "--output-path", os.path.join(output_path_top, output_basename, f"control"),
     ]
-
-    # Capture report data from current node (head node)
     run_subprocess_wrap([*cmd], print_output=True)
 
-    # Capture report data from worker nodes
-    with concurrent.futures.ThreadPoolExecutor(max_workers=16) as thread_pool:
+    print("")
+    print("Capturing issue report data from all worker nodes")
+    with concurrent.futures.ThreadPoolExecutor(max_workers=num_capturing_workers) as thread_pool:
             
         def _capture(node_name):
 
@@ -85,8 +99,11 @@ def main(args):
 
     cmd = ["sudo", "chmod", "-R", "ugo+rw", os.path.join(output_path_top, output_basename)]
     run_subprocess_wrap(cmd, print_output=False)
-    
+
     shutil.make_archive( os.path.join(output_path_top, output_basename), "zip", output_path_top, output_basename)
+
+    print("")
+    print("Issue report data was successfully created:", os.path.join(output_path_top, output_basename) + ".zip" )
 
 
 def capture(args):
