@@ -43,10 +43,11 @@ This script gathers issue reporting information from your cluster. By running th
 #### Sample output
 
 ```
-hyperpod_issue_report_20240823_023724
+hyperpod_issue_report_20240826_172859
 ├── control
 │   └── ip-10-2-109-13
 │       ├── df.log
+│       ├── dmesg-T.log
 │       ├── kern.log
 │       ├── opt_slurm_etc
 │       │   ├── accounting.conf
@@ -76,11 +77,17 @@ hyperpod_issue_report_20240823_023724
 └── worker
     ├── ip-10-2-123-231
     │   ├── df.log
+    │   ├── dmesg-T.log
     │   ├── kern.log
     │   ├── nvidia-bug-report.log.gz
     │   ├── nvidia-smi.log
     │   ├── slurmd_status.log
     │   ├── syslog
+    │   ├── var_log_aws_clusters
+    │   │   ├── sagemaker-autoresume.log
+    │   │   ├── sagemaker-cluster-agent.log
+    │   │   ├── sagemaker-host-agent.log
+    │   │   └── sagemaker-role-proxy-agent.log
     │   └── var_log_slurm
     │       ├── slurm_jobacct.log
     │       ├── slurm_jobcomp.log
@@ -89,11 +96,17 @@ hyperpod_issue_report_20240823_023724
     │       └── slurmdbd.log
     └── ip-10-2-99-136
         ├── df.log
+        ├── dmesg-T.log
         ├── kern.log
         ├── nvidia-bug-report.log.gz
         ├── nvidia-smi.log
         ├── slurmd_status.log
         ├── syslog
+        ├── var_log_aws_clusters
+        │   ├── sagemaker-autoresume.log
+        │   ├── sagemaker-cluster-agent.log
+        │   ├── sagemaker-host-agent.log
+        │   └── sagemaker-role-proxy-agent.log
         └── var_log_slurm
             ├── slurm_jobacct.log
             ├── slurm_jobcomp.log

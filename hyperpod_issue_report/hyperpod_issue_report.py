@@ -121,9 +121,6 @@ def capture(args):
         cmd = ["sudo", "cp", "/opt/ml/config/resource_config.json", output_path]
         run_subprocess_wrap(cmd, print_output=False)
 
-        cmd = ["sudo", "cp", "-R", "/var/log/aws/clusters", os.path.join(output_path,"var_log_aws_clusters")]
-        run_subprocess_wrap(cmd, print_output=False)
-
         cmd = ["sinfo"]
         run_subprocess_wrap(cmd, print_output=False, to_file=os.path.join(output_path, "sinfo.log"))
 
@@ -158,6 +155,9 @@ def capture(args):
     run_subprocess_wrap(cmd, print_output=False, to_file=os.path.join(output_path, "dmesg-T.log"))
 
     cmd = ["sudo", "cp", "-R", "/var/log/slurm", os.path.join(output_path,"var_log_slurm")]
+    run_subprocess_wrap(cmd, print_output=False)
+
+    cmd = ["sudo", "cp", "-R", "/var/log/aws/clusters", os.path.join(output_path,"var_log_aws_clusters")]
     run_subprocess_wrap(cmd, print_output=False)
 
     cmd = ["df", "-h"]
