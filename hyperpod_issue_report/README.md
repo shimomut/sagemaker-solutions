@@ -14,7 +14,6 @@ This script gathers issue reporting information from your cluster. By running th
 #### Data to be collected
 
 - Cluster resource configuration file `/opt/ml/config/resource_config.json` (on head node)
-- SageMaker specific logs `/var/log/aws/clusters/*` (on head node)
 - Output of `sinfo` / `sinfo -R` (on head node)
 - Output of `systemctl status slurmctld` (on head node)
 - Output of `systemctl status slurmd` (on worker nodes)
@@ -25,6 +24,7 @@ This script gathers issue reporting information from your cluster. By running th
 - `/var/log/kern.log`
 - Output of `dmesg -T`
 - Slurm related logs `/var/log/slurm/*`
+- SageMaker HyperPod related logs `/var/log/aws/clusters/*`
 - Output of `df`
 
 
