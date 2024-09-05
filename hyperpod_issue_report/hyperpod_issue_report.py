@@ -145,14 +145,18 @@ def capture(args):
         run_subprocess_wrap(cmd, print_output=False, raise_non_zero_retcode=False)
 
 
-    cmd = ["cp", "/var/log/syslog", os.path.join(output_path,"syslog")]
+    cmd = ["sudo", "cp", "/var/log/syslog", os.path.join(output_path,"syslog")]
     run_subprocess_wrap(cmd, print_output=False)
 
-    cmd = ["cp", "/var/log/kern.log", os.path.join(output_path,"kern.log")]
+    cmd = ["sudo", "cp", "/var/log/kern.log", os.path.join(output_path,"kern.log")]
     run_subprocess_wrap(cmd, print_output=False)
 
     cmd = ["sudo", "dmesg", "-T"]
     run_subprocess_wrap(cmd, print_output=False, to_file=os.path.join(output_path, "dmesg-T.log"))
+
+    # still testing
+    #cmd = ["sudo", "journalctl", "_TRANSPORT=syslog", "_TRANSPORT=kernel", "--until", "-2d", "--no-pager"]
+    #run_subprocess_wrap(cmd, print_output=False, to_file=os.path.join(output_path, "journalctl.log"))
 
     cmd = ["sudo", "cp", "-R", "/var/log/slurm", os.path.join(output_path,"var_log_slurm")]
     run_subprocess_wrap(cmd, print_output=False)
