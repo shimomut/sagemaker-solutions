@@ -9,6 +9,7 @@ This script gathers issue reporting information from your cluster. By running th
 #### Precondition
 
 - This script assumes SSH access from the head node to all worker nodes are already set up. See also the [relevant workshop page](https://catalog.workshops.aws/sagemaker-hyperpod/en-US/01-cluster/07-ssh-compute).
+- The user who executes this script needs to have sudo privilege.
 
 
 #### Data to be collected
@@ -32,6 +33,7 @@ This script gathers issue reporting information from your cluster. By running th
 
 1. Login to the head node
 1. Put this script under FSxL file system (e.g., /fsx/ubuntu)
+1. (Optional) change the `skip_ssh_host_key_check` to `True` if you want to skip the SSH host key checks.
 1. Run this script
     ```
     python3 ./hyperpod_issue_report.py
