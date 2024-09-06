@@ -1,0 +1,1 @@
+assert False, "Intentionally failing to invoke HyperPod's health check"
