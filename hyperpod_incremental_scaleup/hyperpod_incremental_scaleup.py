@@ -93,7 +93,8 @@ def scaleup_with_loop(cluster_name, instance_group_name, target_instance_count, 
             time.sleep(30)
 
         if "FailureMessage" in cluster_desc and cluster_desc["FailureMessage"]:
-            print(f"Failure message : {cluster_desc["FailureMessage"]}")
+            failure_message = cluster_desc["FailureMessage"]
+            print(f"Failure message : {failure_message}")
 
     # ---
 
