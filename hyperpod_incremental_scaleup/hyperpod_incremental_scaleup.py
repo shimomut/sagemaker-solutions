@@ -54,17 +54,26 @@ def scaleup_with_loop(cluster_name, instance_group_name, target_instance_count, 
             else:
                 next_target_instance_count = instance_group["CurrentCount"]
 
-            new_instance_groups.append(
-                {
-                    "InstanceGroupName": instance_group["InstanceGroupName"],
-                    "InstanceType": instance_group["InstanceType"],
-                    "InstanceCount": next_target_instance_count,
-                    "LifeCycleConfig": instance_group["LifeCycleConfig"],
-                    "ExecutionRole": instance_group["ExecutionRole"],
-                    "ThreadsPerCore": instance_group["ThreadsPerCore"],
-                    "InstanceStorageConfigs": instance_group["InstanceStorageConfigs"],
-                }
-            )
+            new_instance_group = {}
+
+            field_names = [
+                "InstanceGroupName",
+                "InstanceType",
+                "LifeCycleConfig",
+                "ExecutionRole",
+                "ThreadsPerCore",
+                "InstanceStorageConfigs",
+                "OnStartDeepHealthChecks",
+            ]
+
+            for field_name in field_names:
+                if field_name in instance_group:
+                    new_instance_group[field_name] = instance_group[field_name]
+            
+            new_instance_group["InstanceCount"] = next_target_instance_count
+
+            new_instance_groups.append(new_instance_group)
+
         
         assert instance_group_found, f"Instance group [{instance_group_name}] not found"
 
