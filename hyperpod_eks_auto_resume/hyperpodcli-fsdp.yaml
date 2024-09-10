@@ -1,0 +1,75 @@
+defaults:
+ - override hydra/job_logging: stdout
+
+hydra:
+ run:
+  dir: .
+ output_subdir: null
+
+training_cfg:
+ entry_script: /fsdp/train.py # Path to the entry script of training/fine-tuning, when running k8s, this path should be inside container
+ script_args:
+    - --max_context_width: 4096
+    - --num_key_value_heads: 32
+    - --intermediate_size: 11008
+    - --hidden_width: 4096
+    - --num_layers: 32
+    - --num_heads: 32
+    - --model_type: llama_v2
+    - --tokenizer: hf-internal-testing/llama-tokenizer
+    - --checkpoint_freq: 5000
+    - --validation_freq: 500
+    - --max_steps: 5000
+    - --checkpoint_dir: /checkpoints
+    - --dataset: allenai/c4
+    - --dataset_config_name: en
+    - --resume_from_checkpoint: /checkpoints
+    - --train_batch_size: 1
+    - --val_batch_size: 1
+    - --sharding_strategy: full
+    - --offload_activation: 1
+ run:
+  name: fsdp # Current run name
+  nodes: 8 # Number of nodes to use for current training
+  ntasks_per_node: 1 # Number of devices to use per node
+cluster:
+ cluster_type: k8s # currently k8s only
+ instance_type: ml.g5.8xlarge
+ cluster_config:
+  # name of service account associated with the namespace
+  service_account_name: null
+
+  volumes:
+    - volumeName: local
+      hostPath: "/mnt/k8s-disks/0"
+      mountPath: "/local"
+
+  namespace: kubeflow
+  # required node affinity to select nodes with HyperPod
+  # labels and passed health check if burn-in enabled
+  label_selector:
+      required:
+          sagemaker.amazonaws.com/node-health-status:
+              - Schedulable
+      preferred:
+          sagemaker.amazonaws.com/deep-health-check-status:
+              - Passed
+      weights:
+          - 100
+  pullPolicy: Always # policy to pull container, can be Always, IfNotPresent and Never
+  restartPolicy: OnFailure # restart policy
+
+base_results_dir: ./result # Location to store the results, checkpoints and logs.
+container: 842413447717.dkr.ecr.us-west-2.amazonaws.com/fsdp:pytorch2.2 # container to use
+
+env_vars:
+ LOGLEVEL: DEBUG
+ TORCH_DISTRIBUTED_DEBUG: DETAIL
+ TORCH_NCCL_ENABLE_MONITORING: 1
+ TORCH_NCCL_TRACE_BUFFER_SIZE: 20000
+ TORCH_NCCL_DUMP_ON_TIMEOUT: 1
+ TORCH_NCCL_DEBUG_INFO_TEMP_FILE: /local/nccl_trace_rank_
+ PYTORCH_CUDA_ALLOC_CONF: "expandable_segments:True"
+ NCCL_DEBUG: INFO
+ NCCL_SOCKET_IFNAME: ^lo
+ TORCH_NCCL_ASYNC_ERROR_HANDLING: 1
