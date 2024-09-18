@@ -13,7 +13,7 @@ import concurrent.futures
 
 # configuration
 skip_ssh_host_key_check = False
-num_capturing_workers = 16
+num_capturing_workers = 64
 
 
 def run_subprocess_wrap(cmd, print_output=True, to_file=None, raise_non_zero_retcode=True):
@@ -54,6 +54,9 @@ def list_all_nodes():
 def main(args):
 
     node_names = list_all_nodes()
+
+    if args.nodes is not None:
+        node_names = node_names.intersection(set(args.nodes))
 
     print("Verifying SSH connectivity to all worker nodes")
     for node_name in node_names:
@@ -171,6 +174,7 @@ def capture(args):
 if __name__ == "__main__":
 
     argparser = argparse.ArgumentParser( description="HyperPod issue report data capturing tool" )
+    argparser.add_argument('--nodes', nargs="+", default=None, help="Slurm node names to collect data (default: all)")
     argparser.add_argument('--capture-single-node', action="store_true", help="Capture reporting data from a current single node")
     argparser.add_argument('--head-node', action="store_true", help="Capture head node specific data")
     argparser.add_argument('--output-path', action="store", default="./", help="Directory path for output files")

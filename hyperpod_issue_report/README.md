@@ -35,11 +35,21 @@ This script gathers issue reporting information from your cluster. By running th
 1. Put this script under FSxL file system (e.g., /fsx/ubuntu)
 1. (Optional) change the `skip_ssh_host_key_check` to `True` if you want to skip the SSH host key checks.
 1. Run this script
+
+    **Case 1:** collect data from all worker nodes and head node.
     ```
     python3 ./hyperpod_issue_report.py
     ```
+
+    **Case 2:** collect data from specific worker nodes and head node.
+    ```
+    python3 ./hyperpod_issue_report.py --nodes ip-10-3-48-177 ip-10-3-117-137
+    ```
+
 1. Wait until completion
 1. Download the generated Zip archive file (e.g., ./hyperpod_issue_report_20240823_023049.zip)
+
+
 
 
 #### Sample output
