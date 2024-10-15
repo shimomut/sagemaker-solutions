@@ -91,7 +91,7 @@
       ```
 
 1. Migrate data
-    1. Refer to "How to transfer data by DataSync" section in this doc.
+    1. Refer to "[How to transfer data by DataSync](#how-to-transfer-data-by-datasync)" section in this doc.
 1. Update the lifecycle configuration script.
     
     > **Note:** this step is necessary so that newly created instances (instance replacement, scale-up, etc) mount the new filesystem.
