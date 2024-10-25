@@ -9,6 +9,11 @@ import boto3
 
 from config import Config
 
+
+# TODO : confirm that resources in Config exist
+# TODO : make log output human readable
+
+
 def extract_components_from_cluster_arn():
     re_result = re.match(r"arn:aws:sagemaker:([^:]+):([0-9]+):cluster/([a-z0-9]+)", Config.hyperpod_cluster_arn)
 
