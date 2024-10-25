@@ -11,7 +11,6 @@ from config import Config
 
 
 # TODO : confirm that resources in Config exist
-# TODO : make log output human readable
 # TODO : add --dry-run option
 
 
@@ -44,7 +43,7 @@ def list_enis(ec2_client):
         while True:
 
             params = {
-                "MaxResults": 5
+                "MaxResults": 100
             }
 
             if next_token:
@@ -72,13 +71,15 @@ def list_enis(ec2_client):
 
 def list_eips(ec2_client):
 
+    # FIXME: Don't I have to handle pagenation?
     response = ec2_client.describe_addresses()
     eip_table = {}
     for eip in response["Addresses"]:
         if "Tags" in eip:
             tags = tags_as_dict(eip["Tags"])
             if "HyperPodEni" in tags:
-                eip_table[ tags["HyperPodEni"] ] = eip
+                if tags["HyperPodEni"].startswith(Config.hyperpod_cluster_arn):
+                    eip_table[ tags["HyperPodEni"] ] = eip
 
     return eip_table
 
@@ -126,6 +127,8 @@ def attach_eips(args):
     eni_table = list_enis(ec2_client)
     eip_table = list_eips(ec2_client)
 
+    num_newly_associated = 0
+
     keys = set(eni_table.keys()).intersection(set(eip_table.keys()))
     for key in keys:
 
@@ -149,6 +152,11 @@ def attach_eips(args):
 
         if args.verbose:
             print(response)
+
+        num_newly_associated += 1
+    
+    if num_newly_associated==0:
+        print("Every ENI already has an EIP.")
 
 
 def cmd_create_and_attach_eips(args):
@@ -238,6 +246,10 @@ def cmd_clean(args):
 
     eip_table = list_eips(ec2_client)
 
+    if not eip_table:
+        print("Nothing to clean up")
+        return
+
     # Disassociate and delete EIPs
     for key in eip_table:
         eip = eip_table[key]
@@ -260,7 +272,6 @@ def cmd_clean(args):
 
         if args.verbose:
             print(response)
-
 
     
 if __name__ == "__main__":
