@@ -12,6 +12,7 @@ from config import Config
 
 # TODO : confirm that resources in Config exist
 # TODO : make log output human readable
+# TODO : add --dry-run option
 
 
 def extract_components_from_cluster_arn():
@@ -113,7 +114,9 @@ def create_missing_eips(args):
                 },
             ],
         )
-        print(response)
+
+        if args.verbose:
+            print(response)
 
 
 def attach_eips(args):
@@ -138,16 +141,14 @@ def attach_eips(args):
 
         print(f"Associatating EIP with ENI - {key}")
 
-        print(eni)
-        print(eip)
-
         response = ec2_client.associate_address(
             AllocationId = eip["AllocationId"],
             NetworkInterfaceId = eni["NetworkInterfaceId"],
             PrivateIpAddress = eni["PrivateIpAddress"],
         )
 
-        print(response)
+        if args.verbose:
+            print(response)
 
 
 def cmd_create_and_attach_eips(args):
@@ -174,7 +175,8 @@ def cmd_delete_unused_eips(args):
             AllocationId = eip["AllocationId"],
         )
 
-        print(response)
+        if args.verbose:
+            print(response)
 
 
 def switch_route(public_or_private):
@@ -218,7 +220,8 @@ def switch_route(public_or_private):
         RouteTableId = route_table_to_use["RouteTableId"],
     )
 
-    print(response)
+    if args.verbose:
+        print(response)
 
 
 def cmd_switch_to_public(args):
@@ -229,7 +232,7 @@ def cmd_switch_to_private(args):
     switch_route("private")
 
 
-def cmd_clean_up(args):
+def cmd_clean(args):
     
     ec2_client = boto3.client("ec2", region_name=Config.region)
 
@@ -246,7 +249,8 @@ def cmd_clean_up(args):
                 AssociationId = eip["AssociationId"]
             )
 
-            print(response)
+            if args.verbose:
+                print(response)
 
         print(f"Releasing EIP - {key}")
 
@@ -254,7 +258,8 @@ def cmd_clean_up(args):
             AllocationId = eip["AllocationId"],
         )
 
-        print(response)
+        if args.verbose:
+            print(response)
 
 
     
@@ -263,6 +268,7 @@ if __name__ == "__main__":
     extract_components_from_cluster_arn()
 
     argparser1 = argparse.ArgumentParser( description = 'HyperPod subnet public/private switching tool' )
+    argparser1.add_argument("--verbose", action="store_true", help="Print detailed logs")
     subparsers = argparser1.add_subparsers()
 
     help = "Create and attach EIPs to ENIs if it is not done yet"
@@ -282,8 +288,8 @@ if __name__ == "__main__":
     argparser2.set_defaults(func=cmd_switch_to_private)
 
     help = "Clean up all for testing"
-    argparser2 = subparsers.add_parser( "clean-up", help=help, description=help )
-    argparser2.set_defaults(func=cmd_clean_up)
+    argparser2 = subparsers.add_parser( "clean", help=help, description=help )
+    argparser2.set_defaults(func=cmd_clean)
 
     args = argparser1.parse_args( sys.argv[1:] )
     if hasattr(args,"func"):
