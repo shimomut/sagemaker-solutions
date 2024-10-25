@@ -231,6 +231,8 @@ def switch_route(public_or_private):
     if args.verbose:
         print(response)
 
+    print(f"Switched to {public_or_private} route table.")
+
 
 def cmd_switch_to_public(args):
     switch_route("public")
