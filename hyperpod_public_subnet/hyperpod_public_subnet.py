@@ -172,6 +172,58 @@ def cmd_delete_unused_eips(args):
         print(response)
 
 
+def switch_route(public_or_private):
+
+    assert public_or_private in ["public", "private"]
+
+    ec2_client = boto3.client("ec2", region_name=Config.region)
+
+    route_tables = ec2_client.describe_route_tables( RouteTableIds=[Config.route_table_for_public] )
+    assert len(route_tables["RouteTables"])==1, f"Route table not found - {route_table_id}"
+    public_route_table = route_tables["RouteTables"][0]
+
+    route_tables = ec2_client.describe_route_tables( RouteTableIds=[Config.route_table_for_private] )
+    assert len(route_tables["RouteTables"])==1, f"Route table not found - {route_table_id}"
+    private_route_table = route_tables["RouteTables"][0]
+
+    if public_or_private=="public":
+        route_table_to_use = public_route_table
+        route_table_not_to_use = private_route_table
+    else:
+        route_table_to_use = private_route_table
+        route_table_not_to_use = public_route_table
+
+    for association in route_table_to_use["Associations"]:
+        if association["SubnetId"]==Config.subnet:
+            print(f"Already associated to the {public_or_private} route table")
+            return
+
+    association_id = None
+    for association in route_table_not_to_use["Associations"]:
+        if association["SubnetId"]==Config.subnet:
+            association_id = association["RouteTableAssociationId"]
+            break
+    
+    if association_id is None:
+        print(f"The subnet is not associated with a public or private route table. Cannot replace association.")
+        return
+
+    response = ec2_client.replace_route_table_association(
+        AssociationId = association_id,
+        RouteTableId = route_table_to_use["RouteTableId"],
+    )
+
+    print(response)
+
+
+def cmd_switch_to_public(args):
+    switch_route("public")
+
+
+def cmd_switch_to_private(args):
+    switch_route("private")
+
+
 def cmd_clean_up(args):
     
     ec2_client = boto3.client("ec2", region_name=Config.region)
@@ -216,9 +268,13 @@ if __name__ == "__main__":
     argparser2 = subparsers.add_parser( "delete-unused-eips", help=help, description=help )
     argparser2.set_defaults(func=cmd_delete_unused_eips)
 
-    # help = "Switch route table association"
-    # argparser2 = subparsers.add_parser( "switch-route", help=help, description=help )
-    # argparser2.set_defaults(func=cmd_switch_route)
+    help = "Switch to public route table"
+    argparser2 = subparsers.add_parser( "switch-to-public", help=help, description=help )
+    argparser2.set_defaults(func=cmd_switch_to_public)
+
+    help = "Switch to private route table"
+    argparser2 = subparsers.add_parser( "switch-to-private", help=help, description=help )
+    argparser2.set_defaults(func=cmd_switch_to_private)
 
     help = "Clean up all for testing"
     argparser2 = subparsers.add_parser( "clean-up", help=help, description=help )
