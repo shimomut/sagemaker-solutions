@@ -1,0 +1,83 @@
+AWSTemplateFormatVersion: '2010-09-09'
+
+Parameters:
+
+  Capacity:
+    Description: Storage capacity in GiB (1200 or increments of 2400)
+    Type: Number
+    Default: 1200
+
+  PerUnitStorageThroughput:
+    Description: Provisioned Read/Write (MB/s/TiB)
+    Type: Number
+    Default: 250
+    AllowedValues:
+      - 125
+      - 250
+      - 500
+      - 1000
+
+  Compression:
+    Description: Data compression type
+    Type: String
+    AllowedValues:
+      - "LZ4"
+      - "NONE"
+    Default: "LZ4"
+
+  LustreVersion:
+    Description: Lustre software version
+    Type: String
+    AllowedValues:
+      - "2.15"
+      - "2.12"
+    Default: "2.15"
+
+  SecurityGroup:
+    Description: Security group ID for the file system's network interface
+    Type: String
+    Default: ""
+
+  Subnet:
+    Description: Subnet ID in which your file system's network interface resides
+    Type: String
+    Default: ""
+
+
+Resources:
+  FSxLFilesystem:
+    Type: AWS::FSx::FileSystem
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Properties:
+      FileSystemType: LUSTRE
+      StorageType: SSD
+      FileSystemTypeVersion: !Ref LustreVersion
+      StorageCapacity: !Ref Capacity
+      SecurityGroupIds:
+        - !Ref SecurityGroup
+      SubnetIds:
+        - !Ref Subnet
+      LustreConfiguration:
+        DataCompressionType: !Ref Compression
+        DeploymentType: PERSISTENT_2
+        PerUnitStorageThroughput: !Ref PerUnitStorageThroughput
+        MetadataConfiguration:
+          Mode: AUTOMATIC
+
+Outputs:
+  FSxLustreFilesystemMountname:
+    Description: The ID of the FSxL filesystem that has been created
+    Value: !GetAtt FSxLFilesystem.LustreMountName
+    Export:
+      Name: !Sub ${AWS::StackName}-FSxLustreFilesystemMountname
+  FSxLustreFilesystemDNSname:
+    Description: The DNS of the FSxL filesystem that has been created
+    Value: !GetAtt FSxLFilesystem.DNSName
+    Export:
+      Name: !Sub ${AWS::StackName}-FSxLustreFilesystemDNSname
+  FSxLustreFilesystemId:
+    Description: The ID of the FSxL filesystem that has been created
+    Value: !Ref FSxLFilesystem
+    Export:
+      Name: !Sub ${AWS::StackName}-FSxLustreFilesystemId
