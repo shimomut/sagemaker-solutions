@@ -20,44 +20,47 @@ Running these commands manually from your development machine (such as a local l
 
 ## How to use
 
+#### Prerequisites and preparations
+
+1. Create a CloudFormation stack from the HyperPod workshop template
+1. Create a HyperPod cluster
+1. Raise the quota for number of EIPs beforehand as-needed.
+    - “Service Quotas” > “Amazon Elastic Compute Cloud (Amazon EC2)” > “EC2-VPC Elastic IPs”
+1. Download [hyperpod_public_subnet.py](https://github.com/shimomut/sagemaker-solutions/blob/main/hyperpod_public_subnet/hyperpod_public_subnet.py) to your development machine
+1. Configure config.py, referring to the [sample config file](https://github.com/shimomut/sagemaker-solutions/blob/main/hyperpod_public_subnet/_config.py), and put it next to the downloaded hyperpod_public_subnet.py.
+
 
 #### How to switch to public
 
-1. Create a CloudFormation stack from the HyperPod workshop template
-2. Create a HyperPod cluster
-3. Raise the quota for number of EIPs beforehand as-needed.
-    - “Service Quotas” > “Amazon Elastic Compute Cloud (Amazon EC2)” > “EC2-VPC Elastic IPs”
-4. Download [hyperpod_public_subnet.py](https://github.com/shimomut/sagemaker-solutions/blob/main/hyperpod_public_subnet/hyperpod_public_subnet.py) to your development machine
-5. Configure config.py, referring to the [sample config file](https://github.com/shimomut/sagemaker-solutions/blob/main/hyperpod_public_subnet/_config.py), and put it next to the downloaded hyperpod_public_subnet.py.
-6. Run `create-and-attach-eips` command to create and attach EIPs
+1. Run `create-and-attach-eips` command to create and attach EIPs
 
     ``` bash
     python3 hyperpod_public_subnet.py create-and-attach-eips
     ```
 
-7. Run switch-to-public command to switch the route table association to public
+1. Run `switch-to-public` command to switch the route table association to public
 
     ``` bash
     python3 hyperpod_public_subnet.py switch-to-public
     ```
 
-8. Confirm that the cluster nodes are Ready status
+1. Confirm that the cluster nodes are `Ready` status
 
     ``` bash
     kubectl get nodes
     ```
 
-9. Confirm your job runs
-10. Check the NAT Gateway usage metrics and confirm it is not being used.
+1. Confirm your job runs
+1. Check the NAT Gateway usage metrics and confirm it is not being used.
 
 
 #### How to scale up the cluster
 
 1. Raise the quota for number of EIPs beforehand as-needed.
     - “Service Quotas” > “Amazon Elastic Compute Cloud (Amazon EC2)” > “EC2-VPC Elastic IPs”
-2. Trigger cluster scaling up
-3. While cluster scaling up is taking time and being blocked due to missing EIPs, run `create-and-attach-eips` command to create and attach EIPs to ENIs for the new instances.
-4. Wait until the cluster status changes to InService again.
+1. Trigger cluster scaling up
+1. While cluster scaling up is taking time and being blocked due to missing EIPs, run `create-and-attach-eips` command to create and attach EIPs to ENIs for the new instances.
+1. Wait until the cluster status changes to InService again.
 
 
 #### How to replace instance
@@ -73,7 +76,7 @@ Running these commands manually from your development machine (such as a local l
     python3 hyperpod_public_subnet.py delete-unused-eips
     ```
 
-2. Open the EIP management console UI, and make sure EIPs were deleted.
+1. Open the EIP management console UI, and make sure EIPs were deleted.
 
 
 
