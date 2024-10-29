@@ -1,23 +1,21 @@
-# Solution to create/run HyperPod cluster in public subnet
+# Solution to create/run a HyperPod cluster in a public subnet
 
 
 ## Overview
 
 Currently, HyperPod doesn't support creating a cluster in public subnet. 
 The [developer guide document](https://docs.aws.amazon.com/sagemaker/latest/dg/sagemaker-hyperpod-eks-prerequisites.html) also 
-says “The type of the subnet in your VPC must be private for HyperPod clusters”.
-If you actually try to create a HyperPod cluster in a public subnet, the cluster creation takes long time, 
-and it eventually fails. because EIPs are not automatically attached to ENIs.
+states that “The type of the subnet in your VPC must be private for HyperPod clusters”.
+If you actually try to create a HyperPod cluster in a public subnet, the cluster creation will take a long time, 
+and it eventually fail. This is because EIPs are not automatically attached to ENIs.
 
-This document explains how to avoid this limitation with a helper script. The script has some commands, 
+This document describes how to work around this limitation using a helper script. The script has following commands:
 
-1. create and attach EIPs to ENIs for HyperPod instances
-2. switch the subnet’s route table association to public ↔ private
-3. delete unused EIPs
+1. Create and attach EIPs to ENIs for HyperPod instances
+2. Switch the route table association of the subnet public ↔ private
+3. Delete unused EIPs
 
-By running these commands manually from your development machine (e.g., local laptop), 
-you can switch the subnet for your HyperPod instances to public, 
-while keeping internet access from the instances by attaching EIPs.
+Running these commands manually from your development machine (such as a local laptop) will allow you to switch the subnet for your HyperPod instances to public while maintaining internet access from the instances by attaching EIPs.
 
 
 ## How to use
