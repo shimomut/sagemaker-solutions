@@ -64,8 +64,15 @@ def list_enis(ec2_client):
     enis = _describe_network_interfaces_all(ec2_client)
     for eni in enis:
         if eni["Description"].startswith(Config.hyperpod_cluster_arn):
-            eni_table[eni["Description"]] = eni
-    
+            
+            num_secondary_addr = 0
+            for private_addr in eni["PrivateIpAddresses"]:
+                if not private_addr["Primary"]:
+                    num_secondary_addr += 1
+
+            if num_secondary_addr > 0:
+                eni_table[eni["Description"]] = eni
+
     return eni_table
 
 
