@@ -23,11 +23,13 @@ Running these commands manually from your development machine (such as a local l
 #### Prerequisites and preparations
 
 1. Create a CloudFormation stack from the HyperPod workshop template
-1. Create a HyperPod cluster
+1. Create a HyperPod EKS cluster
+    > **Note:** This solution works only for HyperPod EKS. HyperPod Slurm is out-of-scope.
 1. Raise the quota for number of EIPs beforehand as-needed.
     - “Service Quotas” > “Amazon Elastic Compute Cloud (Amazon EC2)” > “EC2-VPC Elastic IPs”
 1. Download [hyperpod_public_subnet.py](https://github.com/shimomut/sagemaker-solutions/blob/main/hyperpod_public_subnet/hyperpod_public_subnet.py) to your development machine
 1. Configure config.py, referring to the [sample config file](https://github.com/shimomut/sagemaker-solutions/blob/main/hyperpod_public_subnet/_config.py), and put it next to the downloaded hyperpod_public_subnet.py.
+
 
 
 #### How to switch to public
