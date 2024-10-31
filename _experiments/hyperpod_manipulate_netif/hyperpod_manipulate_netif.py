@@ -120,6 +120,9 @@ def list_network_interfaces(namespace):
 
 
 def move_network_interface_namespace( name, current_namespace, new_namespace ):
+
+    print(f"Moving {name} from {current_namespace} to {new_namespace}")
+
     cmd = ["ip", "netns", "exec", current_namespace, "ip", "link", "set", name, "netns", new_namespace]
     run_subprocess_wrap(cmd, print_output=True)
 
@@ -132,11 +135,7 @@ def move_efa_to_default_namespace():
     for eni in list_efa_backed_enis().values():
         mac_addresses_for_efas.add(eni["MacAddress"])
 
-    print(mac_addresses_for_efas)
-
     network_interfaces = list_network_interfaces("sagemaker_agent_namespace")
-
-    print(network_interfaces)
 
     for network_interface in network_interfaces:
         if "mac_addr" in network_interface and network_interface["mac_addr"] in mac_addresses_for_efas:
@@ -152,11 +151,7 @@ def move_efa_to_agent_namespace():
     for eni in list_efa_backed_enis().values():
         mac_addresses_for_efas.add(eni["MacAddress"])
 
-    print(mac_addresses_for_efas)
-
     network_interfaces = list_network_interfaces("default")
-
-    print(network_interfaces)
 
     for network_interface in network_interfaces:
         if "mac_addr" in network_interface and network_interface["mac_addr"] in mac_addresses_for_efas:
@@ -165,8 +160,6 @@ def move_efa_to_agent_namespace():
             move_network_interface_namespace( network_interface["name"], "default", "sagemaker_agent_namespace")
 
 
-
 #move_efa_to_default_namespace()
 move_efa_to_agent_namespace()
-
 
