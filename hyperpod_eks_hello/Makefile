@@ -25,6 +25,9 @@ deploy:
 delete:
 	kubectl delete -f deployment.yaml
 
+watch-logs-all:
+	kubectl logs -f -l app=hello --max-log-requests=300	
+
 list-pods:
 	kubectl get pods -o wide
 
