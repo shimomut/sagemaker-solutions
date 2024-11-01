@@ -1,7 +1,12 @@
 import time
+import socket
+import urllib.request
 
 i = 0
 while True:
-    print("Hello from Python script! -",i)
-    time.sleep(5)
+    ipaddr = socket.gethostbyname(socket.gethostname())
+
+    print(f"{ipaddr}: Hello from Python script! - {i}")
+
+    time.sleep(10)
     i += 1
