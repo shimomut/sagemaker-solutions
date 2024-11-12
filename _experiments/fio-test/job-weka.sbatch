@@ -2,4 +2,4 @@
 
 #SBATCH -N 4
 
-srun make run-weka
+srun make run-weka-task

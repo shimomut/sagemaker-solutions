@@ -2,4 +2,4 @@
 
 #SBATCH -N 4
 
-srun make run-fsx
+srun make run-fsx-task
