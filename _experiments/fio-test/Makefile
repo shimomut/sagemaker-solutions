@@ -1,5 +1,8 @@
 
 fio_options = --randrepeat=1 --ioengine=libaio --direct=1 --gtod_reduce=1 --name=test --bs=4k --iodepth=64 --readwrite=randrw --rwmixread=75 --size=4G
+#fio_options = --randrepeat=1 --ioengine=libaio --direct=1 --gtod_reduce=1 --name=test --bs=1m --iodepth=64 --readwrite=randrw --rwmixread=75 --size=4G
+#fio_options = --randrepeat=1 --ioengine=libaio --direct=1 --gtod_reduce=1 --name=test --bs=128m --iodepth=64 --readwrite=randrw --rwmixread=75 --size=4G
+
 hostname = $(shell hostname)
 timestamp = $(shell date +%s)
 
