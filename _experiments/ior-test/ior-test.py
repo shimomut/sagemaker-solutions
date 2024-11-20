@@ -11,7 +11,7 @@ nodes = ["ip-10-1-28-215", "ip-10-1-96-7", "ip-10-1-103-173", "ip-10-1-124-115"]
 timestamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
 output_dirname = f"./output-{timestamp}"
 
-os.makedev(output_dirname)
+os.makedirs(output_dirname)
 
 
 class TestConfig:
@@ -35,11 +35,11 @@ class TestConfig:
 
 
 tests = []
-for file_size, transfer_size in [ ("512M", "4K"), ("1G", "64K"), ("2G", "1M"), ("4G", "16M") ]:
+for file_size, transfer_size in [ ("128M", "4K"), ("256G", "64K"), ("512M", "1M"), ("1G", "16M"), ("2G", "256M") ]:
     for num_nodes, num_processes in [ 
-            (1, 1), (1, 2), (1, 4), (1, 8), (1, 16), (1, 32), (1, 64), (2, 128), 
+            (1, 1), (1, 2), (1, 4), (1, 8),
             (2, 16), (2, 32), (2, 64), (2, 128),
-            (4, 16), (4, 32), (4, 64), (4, 128)
+            (4, 32), (4, 64), (4, 128), (4, 256),
         ]:
         for filesystem_type in [ "fsx", "weka" ]:
             tests.append( TestConfig(filesystem_type, file_size, transfer_size, num_nodes, num_processes) )
@@ -87,7 +87,7 @@ with open( f"result-{timestamp}.csv", "w", newline="" ) as csvfile:
 
     for test_config in tests:
 
-        hosts = ",".join(nodes)
+        hosts = ",".join(nodes[:test_config.num_nodes])
 
         cmd = [
             "mpirun", "--oversubscribe", "-np", str(test_config.num_processes),
@@ -138,3 +138,5 @@ with open( f"result-{timestamp}.csv", "w", newline="" ) as csvfile:
                 write_bw_mean
             ]
         )
+
+        csvfile.flush()
