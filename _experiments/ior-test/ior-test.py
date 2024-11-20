@@ -8,6 +8,12 @@ import subprocess
 
 nodes = ["ip-10-1-28-215", "ip-10-1-96-7", "ip-10-1-103-173", "ip-10-1-124-115"]
 
+timestamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+output_dirname = f"./output-{timestamp}"
+
+os.makedev(output_dirname)
+
+
 class TestConfig:
     def __init__(self, filesystem_type, file_size, transfer_size, num_nodes, num_processes ):
 
@@ -28,18 +34,15 @@ class TestConfig:
         self.result_filename = f"result-{filesystem_type}-{file_size}-{transfer_size}-{num_nodes}-{num_processes}.txt"
 
 
-tests = [
-    TestConfig(filesystem_type="weka", file_size="64M", transfer_size="64K", num_nodes=1, num_processes=1),
-
-    # TestConfig(filesystem_type="fsx", file_size="4G", transfer_size="4K", num_nodes=1, num_processes=1),
-    # TestConfig(filesystem_type="fsx", file_size="4G", transfer_size="4K", num_nodes=1, num_processes=2),
-    # TestConfig(filesystem_type="fsx", file_size="4G", transfer_size="4K", num_nodes=1, num_processes=4),
-    # TestConfig(filesystem_type="fsx", file_size="4G", transfer_size="4K", num_nodes=1, num_processes=8),
-    # TestConfig(filesystem_type="fsx", file_size="4G", transfer_size="4K", num_nodes=1, num_processes=16),
-    # TestConfig(filesystem_type="fsx", file_size="4G", transfer_size="4K", num_nodes=1, num_processes=32),
-    # TestConfig(filesystem_type="fsx", file_size="4G", transfer_size="4K", num_nodes=1, num_processes=64),
-    # TestConfig(filesystem_type="fsx", file_size="4G", transfer_size="4K", num_nodes=1, num_processes=128),
-]
+tests = []
+for file_size, transfer_size in [ ("512M", "4K"), ("1G", "64K"), ("2G", "1M"), ("4G", "16M") ]:
+    for num_nodes, num_processes in [ 
+            (1, 1), (1, 2), (1, 4), (1, 8), (1, 16), (1, 32), (1, 64), (2, 128), 
+            (2, 16), (2, 32), (2, 64), (2, 128),
+            (4, 16), (4, 32), (4, 64), (4, 128)
+        ]:
+        for filesystem_type in [ "fsx", "weka" ]:
+            tests.append( TestConfig(filesystem_type, file_size, transfer_size, num_nodes, num_processes) )
 
 
 def run_subprocess_wrap(cmd, print_output=True, to_file=None, raise_non_zero_retcode=True):
@@ -66,7 +69,7 @@ def run_subprocess_wrap(cmd, print_output=True, to_file=None, raise_non_zero_ret
 
 
 
-with open( datetime.datetime.now().strftime("result-%Y%m%d-%H%M%S.csv"), "w", newline="" ) as csvfile:
+with open( f"result-{timestamp}.csv", "w", newline="" ) as csvfile:
 
     csv_writer = csv.writer(csvfile)
 
@@ -90,8 +93,8 @@ with open( datetime.datetime.now().strftime("result-%Y%m%d-%H%M%S.csv"), "w", ne
             "mpirun", "--oversubscribe", "-np", str(test_config.num_processes),
             "--host", hosts,
             "ior", 
-            "-a", "POSIX", 
-            "-F", "-w", "-r", "-k", 
+            "-a", "POSIX",
+            "-F", "-w", "-r", "-k", "-C",
             "-t", test_config.transfer_size, 
             "-b", test_config.file_size, 
             "-O", "useO_DIRECT=1", 
@@ -102,7 +105,9 @@ with open( datetime.datetime.now().strftime("result-%Y%m%d-%H%M%S.csv"), "w", ne
 
         print("Running command:", cmd)
 
-        output = run_subprocess_wrap(cmd, print_output=True, to_file=f"./results/{test_config.result_filename}", raise_non_zero_retcode=True )
+        output_filename = os.path.join(output_dirname, test_config.result_filename)
+
+        output = run_subprocess_wrap(cmd, print_output=True, to_file=output_filename, raise_non_zero_retcode=True )
 
         found_summary = False
         for line in output.splitlines():
