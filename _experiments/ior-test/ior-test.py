@@ -46,17 +46,16 @@ if 0:
                 tests.append( TestConfig(filesystem_type, file_size, transfer_size, num_nodes, num_processes) )
 
 
-# test-2: number of processes = 32, granularity x 17, variations
+# test-2: number of processes x variations, granularity x 17, variations
 if 1:
     for file_size, transfer_size in [ 
             ("128M", "4K"),  ("128M", "8K"),   ("128M", "16K"),  ("128M", "32K"),
             ("256M", "64K"), ("256M", "128K"), ("256M", "256K"), ("256M", "512K"),
             ("512M", "1M"),  ("512M", "2M"),   ("512M", "4M"),   ("512M", "8M"), 
             ("1G",   "16M"), ("1G", "32M"),    ("1G", "64M"),    ("1G", "128M"), 
-            ("2G",   "256M")
         ]:
         for num_nodes, num_processes in [ 
-                (4, 32)
+                (4, 8), (4, 32), (4, 128)
             ]:
             for filesystem_type in [ "fsx", "weka" ]:
                 tests.append( TestConfig(filesystem_type, file_size, transfer_size, num_nodes, num_processes) )
