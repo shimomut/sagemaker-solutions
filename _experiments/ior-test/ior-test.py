@@ -35,12 +35,31 @@ class TestConfig:
 
 
 tests = []
-for file_size, transfer_size in [ ("128M", "4K"), ("512M", "1M"), ("2G", "256M") ]:
-    for num_nodes, num_processes in [ 
-            (1, 1), (2, 2), (4, 4), (4, 8), (4, 16), (4, 32), (4, 64), (4, 128), (4, 256)
+
+# test-1: granularity x 3 variations, number of processes x 9 variations
+if 0:
+    for file_size, transfer_size in [ ("128M", "4K"), ("512M", "1M"), ("2G", "256M") ]:
+        for num_nodes, num_processes in [ 
+                (1, 1), (2, 2), (4, 4), (4, 8), (4, 16), (4, 32), (4, 64), (4, 128), (4, 256)
+            ]:
+            for filesystem_type in [ "fsx", "weka" ]:
+                tests.append( TestConfig(filesystem_type, file_size, transfer_size, num_nodes, num_processes) )
+
+
+# test-2: number of processes = 32, granularity x 17, variations
+if 1:
+    for file_size, transfer_size in [ 
+            ("128M", "4K"),  ("128M", "8K"),   ("128M", "16K"),  ("128M", "32K"),
+            ("256M", "64K"), ("256M", "128K"), ("256M", "256K"), ("256M", "512K"),
+            ("512M", "1M"),  ("512M", "2M"),   ("512M", "4M"),   ("512M", "8M"), 
+            ("1G",   "16M"), ("1G", "32M"),    ("1G", "64M"),    ("1G", "128M"), 
+            ("2G",   "256M")
         ]:
-        for filesystem_type in [ "fsx", "weka" ]:
-            tests.append( TestConfig(filesystem_type, file_size, transfer_size, num_nodes, num_processes) )
+        for num_nodes, num_processes in [ 
+                (4, 32)
+            ]:
+            for filesystem_type in [ "fsx", "weka" ]:
+                tests.append( TestConfig(filesystem_type, file_size, transfer_size, num_nodes, num_processes) )
 
 
 def run_subprocess_wrap(cmd, print_output=True, to_file=None, raise_non_zero_retcode=True):
