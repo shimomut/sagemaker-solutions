@@ -35,11 +35,9 @@ class TestConfig:
 
 
 tests = []
-for file_size, transfer_size in [ ("128M", "4K"), ("256G", "64K"), ("512M", "1M"), ("1G", "16M"), ("2G", "256M") ]:
+for file_size, transfer_size in [ ("128M", "4K"), ("512M", "1M"), ("2G", "256M") ]:
     for num_nodes, num_processes in [ 
-            (1, 1), (1, 2), (1, 4), (1, 8),
-            (2, 16), (2, 32), (2, 64), (2, 128),
-            (4, 32), (4, 64), (4, 128), (4, 256),
+            (1, 1), (2, 2), (4, 4), (4, 8), (4, 16), (4, 32), (4, 64), (4, 128), (4, 256)
         ]:
         for filesystem_type in [ "fsx", "weka" ]:
             tests.append( TestConfig(filesystem_type, file_size, transfer_size, num_nodes, num_processes) )
