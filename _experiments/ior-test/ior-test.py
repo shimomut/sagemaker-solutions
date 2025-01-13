@@ -3,42 +3,43 @@ import io
 import csv
 import datetime
 import re
+import time
 import subprocess
 
 
 nodes = [
-    "ip-10-1-55-75",
-    "ip-10-1-68-117",
-    "ip-10-1-25-103",
-    "ip-10-1-72-156",
-    "ip-10-1-31-185",
-    "ip-10-1-88-72",
-    "ip-10-1-44-46",
-    "ip-10-1-83-196",
-    "ip-10-1-16-196",
-    "ip-10-1-110-202",
-    "ip-10-1-120-107",
-    "ip-10-1-99-177",
-    "ip-10-1-32-137",
-    "ip-10-1-85-65",
-    "ip-10-1-114-7",
-    "ip-10-1-0-54",
-    "ip-10-1-46-185",
-    "ip-10-1-112-132",
-    "ip-10-1-79-100",
-    "ip-10-1-82-226",
-    "ip-10-1-83-72",
-    "ip-10-1-103-172",
-    "ip-10-1-116-190",
-    "ip-10-1-9-64",
-    "ip-10-1-45-95",
-    "ip-10-1-84-168",
-    "ip-10-1-3-222",
-    "ip-10-1-98-135",
-    "ip-10-1-64-88",
-    "ip-10-1-30-165",
-    "ip-10-1-88-5",
-    "ip-10-1-47-248",
+    "ip-10-1-66-116",
+    "ip-10-1-43-172",
+    "ip-10-1-0-197",
+    "ip-10-1-33-157",
+    "ip-10-1-56-126",
+    "ip-10-1-7-212",
+    "ip-10-1-102-222",
+    "ip-10-1-56-240",
+    "ip-10-1-23-33",
+    "ip-10-1-16-175",
+    "ip-10-1-43-100",
+    "ip-10-1-44-81",
+    "ip-10-1-122-103",
+    "ip-10-1-52-114",
+    "ip-10-1-109-147",
+    "ip-10-1-49-94",
+    "ip-10-1-2-183",
+    "ip-10-1-125-148",
+    "ip-10-1-99-136",
+    "ip-10-1-115-248",
+    "ip-10-1-91-201",
+    "ip-10-1-72-74",
+    "ip-10-1-32-120",
+    "ip-10-1-81-188",
+    "ip-10-1-42-92",
+    "ip-10-1-40-230",
+    "ip-10-1-54-8",
+    "ip-10-1-91-206",
+    "ip-10-1-6-101",
+    "ip-10-1-111-115",
+    "ip-10-1-4-109",
+    "ip-10-1-94-104",
 ]
 
 timestamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
@@ -46,16 +47,22 @@ output_dirname = f"./output-{timestamp}"
 
 os.makedirs(output_dirname)
 
+fsx_suffix = "-48TB"
+weka_suffix = "-i3en.6xlarge_x24"
 
 class TestConfig:
     def __init__(self, filesystem_type, block_size, transfer_size, num_nodes, num_processes ):
 
         self.filesystem_type = filesystem_type
         
-        if filesystem_type=="fsx":
-            self.datadir = "/fsx/ubuntu/fio-test-data/"
-        elif filesystem_type=="weka":
-            self.datadir = "/mnt/weka/fio-test-data/"
+        if filesystem_type=="fsx-250MB" + fsx_suffix:
+            self.datadir = "/fsx1/ubuntu/ior-data/"
+        elif filesystem_type=="fsx-500MB" + fsx_suffix:
+            self.datadir = "/fsx2/ubuntu/ior-data/"
+        elif filesystem_type=="fsx-1000MB" + fsx_suffix:
+            self.datadir = "/fsx3/ubuntu/ior-data/"
+        elif filesystem_type=="weka" + weka_suffix:
+            self.datadir = "/mnt/weka/ior-data/"
         else:
             assert False
 
@@ -69,28 +76,24 @@ class TestConfig:
 
 tests = []
 
-# test-1: granularity x 3 variations, number of processes x 9 variations
 if 1:
-    for block_size, transfer_size in [ ("16M", "4K"), ("32M", "64K"), ("64M", "1M"), ("128M", "16M"), ("256M", "256M") ]:
-        for num_nodes, num_processes in [ 
-                (1, 1), (2, 2), (4, 4), (8, 8), (16, 16), (32, 32), (32, 64), (32, 128), (32, 256), (32, 512), (32, 1024)
-            ]:
-            for filesystem_type in [ "fsx", "weka" ]:
-                tests.append( TestConfig(filesystem_type, block_size, transfer_size, num_nodes, num_processes) )
-
-
-# test-2: number of processes x variations, granularity x 17, variations
-if 0:
-    for block_size, transfer_size in [ 
-            ("128M", "4K"),  ("128M", "8K"),   ("128M", "16K"),  ("128M", "32K"),
-            ("256M", "64K"), ("256M", "128K"), ("256M", "256K"), ("256M", "512K"),
-            ("512M", "1M"),  ("512M", "2M"),   ("512M", "4M"),   ("512M", "8M"), 
-            ("1G",   "16M"), ("1G", "32M"),    ("1G", "64M"),    ("1G", "128M"), 
+    for filesystem_type in [ 
+        "fsx-250MB" + fsx_suffix,
+        "fsx-500MB" + fsx_suffix,
+        "fsx-1000MB" + fsx_suffix,
+        "weka" + weka_suffix,
+    ]:
+        for block_size, transfer_size in [
+            ("16M", "4K"),
+            ("32M", "64K"),
+            ("64M", "1M"),
+            ("128M", "16M"),
         ]:
-        for num_nodes, num_processes in [ 
-                (8, 8), (8, 32), (8, 128)
+            for num_nodes, num_processes in [ 
+                    (1, 1), (2, 2), (4, 4), (8, 8),
+                    (16, 16), (32, 32), (32, 64), (32, 128),
+                    (32, 256), (32, 512),
             ]:
-            for filesystem_type in [ "fsx", "weka" ]:
                 tests.append( TestConfig(filesystem_type, block_size, transfer_size, num_nodes, num_processes) )
 
 
@@ -138,8 +141,26 @@ with open( f"result-{timestamp}.csv", "w", newline="" ) as csvfile:
 
         hosts = ",".join(nodes[:test_config.num_nodes])
 
+
+        # My options
+        cmd = [
+            "mpirun", "--oversubscribe", "-np", str(test_config.num_processes),
+            "--host", hosts,
+            "ior", 
+            "-a", "POSIX",
+            "-F", "-w", "-r", "-k", "-C",
+            "-t", test_config.transfer_size, 
+            "-b", test_config.block_size, 
+            "-O", "useO_DIRECT=1", 
+            "-i", "3", 
+            "-d", "1", 
+            "-o", test_config.datadir
+        ]
+
+        """
         # recommendation from the partner team, minus "-v" options
         # "--posix.odirect" didn't work, so replaced with "-a POSIX -O useO_DIRECT=1"
+        # See also: https://ior.readthedocs.io/en/latest/userDoc/options.html
         cmd = [
             "mpirun", "--oversubscribe", "-np", str(test_config.num_processes),
             "--host", hosts,
@@ -151,6 +172,7 @@ with open( f"result-{timestamp}.csv", "w", newline="" ) as csvfile:
             "-F", "-g", "-w", "-r", "-i", "3", "-e", "-C", "-D", "0",
             "-o", test_config.datadir
         ]
+        """
 
         print("Running command:", cmd)
 
