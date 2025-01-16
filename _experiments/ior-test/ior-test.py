@@ -8,38 +8,22 @@ import subprocess
 
 
 nodes = [
-    "ip-10-1-66-116",
-    "ip-10-1-43-172",
-    "ip-10-1-0-197",
-    "ip-10-1-33-157",
-    "ip-10-1-56-126",
-    "ip-10-1-7-212",
-    "ip-10-1-102-222",
-    "ip-10-1-56-240",
-    "ip-10-1-23-33",
-    "ip-10-1-16-175",
-    "ip-10-1-43-100",
-    "ip-10-1-44-81",
-    "ip-10-1-122-103",
-    "ip-10-1-52-114",
-    "ip-10-1-109-147",
-    "ip-10-1-49-94",
-    "ip-10-1-2-183",
-    "ip-10-1-125-148",
-    "ip-10-1-99-136",
-    "ip-10-1-115-248",
-    "ip-10-1-91-201",
-    "ip-10-1-72-74",
-    "ip-10-1-32-120",
-    "ip-10-1-81-188",
-    "ip-10-1-42-92",
-    "ip-10-1-40-230",
-    "ip-10-1-54-8",
-    "ip-10-1-91-206",
-    "ip-10-1-6-101",
-    "ip-10-1-111-115",
-    "ip-10-1-4-109",
-    "ip-10-1-94-104",
+    "ip-10-1-73-241",
+    "ip-10-1-29-243",
+    "ip-10-1-71-41",
+    "ip-10-1-49-119",
+    "ip-10-1-107-100",
+    "ip-10-1-49-102",
+    "ip-10-1-40-105",
+    "ip-10-1-89-252",
+    "ip-10-1-62-160",
+    "ip-10-1-35-152",
+    "ip-10-1-112-207",
+    "ip-10-1-39-138",
+    "ip-10-1-43-136",
+    "ip-10-1-24-128",
+    "ip-10-1-9-228",
+    "ip-10-1-16-36",
 ]
 
 timestamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
@@ -47,21 +31,14 @@ output_dirname = f"./output-{timestamp}"
 
 os.makedirs(output_dirname)
 
-fsx_suffix = "-48TB"
-weka_suffix = "-i3en.6xlarge_x24"
-
 class TestConfig:
     def __init__(self, filesystem_type, block_size, transfer_size, num_nodes, num_processes ):
 
         self.filesystem_type = filesystem_type
         
-        if filesystem_type=="fsx-250MB" + fsx_suffix:
-            self.datadir = "/fsx1/ubuntu/ior-data/"
-        elif filesystem_type=="fsx-500MB" + fsx_suffix:
-            self.datadir = "/fsx2/ubuntu/ior-data/"
-        elif filesystem_type=="fsx-1000MB" + fsx_suffix:
-            self.datadir = "/fsx3/ubuntu/ior-data/"
-        elif filesystem_type=="weka" + weka_suffix:
+        if filesystem_type=="fsx":
+            self.datadir = "/fsx2/ior-data/"
+        elif filesystem_type=="weka":
             self.datadir = "/mnt/weka/ior-data/"
         else:
             assert False
@@ -78,21 +55,19 @@ tests = []
 
 if 1:
     for filesystem_type in [ 
-        "fsx-250MB" + fsx_suffix,
-        "fsx-500MB" + fsx_suffix,
-        "fsx-1000MB" + fsx_suffix,
-        "weka" + weka_suffix,
+        "fsx",
+        "weka",
     ]:
         for block_size, transfer_size in [
             ("16M", "4K"),
             ("32M", "64K"),
             ("64M", "1M"),
             ("128M", "16M"),
+            ("256M", "256M"),
         ]:
             for num_nodes, num_processes in [ 
-                    (1, 1), (2, 2), (4, 4), (8, 8),
-                    (16, 16), (32, 32), (32, 64), (32, 128),
-                    (32, 256), (32, 512),
+                    (1, 1), (1, 2), (1, 4), (1, 8),
+                    (2, 16), (4, 32), (8, 64), (16, 128),
             ]:
                 tests.append( TestConfig(filesystem_type, block_size, transfer_size, num_nodes, num_processes) )
 
@@ -141,7 +116,7 @@ with open( f"result-{timestamp}.csv", "w", newline="" ) as csvfile:
 
         hosts = ",".join(nodes[:test_config.num_nodes])
 
-
+        """
         # My options
         cmd = [
             "mpirun", "--oversubscribe", "-np", str(test_config.num_processes),
@@ -156,9 +131,9 @@ with open( f"result-{timestamp}.csv", "w", newline="" ) as csvfile:
             "-d", "1", 
             "-o", test_config.datadir
         ]
-
         """
-        # recommendation from the partner team, minus "-v" options
+
+        # recommendation from the partner team, minus "-v" option, plus "-d" option.
         # "--posix.odirect" didn't work, so replaced with "-a POSIX -O useO_DIRECT=1"
         # See also: https://ior.readthedocs.io/en/latest/userDoc/options.html
         cmd = [
@@ -170,9 +145,9 @@ with open( f"result-{timestamp}.csv", "w", newline="" ) as csvfile:
             "-t", test_config.transfer_size, 
             "-b", test_config.block_size, 
             "-F", "-g", "-w", "-r", "-i", "3", "-e", "-C", "-D", "0",
+            "-d", "1", 
             "-o", test_config.datadir
         ]
-        """
 
         print("Running command:", cmd)
 
