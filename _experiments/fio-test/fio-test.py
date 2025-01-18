@@ -64,11 +64,15 @@ if 1:
         "weka",
     ]:
         for file_size, transfer_size in [
-            ("16M", "4K"),
-            ("64M", "1M"),
+            ("2G", "4K"),
+            ("2G", "64K"),
+            ("2G", "1M"),
+            ("2G", "16M"),
+            ("2G", "256M"),
         ]:
             for num_nodes, num_jobs in [ 
-                (1, 1), (2, 2)
+                (1, 1), (2, 1), (4, 1), (8, 1), (16, 1), 
+                (16, 2), (16, 4), (16, 8), (16, 16), (16, 32),
             ]:
                 tests.append( TestConfig(filesystem_type, file_size, transfer_size, num_nodes, num_jobs) )
 
@@ -107,7 +111,7 @@ with open( f"result-{timestamp}.csv", "w", newline="" ) as csvfile:
             "file_size",
             "transfer_size",
             "num_nodes",
-            "num_processes",
+            "num_jobs",
             "read_bw_mean",
             "write_bw_mean"
         ]
