@@ -1,3 +1,2 @@
-fsx-data
-weka-data
-slurm-*.out
+output-*/
+result-*.csv
