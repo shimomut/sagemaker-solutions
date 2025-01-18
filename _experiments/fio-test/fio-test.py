@@ -36,7 +36,7 @@ os.makedirs(output_dirname)
 
 class TestConfig:
 
-    def __init__(self, filesystem_type, block_size, transfer_size, num_nodes, num_jobs ):
+    def __init__(self, filesystem_type, file_size, transfer_size, num_nodes, num_jobs ):
 
         self.filesystem_type = filesystem_type
         
@@ -47,13 +47,13 @@ class TestConfig:
         else:
             assert False
 
-        self.block_size = block_size
+        self.file_size = file_size
         self.transfer_size = transfer_size
         self.num_nodes = num_nodes
         self.num_jobs = num_jobs
 
     def __str__(self):
-        return f"{self.filesystem_type}-{self.block_size}-{self.transfer_size}-{self.num_nodes}-{self.num_jobs}"
+        return f"{self.filesystem_type}-{self.file_size}-{self.transfer_size}-{self.num_nodes}-{self.num_jobs}"
 
 
 tests = []
@@ -63,14 +63,14 @@ if 1:
         "fsx",
         "weka",
     ]:
-        for block_size, transfer_size in [
+        for file_size, transfer_size in [
             ("16M", "4K"),
             ("64M", "1M"),
         ]:
             for num_nodes, num_jobs in [ 
                 (1, 1), (2, 2)
             ]:
-                tests.append( TestConfig(filesystem_type, block_size, transfer_size, num_nodes, num_jobs) )
+                tests.append( TestConfig(filesystem_type, file_size, transfer_size, num_nodes, num_jobs) )
 
 
 def run_subprocess_wrap(cmd, print_output=True, to_file=None, raise_non_zero_retcode=True):
@@ -104,7 +104,7 @@ with open( f"result-{timestamp}.csv", "w", newline="" ) as csvfile:
     csv_writer.writerow(
         [
             "filesystem_type",
-            "block_size",
+            "file_size",
             "transfer_size",
             "num_nodes",
             "num_processes",
@@ -127,17 +127,24 @@ with open( f"result-{timestamp}.csv", "w", newline="" ) as csvfile:
         with open(config_filename, "w") as fd:
             d = [
                 f"[global]",
+                f"time_based=1",
+                f"runtime=60",
+                f"startdelay=5",
+                f"exitall_on_error=1",
+                f"group_reporting",
+                f"clocksource=gettimeofday",
+                f"disk_util=0",
                 f"ioengine=libaio",
+                #f"ioengine=posixaio",
                 f"iodepth=1",
                 f"direct=1",
-                f"size={test_config.block_size}",
-                f"bs={test_config.transfer_size}",
                 f"stonewall",
-                f"group_reporting",
+                f"filesize={test_config.file_size}",
+                f"blocksize={test_config.transfer_size}",
                 f"directory={test_config.datadir}",
 
                 f"[test1]",
-                f"rw=randrw",
+                f"readwrite=randrw",
                 f"numjobs={test_config.num_jobs}",
             ]
             fd.write("\n".join(d))
@@ -168,7 +175,7 @@ with open( f"result-{timestamp}.csv", "w", newline="" ) as csvfile:
         csv_writer.writerow(
             [
                 test_config.filesystem_type,
-                test_config.block_size,
+                test_config.file_size,
                 test_config.transfer_size,
                 test_config.num_nodes,
                 test_config.num_jobs,
