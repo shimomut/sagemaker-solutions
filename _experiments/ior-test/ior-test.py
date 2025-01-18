@@ -66,8 +66,8 @@ if 1:
             ("256M", "256M"),
         ]:
             for num_nodes, num_processes in [ 
-                    (1, 1), (1, 2), (1, 4), (1, 8),
-                    (2, 16), (4, 32), (8, 64), (16, 128),
+                (1, 1), (2, 2), (4, 4), (8, 8), (16, 16), 
+                (16, 32), (16, 64), (16, 128), (16, 256), (16, 512),
             ]:
                 tests.append( TestConfig(filesystem_type, block_size, transfer_size, num_nodes, num_processes) )
 
