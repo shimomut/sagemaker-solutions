@@ -1,0 +1,2 @@
+run:
+	sbatch job.sh
