@@ -9,13 +9,13 @@ local-run:
 	docker run hello
 
 login:
-	aws ecr get-login-password --region us-west-2 | docker login --username AWS --password-stdin 842413447717.dkr.ecr.us-west-2.amazonaws.com
+	aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin 842413447717.dkr.ecr.us-east-1.amazonaws.com
 
 tag:
-	docker tag hello:latest 842413447717.dkr.ecr.us-west-2.amazonaws.com/hello:latest
+	docker tag hello:latest 842413447717.dkr.ecr.us-east-1.amazonaws.com/hello:latest
 
 push:
-	docker push 842413447717.dkr.ecr.us-west-2.amazonaws.com/hello:latest
+	docker push 842413447717.dkr.ecr.us-east-1.amazonaws.com/hello:latest
 
 # ---
 
