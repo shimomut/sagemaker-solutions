@@ -8,22 +8,22 @@ import subprocess
 
 
 nodes = [
-    "ip-10-1-73-241",
-    "ip-10-1-29-243",
-    "ip-10-1-71-41",
-    "ip-10-1-49-119",
-    "ip-10-1-107-100",
-    "ip-10-1-49-102",
-    "ip-10-1-40-105",
-    "ip-10-1-89-252",
-    "ip-10-1-62-160",
-    "ip-10-1-35-152",
-    "ip-10-1-112-207",
-    "ip-10-1-39-138",
-    "ip-10-1-43-136",
-    "ip-10-1-24-128",
-    "ip-10-1-9-228",
-    "ip-10-1-16-36",
+    "ip-10-1-4-82",
+    "ip-10-1-21-230",
+    "ip-10-1-32-23",
+    "ip-10-1-33-109",
+    "ip-10-1-55-103",
+    "ip-10-1-57-59",
+    "ip-10-1-69-244",
+    "ip-10-1-70-36",
+    "ip-10-1-72-123",
+    "ip-10-1-74-140",
+    "ip-10-1-78-150",
+    "ip-10-1-79-6",
+    "ip-10-1-81-47",
+    "ip-10-1-85-13",
+    "ip-10-1-102-191",
+    "ip-10-1-122-166",
 ]
 
 timestamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
@@ -66,8 +66,16 @@ if 1:
             ("256M", "256M"),
         ]:
             for num_nodes, num_processes in [ 
-                (1, 1), (2, 2), (4, 4), (8, 8), (16, 16), 
-                (16, 32), (16, 64), (16, 128), (16, 256), (16, 512),
+                (1, 1), 
+                (2, 2), 
+                (4, 4), 
+                (8, 8), 
+                (16, 16), 
+                (16, 32), 
+                (16, 64), 
+                (16, 128), 
+                (16, 256), 
+                (16, 512),
             ]:
                 tests.append( TestConfig(filesystem_type, block_size, transfer_size, num_nodes, num_processes) )
 
@@ -133,6 +141,7 @@ with open( f"result-{timestamp}.csv", "w", newline="" ) as csvfile:
         ]
         """
 
+        """
         # recommendation from the partner team, minus "-v" option, plus "-d" option.
         # "--posix.odirect" didn't work, so replaced with "-a POSIX -O useO_DIRECT=1"
         # See also: https://ior.readthedocs.io/en/latest/userDoc/options.html
@@ -142,6 +151,23 @@ with open( f"result-{timestamp}.csv", "w", newline="" ) as csvfile:
             "ior",
             "-a", "POSIX",
             "-O", "useO_DIRECT=1", 
+            "-t", test_config.transfer_size, 
+            "-b", test_config.block_size, 
+            "-F", "-g", "-w", "-r", "-i", "3", "-e", "-C", "-D", "0",
+            "-d", "1", 
+            "-o", test_config.datadir
+        ]
+        """
+
+        # Testing simpler configurations. This may be closer to real world situation?
+        # Dropped -C, -g, -e, and -O useO_DIRECT=1
+        # See also: https://ior.readthedocs.io/en/latest/userDoc/options.html
+        cmd = [
+            "mpirun", "--oversubscribe", "-np", str(test_config.num_processes),
+            "--host", hosts,
+            "ior",
+            "-a", "POSIX",
+            #"-O", "useO_DIRECT=1", 
             "-t", test_config.transfer_size, 
             "-b", test_config.block_size, 
             "-F", "-g", "-w", "-r", "-i", "3", "-e", "-C", "-D", "0",
