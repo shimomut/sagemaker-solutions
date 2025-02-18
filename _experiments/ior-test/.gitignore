@@ -1,3 +1,4 @@
 _old/
 output-*/
 result-*.csv
+*.tgz
