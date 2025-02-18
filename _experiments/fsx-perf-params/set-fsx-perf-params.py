@@ -5,7 +5,7 @@
 #       srun -N 16 cp ./set-fsx-perf-params.py /tmp
 #   2. Change directory to /tmp
 #       cd /tmp
-#   2. Run script
+#   3. Run script
 #       srun -N 16 sudo python3.9 /tmp/set-fsx-perf-params.py
 
 import sys
