@@ -46,6 +46,11 @@ This script gathers issue reporting information from your cluster. By running th
     python3 ./hyperpod_issue_report.py --nodes ip-10-3-48-177 ip-10-3-117-137
     ```
 
+    **Case 3** collect data only from head node. (In this case, data is not archived in Zip)
+    ```
+    python3 ./hyperpod_issue_report.py --capture-single-node --head-node --output-path ./issue_xyz/headnode
+    ```
+
 1. Wait until completion
 1. Download the generated Zip archive file (e.g., ./hyperpod_issue_report_20240823_023049.zip)
 
