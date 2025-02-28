@@ -130,7 +130,7 @@ def capture(args):
         cmd = ["sinfo", "-R"]
         run_subprocess_wrap(cmd, print_output=False, to_file=os.path.join(output_path, "sinfo-R.log"))
 
-        cmd = ["systemctl", "status", "slurmctld"]
+        cmd = ["sudo", "systemctl", "status", "slurmctld"]
         run_subprocess_wrap(cmd, print_output=False, to_file=os.path.join(output_path, "slurmctld_status.log"))
 
         cmd = ["sudo", "cp", "-R", "/opt/slurm/etc", os.path.join(output_path,"opt_slurm_etc")]
@@ -138,7 +138,7 @@ def capture(args):
 
     else:
 
-        cmd = ["systemctl", "status", "slurmd"]
+        cmd = ["sudo", "systemctl", "status", "slurmd"]
         run_subprocess_wrap(cmd, print_output=False, to_file=os.path.join(output_path, "slurmd_status.log"))
 
         cmd = ["nvidia-smi"]
