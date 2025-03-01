@@ -8,8 +8,11 @@ WEKA_DATADIR = /mnt/weka/fio-data
 hostname = $(shell hostname)
 timestamp = $(shell date +%s)
 
-install:
+install-fio:
 	sudo apt install -y fio
+
+install-fio-workers:
+	srun -N 16 make install-fio
 
 dirs:
 	sudo mkdir -p ${FSX_DATADIR}
@@ -18,10 +21,10 @@ dirs:
 	sudo mkdir -p ${WEKA_DATADIR}
 	sudo chown ubuntu:ubuntu ${WEKA_DATADIR}
 
-servers:
+run-servers:
 	srun -N 16 fio --server
 
-check:
+check-servers-remaining:
 	srun -N 16 ps ax | grep fio
 
 run:
