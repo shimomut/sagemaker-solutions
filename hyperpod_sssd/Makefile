@@ -1,5 +1,8 @@
 all:
 
+install-apt-pkgs:
+	sudo apt install sssd ldap-utils sssd-tools
+
 run:
 	python3 ./lcc/configure_sssd.py --node-type controller
 
