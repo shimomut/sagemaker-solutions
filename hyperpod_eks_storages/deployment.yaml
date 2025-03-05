@@ -1,0 +1,38 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hello-deployment
+  labels:
+    app: hello
+spec:
+  selector:
+    matchLabels:
+      app: hello
+  replicas: 2
+  template:
+    metadata:
+      name: hello
+      labels:
+        app: hello
+    spec:
+      containers:
+        - name: hello
+          image: 842413447717.dkr.ecr.us-east-1.amazonaws.com/hello:latest
+          imagePullPolicy: Always
+          volumeMounts:
+            - name: fsx-pv
+              mountPath: /fsx
+            - name: efs-pv
+              mountPath: /efs
+            - name: s3-pv
+              mountPath: /s3
+      volumes:
+        - name: fsx-pv
+          persistentVolumeClaim:
+            claimName: fsx-claim
+        - name: efs-pv
+          persistentVolumeClaim:
+            claimName: efs-claim
+        - name: s3-pv
+          persistentVolumeClaim:
+            claimName: s3-claim
