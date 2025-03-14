@@ -1,0 +1,48 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: notebook-deployment
+  labels:
+    app: notebook
+spec:
+  selector:
+    matchLabels:
+      app: notebook
+  replicas: 1
+  template:
+    metadata:
+      name: notebook
+      labels:
+        app: notebook
+    spec:
+      containers:
+        - name: notebook
+          image: 842413447717.dkr.ecr.us-east-1.amazonaws.com/notebook:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8888
+          command: ["jupyter-lab"]
+          args: ["--ip=0.0.0.0", "--allow-root", "--no-browser", "--NotebookApp.token=''"]          
+          
+          # volumeMounts:
+          #   - name: fsx-pv
+          #     mountPath: /fsx
+      # volumes:
+      #   - name: fsx-pv
+      #     persistentVolumeClaim:
+      #       claimName: fsx-claim
+
+---
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: notebook-service
+spec:
+  type: NodePort
+  ports:
+  - port: 8888
+    targetPort: 8888
+  selector:
+    app: notebook
+
