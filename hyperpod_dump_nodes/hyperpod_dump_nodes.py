@@ -38,7 +38,12 @@ def dump_nodes(cluster_name):
 
     with open("nodes.csv", "w") as fd:
         csv_writer = csv.writer(fd)
-        csv_writer.writerow( "instance-id", "status", "hostname", "IP address" )
+        csv_writer.writerow([
+            "instance-id", 
+            "status", 
+            "hostname", 
+            "IP address"
+        ])
 
         for node in nodes:
             .......
