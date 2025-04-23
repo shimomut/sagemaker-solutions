@@ -1,0 +1,42 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mywebhook
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mywebhook
+  template:
+    metadata:
+      labels:
+        app: mywebhook
+    spec:
+      containers:
+      - name: app
+        imagePullPolicy: Always
+        image: 842413447717.dkr.ecr.us-west-2.amazonaws.com/webhook:latest
+        ports:
+        - containerPort: 8443
+        volumeMounts:
+        - name: tls
+          mountPath: /certs/
+      volumes:
+      - name: tls
+        secret:
+          secretName: mywebhook-secret
+
+---
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: mywebhook
+spec:
+  selector:
+    app: mywebhook
+  ports:
+    - port: 443
+      protocol: TCP
+      targetPort: 8443
+

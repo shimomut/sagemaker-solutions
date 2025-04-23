@@ -1,15 +1,18 @@
 import os
-
-from http.server import HTTPServer, BaseHTTPRequestHandler
 import ssl
 import json
+import pprint
+from http.server import HTTPServer, BaseHTTPRequestHandler
+from urllib.parse import urlparse, parse_qs
 
-this_dirname = os.path.dirname(__file__)
+
+#cert_dirname = os.path.dirname(__file__)
+cert_dirname = "/certs"
 
 
-#debug_print = print
-def debug_print(*args):
-    pass
+debug_print = print
+# def debug_print(*args):
+#     pass
 
 
 class APIHandler(BaseHTTPRequestHandler):
@@ -26,21 +29,34 @@ class APIHandler(BaseHTTPRequestHandler):
         return json.loads(post_data.decode())
 
     def do_POST(self):
-        debug_print("do_POST", 1)
-        if self.path == '/validate':
-            debug_print("do_POST", 2)
+
+        parsed_url = urlparse(self.path)
+        api_path = parsed_url.path
+        query_params = parse_qs(parsed_url.query)
+
+        if api_path == '/validate':
             try:
-                debug_print("do_POST", 3)
                 post_data = self._read_post_data()
-                debug_print("do_POST", 4)
+
+                print("Request:")
+                pprint.pprint(post_data)
+
+                request_id = post_data["request"]["uid"]
+
                 response_data = {
-                    'message': 'Data received successfully',
-                    'received_data': post_data,
-                    'status': 'success'
+                    "apiVersion": "admission.k8s.io/v1",
+                    "kind": "AdmissionReview",
+                    "response": {
+                        "uid": request_id,
+                        "allowed": True
+                    }
                 }
-                debug_print("do_POST", 5)
+
+                print("Response:")
+                pprint.pprint(response_data)
+
                 self._send_response(response_data)
-                debug_print("do_POST", 6)
+
             except json.JSONDecodeError:
                 self.send_response(400)
                 self.send_header('Content-type', 'application/json')
@@ -60,8 +76,8 @@ def run_server(host='0.0.0.0', port=8443):
     # SSL context configuration
     ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
     ssl_context.load_cert_chain(
-        certfile = os.path.join(this_dirname, "webhook.crt"),
-        keyfile = os.path.join(this_dirname, "webhook.key"),
+        certfile = os.path.join(cert_dirname, "tls.crt"),
+        keyfile = os.path.join(cert_dirname, "tls.key"),
     )
     
     # Wrap the socket with SSL
