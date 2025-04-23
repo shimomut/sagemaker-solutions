@@ -1,0 +1,27 @@
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingWebhookConfiguration
+metadata:
+  name: "hpeks-validating-admission-webhook"
+webhooks:
+- name: "hpeks-validating-admission-webhook.foobar.local"
+  namespaceSelector:
+    matchExpressions:
+    - key: kubernetes.io/metadata.name
+      operator: In
+      values: ["dynamic-admission-test"]
+  failurePolicy: Fail
+  rules:
+  - apiGroups: [""]
+    operations: ["CREATE"]
+    apiVersions: ["v1"]
+    resources: ["pods"]
+    scope: "Namespaced"
+  clientConfig:
+    caBundle: 
+    service:
+      namespace: dynamic-admission-test
+      name: dynamic-admission-service
+      path: /validate
+  admissionReviewVersions: ["v1"]
+  timeoutSeconds: 5
+  sideEffects: None
