@@ -22,10 +22,3 @@ spec:
         - name: hello
           image: 842413447717.dkr.ecr.us-east-1.amazonaws.com/hello:latest
           imagePullPolicy: Always
-          # volumeMounts:
-          #   - name: fsx-pv
-          #     mountPath: /fsx
-      # volumes:
-      #   - name: fsx-pv
-      #     persistentVolumeClaim:
-      #       claimName: fsx-claim

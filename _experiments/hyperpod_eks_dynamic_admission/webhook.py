@@ -29,35 +29,37 @@ class APIHandler(BaseHTTPRequestHandler):
         api_invoker_username = req["userInfo"]["username"]
         api_invoker_groups = req["userInfo"]["groups"]
 
-        # FIXME: more Kubernetes system groups have to be added
-        allowed_groups = set([
-            "dynamic-admission:admin",
-            "system:nodes",
-            "system:serviceaccounts",
-        ])
+        # Allow all groups that start with "system:" prefix (except for system:authenticated).
+        # Allow "dynamic-admission:admin" group.
+        for group in api_invoker_groups:
+            if group in ["system:authenticated"]:
+                continue
+            if group.startswith("system:") or group == "dynamic-admission:admin":
+                print("Validated by group:", group)
+                return True, 200, ""
 
-        validated_groups = set(api_invoker_groups).intersection(allowed_groups)
-        if validated_groups:
-            print("Validated by groups:", validated_groups)
-            return True, 200, ""
-
-        # For now, allow resource creation always.
-        # We could validate if owner information is in place.
+        # Allow all resource creation operations.
         if operation in ["CREATE"]:
             return True, 200, ""
-        
+
+        # Get target object information
         if operation in ["UPDATE", "DELETE", "CONNECT"]:
             obj = req["oldObject"]
         elif operation in ["CONNECT"]:
             obj = req["object"]
 
+        # Get owner information from labels
+        try:
+            obj_owner = obj["metadata"]["labels"]["dynamic-admission-owner"]
+        except KeyError:
+            obj_owner = None
+
         # If owner information is missing in the object, allow everything
-        if "dynamic-admission-owner" not in obj["labels"]:
+        if obj_owner is None:
             return True, 200, ""
 
-        obj_owner = obj["labels"]["dynamic-admission-owner"]
         if obj_owner != api_invoker_username:
-            return False, 403, f"Forbidden access to resource owned by different user ({obj_owner} != {api_invoker_username})"
+            return False, 403, f"Forbidden access to resource owned by different user (owner:{obj_owner} != you:{api_invoker_username})"
 
         return True, 200, ""
 
@@ -65,7 +67,6 @@ class APIHandler(BaseHTTPRequestHandler):
 
         parsed_url = urlparse(self.path)
         api_path = parsed_url.path
-        #query_params = parse_qs(parsed_url.query)
 
         if api_path == '/validate':
             try:
