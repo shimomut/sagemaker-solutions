@@ -60,3 +60,9 @@ base64 -w 0 certs/tls.crt
 ``` bash
 kubectl apply -f validating_webhook_config.yaml
 ```
+
+5. Create IAM roles, and add them as EKS access entries
+
+    
+
+6. 

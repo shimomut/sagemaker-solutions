@@ -1,0 +1,31 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hello-deployment
+  labels:
+    app: hello
+    dynamic-admission-owner: user1
+
+spec:
+  selector:
+    matchLabels:
+      app: hello
+  replicas: 1
+  template:
+    metadata:
+      name: hello
+      labels:
+        app: hello
+        dynamic-admission-owner: user1
+    spec:
+      containers:
+        - name: hello
+          image: 842413447717.dkr.ecr.us-east-1.amazonaws.com/hello:latest
+          imagePullPolicy: Always
+          # volumeMounts:
+          #   - name: fsx-pv
+          #     mountPath: /fsx
+      # volumes:
+      #   - name: fsx-pv
+      #     persistentVolumeClaim:
+      #       claimName: fsx-claim

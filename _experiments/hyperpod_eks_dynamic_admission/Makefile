@@ -19,15 +19,22 @@ push:
 
 # ---
 
-deploy:
-	kubectl apply -f deployment.yaml -n mynamespace
+deploy-webhook:
+	kubectl apply -f webhook.yaml -n mynamespace
 
-delete:
-	kubectl delete -f deployment.yaml -n mynamespace
+delete-webhook:
+	kubectl delete -f webhook.yaml -n mynamespace
 
-watch-logs-all:
+watch-webhook-logs:
 	kubectl logs -f -l app=mywebhook -n mynamespace
 
-list-pods:
+list-webhook-pods:
 	kubectl get pods -o wide -n mynamespace
 
+# ---
+
+deploy-hello:
+	kubectl apply -f hello.yaml
+
+delete-hello:
+	kubectl delete -f hello.yaml
