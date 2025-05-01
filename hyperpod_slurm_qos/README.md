@@ -132,6 +132,13 @@
     58                  hello               ubuntu              ubuntu              RUNNING             None                normal              10
     ```
 
+## TODO:
+* Minimize settings
+  * Check if accounting is really needed for QoS.
+* Understand QoS level priority and Job level priority.
+* Test 3 QoS case (high, normal, low)
+  * Check how I can configure preempt relationship between 3 QoS.
+
 
 ## See also
 
