@@ -1,68 +1,69 @@
+## How to set up Validating Admission Webhook for finer grain access control
 
 
+1. Generate certificate and key for the webhook
 
-#### How to generate certificate and key for the webhook
-``` bash
-openssl genrsa 2048 > webhook.key
-openssl req -new -key webhook.key -out webhook_server.csr
-echo "subjectAltName = DNS:mywebhook.mynamespace.svc, DNS:mywebhook.mynamespace.svc.cluster.local" > san.txt
-openssl x509 -req -sha256 -days 365 -in webhook_server.csr -signkey webhook.key -out webhook.crt -extfile san.txt
-```
+    ``` bash
+    openssl genrsa 2048 > tls.key
+    openssl req -new -key tls.key -out tls_server.csr
+    echo "subjectAltName = DNS:mywebhook.mynamespace.svc, DNS:mywebhook.mynamespace.svc.cluster.local" > san.txt
+    openssl x509 -req -sha256 -days 365 -in tls_server.csr -signkey tls.key -out tls.crt -extfile san.txt
+    ```
 
-Note: Is SAN (X509v3 Subject Alternative Name) needed?
-Note: What NDS name should I use?
-
-    Follow this format?
-    `service-name.namespace-name.svc.cluster.local`
+    Note: For the SAN (X509v3 Subject Alternative Name), use following format: `{service-name}.{namespace-name}.svc.cluster.local`
 
 
-#### How to run and test the Webhook locally
+1. (Optional) Test the webhook locally
 
-In terminal A,
-``` bash
-python3 webhook.py
-```
+    In terminal A,
+    ``` bash
+    python3 webhook.py
+    ```
 
-In terminal B,
-``` bash
-curl -s -k -H 'Content-Type: application/json' -XPOST https://localhost:8443/validate -d @./sample-request.json
-```
+    In terminal B,
+    ``` bash
+    curl -s -k -H 'Content-Type: application/json' -XPOST https://localhost:8443/validate -d @./sample-request.json
+    ```
 
+1. Add the cert and key as a Secret.
 
-#### How to deploy the webhook
+    ``` bash
+    kubectl create secret webhook mywebhook-secret --key certs/webhook.key --cert certs/webhook.crt -n mynamespace
+    ```
 
-1. Add cert and key as a Secret
+1. Build the image for webhook, push it to ECR, and deploy it.
 
-``` bash
-kubectl create secret webhook mywebhook-secret --key certs/webhook.key --cert certs/webhook.crt -n mynamespace
-```
+    ``` bash
+    make build
+    make login
+    make tag
+    make push
+    make deploy
+    ```
 
-2. Build the image for Webhook, push it to ECR, and deploy it
+1. Edit `validating_webhook_config.yaml`
 
-``` bash
-make build
-make login
-make tag
-make push
-make deploy
-```
+    `caBundle` field has to be updated with the base64 expression of the certificate file. You can get base64 expression of the certificate by following command:
 
-3. Edit `validating_webhook_config.yaml`
+    ``` bash
+    base64 -w 0 certs/tls.crt
+    ```
 
-`caBundle` field has to be updated with the base64 expression of the certificate file.
+1. Depliy the Webhook config.
 
-``` bash
-base64 -w 0 certs/tls.crt
-```
+    ``` bash
+    kubectl apply -f validating_webhook_config.yaml
+    ```
 
-4. Depliy the Webhook config
+1. Watch log from the webhook.
 
-``` bash
-kubectl apply -f validating_webhook_config.yaml
-```
+    ``` bash
+    kubectl logs -f -l app=mywebhook -n mynamespace
+    ```
 
-5. Create IAM roles, and add them as EKS access entries
+1. Create / delete resources to test the webhook
 
-    
-
-6. 
+    ```
+	kubectl apply -f hello.yaml
+	kubectl delete -f hello.yaml
+    ```
