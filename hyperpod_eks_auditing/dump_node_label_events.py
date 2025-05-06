@@ -11,7 +11,7 @@ region_name = "us-west-2"
 eks_cluster_name = "sagemaker-hyperpod-eks-cluster"
 log_group_name = f"/aws/eks/{eks_cluster_name}/cluster"
 start_datetime = "2025-05-06T18:00:00Z" # in UTC
-end_datetime = "2025-05-06T21:00:00Z" # in UTC
+end_datetime = "2025-05-06T23:10:00Z" # in UTC
 object_name = "hyperpod-i-0fdb3d806306ede29"
 
 
@@ -134,10 +134,10 @@ class CwLogsStream:
             print(".", end="", flush=True)
 
 
-def print_json(d):
+def print_audit_event(audit_event):
 
     print("")
-    print(json.dumps(d, indent=2))
+    print(json.dumps(audit_event, indent=2))
     print("")
     print("---")
 
@@ -152,6 +152,8 @@ def main():
         end_datetime = end_datetime,
         )
     
+    detected_audit_events = []
+
     for stream in streams:
 
         log_stream_name = stream["logStreamName"]
@@ -160,14 +162,15 @@ def main():
         print( f"Processing log stream {log_stream_name}")
         print("")
 
-        node_label_events = CwLogsStream(region_name, log_group_name, log_stream_name)
-        
-        for event in node_label_events.iter_events_all(
+        log_stream = CwLogsStream(region_name, log_group_name, log_stream_name)
+
+        for log_event in log_stream.iter_events_all(
                 start_datetime = start_datetime,
                 end_datetime = end_datetime,
             ):
 
-            message = event["message"]
+            timestamp = log_event["timestamp"]
+            message = log_event["message"]
 
             # Use regex to check object name before parsing entire message as a JSON string,
             # because long messages are truncated at 256KB. 
@@ -180,17 +183,17 @@ def main():
                 continue
 
             try:
-                d = json.loads(message)
+                audit_event = json.loads(message)
             except json.decoder.JSONDecodeError as e:
                 print(e, ":", message)
                 continue
             
             # Skip unexpected data
-            if not isinstance(d, dict) or "kind" not in d or d["kind"] != "Event":
+            if not isinstance(audit_event, dict) or "kind" not in audit_event or audit_event["kind"] != "Event":
                 continue
 
             try:
-                verb = d["verb"]
+                verb = audit_event["verb"]
             except (TypeError, KeyError) as e:
                 verb = None
 
@@ -200,21 +203,30 @@ def main():
             elif verb in {'watch', 'list', 'create', 'delete', 'get', 'post'}:
                 continue
             else:
-                print_json(d)
+                print_audit_event(audit_event)
                 assert False, f"Unknown verb {verb}"
 
             labels_updated = False
-            if "requestObject" in d:
-                if "metadata" in d["requestObject"]:
-                    if "labels" in d["requestObject"]["metadata"]:
+            if "requestObject" in audit_event:
+                if "metadata" in audit_event["requestObject"]:
+                    if "labels" in audit_event["requestObject"]["metadata"]:
                         labels_updated = True
 
             if labels_updated:
-                print_json(d)
-
+                detected_audit_events.append( (timestamp, audit_event) )
 
     print("")
-    print( f"Finished processing all streams")
+    print( f"Printing detected audit events in chronological order.")
+    print("")
+
+    t = 0
+    for timestamp, audit_event in sorted(detected_audit_events, key=lambda x: x[0]):
+        assert t<=timestamp
+        t = timestamp
+        print_audit_event(audit_event)
+
+    print("")
+    print( f"Done.")
     print("")
 
 main()
