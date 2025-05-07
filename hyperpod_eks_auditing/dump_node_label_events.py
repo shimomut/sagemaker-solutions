@@ -221,7 +221,7 @@ def main():
 
     t = 0
     for timestamp, audit_event in sorted(detected_audit_events, key=lambda x: x[0]):
-        assert t<=timestamp
+        assert t<=timestamp, "Audit events are not sorted in chronological order"
         t = timestamp
         print_audit_event(audit_event)
 
