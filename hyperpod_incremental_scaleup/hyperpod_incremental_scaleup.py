@@ -64,6 +64,9 @@ def scaleup_with_loop(cluster_name, instance_group_name, target_instance_count, 
                 "ThreadsPerCore",
                 "InstanceStorageConfigs",
                 "OnStartDeepHealthChecks",
+                "OverrideVpcConfig",
+                "ScheduledUpdateConfig",
+                "TrainingPlanArn",
             ]
 
             for field_name in field_names:
