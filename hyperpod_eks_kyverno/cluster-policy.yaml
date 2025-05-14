@@ -1,10 +1,11 @@
 apiVersion: kyverno.io/v1
 kind: ClusterPolicy
 metadata:
-  name: add-node-labels
+  name: add-node-labels-and-taints
 spec:
   mutateExistingOnPolicyUpdate: true
   rules:
+
     - name: add-labels-to-nodes
       match:
         any:
@@ -24,34 +25,34 @@ spec:
               test-node-label-123: "test-value-123"
               test-node-label-foo: "bar"
 
----
-
-apiVersion: kyverno.io/v1
-kind: ClusterPolicy
-metadata:
-  name: add-node-taints
-spec:
-  mutateExistingOnPolicyUpdate: true
-  rules:
     - name: add-taints-to-nodes
+
+      # see: https://main.kyverno.io/policies/other/add-tolerations/add-tolerations/
+
       match:
         any:
         - resources:
             kinds:
               - Node
             name: "hyperpod-i-*"
+
+      preconditions:
+        any:
+        - key: "test-node-taint-123"
+          operator: AnyNotIn
+          value: "{{ request.object.spec.taints[].key || `[]` }}"
+          
       mutate:
 
         targets:
           - apiVersion: v1
             kind: Node
 
-        patchStrategicMerge:
-          spec:
-            taints:
-              - effect: NoSchedule
-                key: test-node-taint-123
-                value: "true"
-              - effect: NoSchedule
-                key: test-node-taint-foo
-                value: "bar"
+        patchesJson6902: |-
+          - op: add
+            path: "/spec/taints/-"
+            value:
+              key: "test-node-taint-123"
+              value: "true"
+              effect: "NoSchedule"
+
