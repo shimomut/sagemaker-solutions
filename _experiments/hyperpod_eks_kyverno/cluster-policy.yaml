@@ -1,0 +1,25 @@
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: add-node-labels
+spec:
+  mutateExistingOnPolicyUpdate: true
+  rules:
+    - name: add-labels-to-nodes
+      match:
+        any:
+        - resources:
+            kinds:
+              - Node
+            name: "hyperpod-i-*"
+      mutate:
+
+        targets:
+          - apiVersion: v1
+            kind: Node
+
+        patchStrategicMerge:
+          metadata:
+            labels:
+              test-node-label-123: "test-value-123"
+              test-node-label-foo: "bar"
