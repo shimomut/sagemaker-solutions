@@ -3,7 +3,6 @@ kind: ClusterPolicy
 metadata:
   name: add-node-labels-and-taints
 spec:
-  mutateExistingOnPolicyUpdate: true
   rules:
 
     - name: add-labels-to-nodes
@@ -14,11 +13,6 @@ spec:
               - Node
             name: "hyperpod-i-*"
       mutate:
-
-        targets:
-          - apiVersion: v1
-            kind: Node
-
         patchStrategicMerge:
           metadata:
             labels:
@@ -55,4 +49,3 @@ spec:
               key: "test-node-taint-123"
               value: "true"
               effect: "NoSchedule"
-
