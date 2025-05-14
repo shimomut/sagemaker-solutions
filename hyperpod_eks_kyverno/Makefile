@@ -27,3 +27,6 @@ delete-cluster-policy:
 
 list-nodes-with-labels:
 	kubectl get nodes -A --show-labels
+
+remove-test-taints:
+	kubectl taint nodes --all test-node-taint-123-
