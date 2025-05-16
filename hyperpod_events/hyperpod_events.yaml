@@ -1,7 +1,7 @@
 ---
 AWSTemplateFormatVersion: '2010-09-09'
 
-Description: "Send SageMaker HyperPod cluster status changes and instance health issues by emails."
+Description: "Send SageMaker HyperPod cluster status changes and instance health events by emails."
 
 Parameters:
 
@@ -15,7 +15,7 @@ Parameters:
 
 Resources:
 
-  # IAM Role for Lambda
+  # IAM Role for Lambda execution
   HyperPodEventsLambdaExecutionRole:
     Type: AWS::IAM::Role
     Properties:
@@ -62,7 +62,7 @@ Resources:
                   - "arn:aws:logs:*:*:log-group:/aws/lambda/*"
                   - "arn:aws:logs:*:*:log-group:/aws/lambda/*:log-stream:*"
 
-  # IAM Role for EventBridge target
+  # IAM Role for EventBridge to invoke Lambda
   EventBridgeTargetRole:
     Type: AWS::IAM::Role
     Properties:
@@ -84,7 +84,7 @@ Resources:
                 Resource: !GetAtt HyperPodEventsLambdaFunction.Arn
 
 
-  # Lambda function to deliver emails
+  # Lambda function to format and deliver emails
   HyperPodEventsLambdaFunction:
     DependsOn: HyperPodEventsLambdaExecutionRole
     Type: AWS::Lambda::Function
@@ -300,12 +300,3 @@ Resources:
         - Arn: !GetAtt HyperPodEventsLambdaFunction.Arn
           Id: "NotificationLambdaTarget"
           RoleArn: !GetAtt EventBridgeTargetRole.Arn
-
-  # Lambda Permission for EventBridge
-  LambdaPermission:
-    Type: AWS::Lambda::Permission
-    Properties:
-      Action: lambda:InvokeFunction
-      FunctionName: !Ref HyperPodEventsLambdaFunction
-      Principal: events.amazonaws.com
-      SourceArn: !GetAtt EventRule.Arn
