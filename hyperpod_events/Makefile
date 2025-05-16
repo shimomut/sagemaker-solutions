@@ -39,3 +39,16 @@ remove-target:
 # e.g., kubectl label node hyperpod-i-0fdc8ceb3bfecc215 sagemaker.amazonaws.com/node-health-status=UnschedulablePendingReplacement --overwrite=true
 
 # For HyperPod Slurm, as of 2025-05-09, only EC2 level instance degradation events are supported.
+
+deploy:
+	aws cloudformation create-stack \
+	--stack-name hyperpod-events-stack \
+	--template-body file://hyperpod_events.yaml \
+	--parameters \
+		ParameterKey=SenderEmailAddress,ParameterValue=shimomut+sender@amazon.com \
+		ParameterKey=ReceiverEmailAddress,ParameterValue=shimomut+receiver@amazon.com \
+	--capabilities CAPABILITY_IAM
+
+delete:
+	aws cloudformation delete-stack \
+	--stack-name hyperpod-events-stack
