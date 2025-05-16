@@ -1,0 +1,21 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: debug-target-deployment
+  labels:
+    app: debug-target
+spec:
+  selector:
+    matchLabels:
+      app: debug-target
+  replicas: 1
+  template:
+    metadata:
+      name: debug-target
+      labels:
+        app: debug-target
+    spec:
+      containers:
+        - name: debug-target
+          image: 842413447717.dkr.ecr.us-east-1.amazonaws.com/debug-target:latest
+          imagePullPolicy: Always
