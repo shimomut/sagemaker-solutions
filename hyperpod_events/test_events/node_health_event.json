@@ -1,0 +1,25 @@
+{
+    "version": "0",
+    "id": "60196056-7245-ee37-b872-54761ba04a7c",
+    "detail-type": "SageMaker HyperPod Cluster Node Health Event",
+    "source": "aws.sagemaker",
+    "account": "842413447717",
+    "time": "2025-05-09T21:46:15Z",
+    "region": "us-west-2",
+    "resources": [
+        "arn:aws:sagemaker:us-west-2:842413447717:cluster/qx06scn2c9eu"
+    ],
+    "detail": {
+        "ClusterName": "k8-1",
+        "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/qx06scn2c9eu",
+        "InstanceId": "i-0fdc8ceb3bfecc215",
+        "HealthSummary": {
+            "HealthStatus": "Unhealthy",
+            "HealthStatusReason": null,
+            "RepairAction": "Replace",
+            "Recommendation": "HyperPod is working on repairing the unhealthy node. Please wait for the RepairAction being taken by HyperPod to complete."
+        },
+        "EventTime": null,
+        "Tags": {}
+    }
+}

@@ -1,44 +1,14 @@
+local-test1:
+	python3 lambda_function.py \
+	--sender shimomut+sender@amazon.com \
+	--receiver shimomut+receiver@amazon.com \
+	--test-event-file test_events/cluster_status_change.json
 
-put-rule:
-	aws events put-rule --name MySageMakerRule --event-pattern file://event-pattern.json
-
-list-rules:
-	aws events list-rules
-
-describe-rule:
-	aws events describe-rule --name MySageMakerRule
-
-delete-rule:
-	aws events delete-rule --name MySageMakerRule
-
-create-topic:
-	aws sns create-topic --name MySageMakerNotificationTopic
-
-subscribe:
-	aws sns subscribe \
-		--topic-arn arn:aws:sns:us-west-2:842413447717:MySageMakerNotificationTopic \
-		--protocol email \
-		--notification-endpoint shimomut@amazon.com
-
-# You will receive an email "AWS Notification - Subscription Confirmation" and need to confirm.
-
-# Here, using manually created IAM Role for the target.
-
-put-target:
-	aws events put-targets --rule MySageMakerRule \
-		--targets "Id"="1","Arn"="arn:aws:sns:us-west-2:842413447717:MySageMakerNotificationTopic","RoleArn"="arn:aws:iam::842413447717:role/service-role/Amazon_EventBridge_Invoke_Sns_747096842"
-
-remove-target:
-	aws events remove-targets --rule MySageMakerRule \
-		--ids 1
-
-
-# You can update the cluster status (e.g. scale up), and confirm you receive emails.
-
-# For HyperPod EKS, you can set node label to trigger instance replacement, and receive emails.
-# e.g., kubectl label node hyperpod-i-0fdc8ceb3bfecc215 sagemaker.amazonaws.com/node-health-status=UnschedulablePendingReplacement --overwrite=true
-
-# For HyperPod Slurm, as of 2025-05-09, only EC2 level instance degradation events are supported.
+local-test2:
+	python3 lambda_function.py \
+	--sender shimomut+sender@amazon.com \
+	--receiver shimomut+receiver@amazon.com \
+	--test-event-file test_events/node_health_event.json
 
 deploy:
 	aws cloudformation create-stack \

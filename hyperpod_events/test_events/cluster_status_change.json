@@ -1,0 +1,109 @@
+{
+  "version": "0",
+  "id": "834a5b0a-212e-9dd3-b77b-b12d4c926c25",
+  "detail-type": "SageMaker HyperPod Cluster State Change",
+  "source": "aws.sagemaker",
+  "account": "842413447717",
+  "time": "2025-05-16T00:28:48Z",
+  "region": "us-west-2",
+  "resources": [
+    "arn:aws:sagemaker:us-west-2:842413447717:cluster/qx06scn2c9eu"
+  ],
+  "detail": {
+    "SdkResponseMetadata": null,
+    "SdkHttpMetadata": null,
+    "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/qx06scn2c9eu",
+    "ClusterName": "k8-1",
+    "ClusterStatus": "Updating",
+    "CreationTime": 1746488391510,
+    "FailureMessage": "",
+    "InstanceGroups": [
+      {
+        "CurrentCount": 0,
+        "TargetCount": 0,
+        "InstanceGroupName": "accelerated-worker-group-1",
+        "InstanceType": "ml.g5.8xlarge",
+        "LifeCycleConfig": {
+          "SourceS3Uri": "s3://sagemaker-hyperpod-eks-bucket-842413447717-us-west-2",
+          "OnCreate": "on_create.sh"
+        },
+        "ExecutionRole": "arn:aws:iam::842413447717:role/sagemaker-hyperpod-eks-SMHP-Exec-Role-us-west-2",
+        "ThreadsPerCore": 1,
+        "InstanceStorageConfigs": [
+          {
+            "EbsVolumeConfig": {
+              "VolumeSizeInGB": 500,
+              "VolumeKmsKeyId": null
+            }
+          }
+        ],
+        "EnableBurnInTest": null,
+        "OnStartDeepHealthCheck": null,
+        "OnStartDeepHealthChecks": [
+          "InstanceConnectivity",
+          "InstanceStress"
+        ],
+        "Status": "InService",
+        "FailureMessages": null,
+        "ScalingConfig": null,
+        "TrainingPlanArn": "",
+        "TrainingPlanStatus": "NotApplicable",
+        "OverrideVpcConfig": null,
+        "CustomMetadata": null,
+        "ScheduledUpdateConfig": null,
+        "CurrentImageId": null,
+        "DesiredImageId": null
+      },
+      {
+        "CurrentCount": 2,
+        "TargetCount": 3,
+        "InstanceGroupName": "general-purpose-worker-group-2",
+        "InstanceType": "ml.m5.2xlarge",
+        "LifeCycleConfig": {
+          "SourceS3Uri": "s3://sagemaker-hyperpod-eks-bucket-842413447717-us-west-2",
+          "OnCreate": "on_create.sh"
+        },
+        "ExecutionRole": "arn:aws:iam::842413447717:role/sagemaker-hyperpod-eks-SMHP-Exec-Role-us-west-2",
+        "ThreadsPerCore": 1,
+        "InstanceStorageConfigs": [
+          {
+            "EbsVolumeConfig": {
+              "VolumeSizeInGB": 500,
+              "VolumeKmsKeyId": null
+            }
+          }
+        ],
+        "EnableBurnInTest": null,
+        "OnStartDeepHealthCheck": null,
+        "OnStartDeepHealthChecks": null,
+        "Status": "Updating",
+        "FailureMessages": null,
+        "ScalingConfig": null,
+        "TrainingPlanArn": "",
+        "TrainingPlanStatus": "NotApplicable",
+        "OverrideVpcConfig": null,
+        "CustomMetadata": null,
+        "ScheduledUpdateConfig": null,
+        "CurrentImageId": null,
+        "DesiredImageId": null
+      }
+    ],
+    "RestrictedInstanceGroups": null,
+    "VpcConfig": {
+      "SecurityGroupIds": [
+        "sg-063a0fbc920e5d52e"
+      ],
+      "Subnets": [
+        "subnet-0dac1fcd8cc80fd43"
+      ]
+    },
+    "Orchestrator": {
+      "Eks": {
+        "ClusterArn": "arn:aws:eks:us-west-2:842413447717:cluster/sagemaker-hyperpod-eks-cluster"
+      }
+    },
+    "ResilienceConfig": null,
+    "NodeRecovery": "Automatic",
+    "Tags": {}
+  }
+}

@@ -9,6 +9,9 @@
     - For HyperPod EKS, you can test the node health notification by triggering instance replacement.
     - For HyperPod Slurm, as of 2025-05, you cannot test the node health notification. It comes when the node really got degraded at EC2 level.
 
+
 #### Next steps
 
 - You can customize the format of the email by modifying the Lambda function.
+
+
