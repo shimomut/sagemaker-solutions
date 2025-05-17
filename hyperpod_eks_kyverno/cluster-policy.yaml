@@ -5,6 +5,7 @@ metadata:
 spec:
   rules:
 
+    # Note: applied only to newly created nodes
     - name: add-labels-to-nodes
       match:
         any:
@@ -19,6 +20,7 @@ spec:
               test-node-label-123: "test-value-123"
               test-node-label-foo: "bar"
 
+    # Note: applied only to newly created nodes
     - name: add-taints-to-nodes
 
       # see: https://main.kyverno.io/policies/other/add-tolerations/add-tolerations/
