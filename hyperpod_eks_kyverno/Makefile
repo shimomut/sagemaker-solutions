@@ -10,7 +10,7 @@ uninstall-kyverno:
 list-kyverno-pods:
 	kubectl get pods -n kyverno
 
-apply-permisson:
+apply-permission:
 	kubectl apply -f permission.yaml
 
 edit-config-map:
