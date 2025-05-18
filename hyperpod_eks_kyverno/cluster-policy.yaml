@@ -57,8 +57,78 @@ spec:
 apiVersion: kyverno.io/v1
 kind: ClusterPolicy
 metadata:
-  name: add-pod-tolerations
+  name: add-pod-tolerations1
 spec:
+
+  rules:
+
+    - name: add-toleration-to-dhc-pods
+
+      # see: https://main.kyverno.io/policies/other/add-tolerations/add-tolerations/
+
+      match:
+        any:
+        - resources:
+            kinds:
+              - Pod
+            name: "hardwarecheck-i-*"
+            namespaces:
+              - "aws-hyperpod"
+
+        - resources:
+            kinds:
+              - Pod
+            name: "dcgm-i-*"
+            namespaces:
+              - "aws-hyperpod"
+
+        - resources:
+            kinds:
+              - Pod
+            name: "efa-i-*"
+            namespaces:
+              - "aws-hyperpod"
+
+        - resources:
+            kinds:
+              - Pod
+            name: "nccl-*"
+            namespaces:
+              - "aws-hyperpod"
+
+      preconditions:
+        any:
+        - key: "test-node-taint-123"
+          operator: AnyNotIn
+          value: "{{ request.object.spec.tolerations[].key || `[]` }}"
+          
+      mutate:
+
+        targets:
+          - apiVersion: v1
+            kind: Pod
+
+        patchesJson6902: |-
+          - op: add
+            path: "/spec/tolerations/-"
+            value:
+              key: "test-node-taint-123"
+              operator: Equal
+              value: "true"
+              effect: "NoSchedule"
+
+
+---
+
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: add-pod-tolerations2
+spec:
+
+  # FIXME: for some reason, nccl tests don't start without this option.
+  mutateExistingOnPolicyUpdate: true
+
   rules:
 
     - name: add-toleration-to-dhc-pods
