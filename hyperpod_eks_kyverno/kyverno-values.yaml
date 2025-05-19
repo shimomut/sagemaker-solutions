@@ -1,12 +1,12 @@
 config:
-  excludeGroups: [] # empty to allow mutating nodes.
+  excludeGroups: system:serviceaccounts:kube-system # empty to allow mutating nodes.
   resourceFilters:
     - '[Event,*,*]'
     - '[*/*,kube-system,*]'
     - '[*/*,kube-public,*]'
     - '[*/*,kube-node-lease,*]'
     #- '[Node,*,*]' # comment out to allow mutating nodes.
-    - '[Node/*,*,*]'
+    #- '[Node/*,*,*]'
     - '[APIService,*,*]'
     - '[APIService/*,*,*]'
     - '[TokenReview,*,*]'
@@ -107,6 +107,6 @@ config:
     - '[Secret,{{ include "kyverno.namespace" . }},{{ template "kyverno.cleanup-controller.name" . }}.{{ template "kyverno.namespace" . }}.svc.*]'
 
 
-features:
-  backgroundScan:
-    backgroundScanInterval: 5m
+# features:
+#   backgroundScan:
+#     backgroundScanInterval: 5m
