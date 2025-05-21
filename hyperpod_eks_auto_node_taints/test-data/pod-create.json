@@ -1,0 +1,204 @@
+{
+  "kind": "AdmissionReview",
+  "apiVersion": "admission.k8s.io/v1",
+  "request": {
+    "uid": "792f6bb6-6aba-406a-85d7-e9012204ee29",
+    "kind": {
+      "group": "",
+      "version": "v1",
+      "kind": "Pod"
+    },
+    "resource": {
+      "group": "",
+      "version": "v1",
+      "resource": "pods"
+    },
+    "requestKind": {
+      "group": "",
+      "version": "v1",
+      "kind": "Pod"
+    },
+    "requestResource": {
+      "group": "",
+      "version": "v1",
+      "resource": "pods"
+    },
+    "name": "hello-deployment-7fd5b9cfc4-qsxtg",
+    "namespace": "default",
+    "operation": "CREATE",
+    "userInfo": {
+      "username": "system:serviceaccount:kube-system:replicaset-controller",
+      "uid": "fd728619-9b53-4943-8e24-37601d888da9",
+      "groups": [
+        "system:serviceaccounts",
+        "system:serviceaccounts:kube-system",
+        "system:authenticated"
+      ],
+      "extra": {
+        "authentication.kubernetes.io/credential-id": [
+          "JTI=45ede9b4-5518-4992-bd40-da5dac797afd"
+        ]
+      }
+    },
+    "object": {
+      "kind": "Pod",
+      "apiVersion": "v1",
+      "metadata": {
+        "name": "hello-deployment-7fd5b9cfc4-qsxtg",
+        "generateName": "hello-deployment-7fd5b9cfc4-",
+        "namespace": "default",
+        "uid": "46028e1c-98fd-4637-8e10-31972e522198",
+        "creationTimestamp": "2025-05-21T20:55:31Z",
+        "labels": {
+          "app": "hello",
+          "pod-template-hash": "7fd5b9cfc4"
+        },
+        "ownerReferences": [
+          {
+            "apiVersion": "apps/v1",
+            "kind": "ReplicaSet",
+            "name": "hello-deployment-7fd5b9cfc4",
+            "uid": "08f1595a-d24b-427c-9dc1-08e42859c9b3",
+            "controller": true,
+            "blockOwnerDeletion": true
+          }
+        ],
+        "managedFields": [
+          {
+            "manager": "kube-controller-manager",
+            "operation": "Update",
+            "apiVersion": "v1",
+            "time": "2025-05-21T20:55:31Z",
+            "fieldsType": "FieldsV1",
+            "fieldsV1": {
+              "f:metadata": {
+                "f:generateName": {},
+                "f:labels": {
+                  ".": {},
+                  "f:app": {},
+                  "f:pod-template-hash": {}
+                },
+                "f:ownerReferences": {
+                  ".": {},
+                  "k:{\"uid\":\"08f1595a-d24b-427c-9dc1-08e42859c9b3\"}": {}
+                }
+              },
+              "f:spec": {
+                "f:containers": {
+                  "k:{\"name\":\"hello\"}": {
+                    ".": {},
+                    "f:image": {},
+                    "f:imagePullPolicy": {},
+                    "f:name": {},
+                    "f:resources": {},
+                    "f:terminationMessagePath": {},
+                    "f:terminationMessagePolicy": {}
+                  }
+                },
+                "f:dnsPolicy": {},
+                "f:enableServiceLinks": {},
+                "f:restartPolicy": {},
+                "f:schedulerName": {},
+                "f:securityContext": {},
+                "f:terminationGracePeriodSeconds": {}
+              }
+            }
+          }
+        ]
+      },
+      "spec": {
+        "volumes": [
+          {
+            "name": "kube-api-access-bslrl",
+            "projected": {
+              "sources": [
+                {
+                  "serviceAccountToken": {
+                    "expirationSeconds": 3607,
+                    "path": "token"
+                  }
+                },
+                {
+                  "configMap": {
+                    "name": "kube-root-ca.crt",
+                    "items": [
+                      {
+                        "key": "ca.crt",
+                        "path": "ca.crt"
+                      }
+                    ]
+                  }
+                },
+                {
+                  "downwardAPI": {
+                    "items": [
+                      {
+                        "path": "namespace",
+                        "fieldRef": {
+                          "apiVersion": "v1",
+                          "fieldPath": "metadata.namespace"
+                        }
+                      }
+                    ]
+                  }
+                }
+              ],
+              "defaultMode": 420
+            }
+          }
+        ],
+        "containers": [
+          {
+            "name": "hello",
+            "image": "842413447717.dkr.ecr.us-east-1.amazonaws.com/hello:latest",
+            "resources": {},
+            "volumeMounts": [
+              {
+                "name": "kube-api-access-bslrl",
+                "readOnly": true,
+                "mountPath": "/var/run/secrets/kubernetes.io/serviceaccount"
+              }
+            ],
+            "terminationMessagePath": "/dev/termination-log",
+            "terminationMessagePolicy": "File",
+            "imagePullPolicy": "Always"
+          }
+        ],
+        "restartPolicy": "Always",
+        "terminationGracePeriodSeconds": 30,
+        "dnsPolicy": "ClusterFirst",
+        "serviceAccountName": "default",
+        "serviceAccount": "default",
+        "securityContext": {},
+        "schedulerName": "default-scheduler",
+        "tolerations": [
+          {
+            "key": "node.kubernetes.io/not-ready",
+            "operator": "Exists",
+            "effect": "NoExecute",
+            "tolerationSeconds": 300
+          },
+          {
+            "key": "node.kubernetes.io/unreachable",
+            "operator": "Exists",
+            "effect": "NoExecute",
+            "tolerationSeconds": 300
+          }
+        ],
+        "priority": 0,
+        "enableServiceLinks": true,
+        "preemptionPolicy": "PreemptLowerPriority"
+      },
+      "status": {
+        "phase": "Pending",
+        "qosClass": "BestEffort"
+      }
+    },
+    "oldObject": null,
+    "dryRun": false,
+    "options": {
+      "kind": "CreateOptions",
+      "apiVersion": "meta.k8s.io/v1"
+    }
+  }
+}

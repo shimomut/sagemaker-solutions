@@ -1,0 +1,38 @@
+# https://kubernetes.io/docs/reference/access-authn-authz/mutating-admission-policy/
+
+# MutatingAdmissionPolicy is not available by default it looks.
+
+apiVersion: admissionregistration.k8s.io/v1alpha1
+kind: MutatingAdmissionPolicy
+metadata:
+  name: node-taint-policy
+spec:
+  failurePolicy: Ignore
+  matchConstraints:
+    resourceRules:
+    - apiGroups: [""]
+      apiVersions: ["v1"]
+      resources: ["nodes"]
+      operations: ["CREATE", "UPDATE"]
+  matchConditions:
+    - name: is-hyperpod-nodes
+      expression: "object.metadata.name.startsWith('hyperpod-')"
+  mutations:
+  - patchType: ApplyConfiguration
+    applyConfiguration:
+      expression: >-
+        Object{
+          metadata: Object.metadata{
+            labels: {"test-label": "1234"}
+          }
+        }
+
+---
+
+apiVersion: admissionregistration.k8s.io/v1alpha1
+kind: MutatingAdmissionPolicyBinding
+metadata:
+  name: node-taint-policy-binding
+spec:
+  policyName: node-taint-policy
+
