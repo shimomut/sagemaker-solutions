@@ -41,7 +41,14 @@ class APIHandler(BaseHTTPRequestHandler):
                 request = post_data["request"]
                 request_id = request["uid"]
 
-                # print( "%s - %s" % (request["kind"]["kind"], request["operation"]) )
+                if "name" in request:
+                    name = request["name"]
+                elif "object" in request and "metadata" in request["object"] and "generateName" in request["object"]["metadata"]:
+                    name = request["object"]["metadata"]["generateName"] + "..."
+                else:
+                    name = ""
+
+                print( "%s(%s) - %s" % (request["kind"]["kind"], name, request["operation"]) )
 
                 response = {
                     "apiVersion": "admission.k8s.io/v1",
@@ -53,19 +60,20 @@ class APIHandler(BaseHTTPRequestHandler):
                 }
 
                 # Add label and taint to new HyperPod nodes
-                if request["kind"]["kind"] == "Node" and request["operation"] == "CREATE" and request["name"].startswith("hyperpod-"):
+                if request["kind"]["kind"] == "Node" and request["operation"] == "CREATE" and name.startswith("hyperpod-"):
 
                     print("Request:")
                     print(json.dumps(post_data, indent=2))
 
                     patch = [
                         
-                        # Add a label
-                        {
-                            "op": "add",
-                            "path": "/metadata/labels/mutating-webhook-label",
-                            "value": "123"
-                        },
+                        # # Add a label
+                        # {
+                        #     "op": "add",
+                        #     "path": "/metadata/labels/mutating-webhook-label",
+                        #     "value": "123"
+                        # },
+
 
                         # Add a taint
                         {
@@ -76,7 +84,20 @@ class APIHandler(BaseHTTPRequestHandler):
                                 "effect": "NoSchedule",
                                 "value": "true",
                             }
-                        }
+                        },
+
+
+                        # # Add a taint
+                        # {
+                        #     "op": "add",
+                        #     "path": "/spec/taints/-",
+                        #     "value": {
+                        #         "key": "mutating-webhook-taint",
+                        #         "effect": "PreferNoSchedule",
+                        #         "value": "true",
+                        #     }
+                        # }
+
                     ]
                     
                     # Base64 encode the patch
@@ -86,53 +107,77 @@ class APIHandler(BaseHTTPRequestHandler):
                     # Add the patch to the response
                     response["response"]["patchType"] = "JSONPatch"
                     response["response"]["patch"] = base64_patch                    
+
+                    print("Patch:")
+                    print(json.dumps(patch, indent=2))
 
                     print("Response:")
                     print(json.dumps(response, indent=2))
 
 
                 # Add label and toleration to HyperPod system Pods
-                elif request["kind"]["kind"] == "Pod" and request["operation"] == "CREATE" and request["namespace"] == "aws-hyperpod":
+                elif request["kind"]["kind"] == "Pod" and request["operation"] == "CREATE":
 
                     print("Request:")
                     print(json.dumps(post_data, indent=2))
 
-                    patch = [
-                        
-                        # Add a label
-                        {
-                            "op": "add",
-                            "path": "/metadata/labels/mutating-webhook-label",
-                            "value": "123"
-                        },
+                    if request["namespace"] in ["aws-hyperpod"] and name.split("-")[0] in ["hardwarecheck", "dcgm", "efa", "nccl"]:
 
-                        # Add a taint
-                        {
-                            "op": "add",
-                            "path": "/spec/tolerations/-",
-                            "value": {
-                                "key": "mutating-webhook-taint",
-                                "operator": "Equal",
-                                "effect": "NoSchedule",
-                                "value": "true",
+                        patch = [
+                            
+                            # FIXME: Pod creation fails if labels itself doesn't exist
+                            # Should check existence and add an enpty array first.
+
+                            # # Add a label
+                            # {
+                            #     "op": "add",
+                            #     "path": "/metadata/labels/mutating-webhook-label",
+                            #     "value": "123"
+                            # },
+
+                            # # Add a toleration
+                            # {
+                            #     "op": "add",
+                            #     "path": "/spec/tolerations/-",
+                            #     "value": {
+                            #         "key": "mutating-webhook-taint",
+                            #         "operator": "Equal",
+                            #         "effect": "NoSchedule",
+                            #         "value": "true",
+                            #     }
+                            # }
+
+                            # Add a toleration
+                            {
+                                "op": "add",
+                                "path": "/spec/tolerations/-",
+                                "value": {
+                                    "operator": "Exists",
+                                }
                             }
-                        }
-                    ]
-                    
-                    # Base64 encode the patch
-                    patch_bytes = json.dumps(patch).encode('utf-8')
-                    base64_patch = base64.b64encode(patch_bytes).decode('utf-8')
-                    
-                    # Add the patch to the response
-                    response["response"]["patchType"] = "JSONPatch"
-                    response["response"]["patch"] = base64_patch                    
+
+                        ]
+                            
+                        # Base64 encode the patch
+                        patch_bytes = json.dumps(patch).encode('utf-8')
+                        base64_patch = base64.b64encode(patch_bytes).decode('utf-8')
+                        
+                        # Add the patch to the response
+                        response["response"]["patchType"] = "JSONPatch"
+                        response["response"]["patch"] = base64_patch                    
+
+                        print("Patch:")
+                        print(json.dumps(patch, indent=2))
 
                     print("Response:")
                     print(json.dumps(response, indent=2))
 
                 self._send_response(response)
 
-            except json.JSONDecodeError:
+            except json.JSONDecodeError as e:
+
+                print("Error:", e)
+
                 self.send_response(400)
                 self.send_header('Content-type', 'application/json')
                 self.end_headers()
@@ -141,6 +186,8 @@ class APIHandler(BaseHTTPRequestHandler):
                     'status': 'error'
                 }).encode())
         else:
+            print(f"Error: unknown API path {api_path}")
+
             self.send_response(404)
             self.end_headers()
 

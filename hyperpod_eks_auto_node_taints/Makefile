@@ -1,18 +1,18 @@
 SHELL := /bin/bash
 
-build:
+build-image:
 	docker build --tag mutating-webhook .
 
-local-run:
+local-run-image:
 	docker run -v ./certs:/certs mutating-webhook
 
-login:
+login-ecr:
 	aws ecr get-login-password --region us-west-2 | docker login --username AWS --password-stdin 842413447717.dkr.ecr.us-west-2.amazonaws.com
 
-tag:
+tag-image:
 	docker tag mutating-webhook:latest 842413447717.dkr.ecr.us-west-2.amazonaws.com/mutating-webhook:latest
 
-push:
+push-image:
 	docker push 842413447717.dkr.ecr.us-west-2.amazonaws.com/mutating-webhook:latest
 
 # ---

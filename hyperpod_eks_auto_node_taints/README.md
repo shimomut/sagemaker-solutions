@@ -50,10 +50,10 @@
 1. Build the image for webhook, push it to ECR, and deploy it.
 
     ``` bash
-    make build
-    make login
-    make tag
-    make push
+    make login-ecr
+    make build-image
+    make tag-image
+    make push-image
     make deploy-webhook
     ```
 
