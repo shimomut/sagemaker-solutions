@@ -36,3 +36,11 @@ deploy-hello:
 
 delete-hello:
 	kubectl delete -f hello.yaml
+
+# ---
+
+list-nodes:
+	kubectl get nodes "-o=custom-columns=NAME:.metadata.name,CREATION_TIME:.metadata.creationTimestamp,HEALTH:.metadata.labels.sagemaker\.amazonaws\.com/node-health-status,DHC:.metadata.labels.sagemaker\.amazonaws\.com\/deep-health-check-status,TAINTS:.spec.taints"
+
+delete-taints:
+	kubectl taint nodes --all mutating-webhook-taint-

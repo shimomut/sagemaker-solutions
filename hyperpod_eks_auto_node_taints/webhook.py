@@ -14,6 +14,10 @@ else:
 
 class APIHandler(BaseHTTPRequestHandler):
 
+    # Suppress logs
+    def log_message(self, format, *args):
+        pass
+
     def _send_response(self, data):
         self.send_response(200)
         self.send_header('Content-type', 'application/json')
@@ -24,57 +28,6 @@ class APIHandler(BaseHTTPRequestHandler):
         content_length = int(self.headers['Content-Length'])
         post_data = self.rfile.read(content_length)
         return json.loads(post_data.decode())
-
-    # def _validate(self, req):
-
-    #     kind = req["kind"]
-    #     operation = req["operation"]
-    #     api_invoker_username = req["userInfo"]["username"]
-    #     api_invoker_groups = req["userInfo"]["groups"]
-
-    #     print(f"Operation: {operation}, Kind: {kind}")
-
-    #     # Allow unknown kinds
-    #     if kind["kind"] not in ["Pod", "Deployment"]:
-    #         print("Ignoring unknown kinds:", kind["kind"])
-    #         return True, 200, ""
-
-    #     # Allow all groups that start with "system:" prefix (except for system:authenticated).
-    #     # Allow "dynamic-admission:admin" group.
-    #     for group in api_invoker_groups:
-    #         if group in ["system:authenticated"]:
-    #             continue
-    #         if group.startswith("system:") or group == "dynamic-admission:admin":
-    #             print(f"Allowing by group: {group}")
-    #             return True, 200, ""
-
-    #     # Allow all resource creation operations.
-    #     if operation in ["CREATE"]:
-    #         print(f"Allowing operation {operation}")
-    #         return True, 200, ""
-
-    #     # Get target object information
-    #     if operation in ["UPDATE", "DELETE", "CONNECT"]:
-    #         obj = req["oldObject"]
-    #     elif operation in ["CONNECT"]:
-    #         obj = req["object"]
-
-    #     # Get owner information from labels
-    #     try:
-    #         obj_owner = obj["metadata"]["labels"]["dynamic-admission-owner"]
-    #     except KeyError:
-    #         obj_owner = None
-
-    #     # If owner information is missing in the object, allow everything
-    #     if obj_owner is None:
-    #         print(f"Allowing {operation} operation to resources without dynamic admission owner")
-    #         return True, 200, ""
-
-    #     if obj_owner != api_invoker_username:
-    #         return False, 403, f"Forbidden access to resource owned by different user (owner:{obj_owner} != you:{api_invoker_username})"
-
-    #     print(f"Allowing {operation} operation to resources owned by the API invoker ({api_invoker_username})")
-    #     return True, 200, ""
 
     def do_POST(self):
 
@@ -91,30 +44,7 @@ class APIHandler(BaseHTTPRequestHandler):
                 request = post_data["request"]
                 request_id = request["uid"]
 
-                # is_allowed, code, message = self._validate(post_data["request"])
-
-                # if is_allowed:
-                #     response = {
-                #         "apiVersion": "admission.k8s.io/v1",
-                #         "kind": "AdmissionReview",
-                #         "response": {
-                #             "uid": request_id,
-                #             "allowed": True
-                #         }
-                #     }
-                # else:
-                #     response = {
-                #         "apiVersion": "admission.k8s.io/v1",
-                #         "kind": "AdmissionReview",
-                #         "response": {
-                #             "uid": request_id,
-                #             "allowed": False,
-                #             "status": {
-                #                 "code": code,
-                #                 "message": message
-                #             }
-                #         }
-                #     }
+                # print( "%s - %s" % (request["kind"]["kind"], request["operation"]) )
 
                 response = {
                     "apiVersion": "admission.k8s.io/v1",
@@ -125,16 +55,32 @@ class APIHandler(BaseHTTPRequestHandler):
                     }
                 }
 
-                if request["kind"]["kind"] == "Pod" and request["operation"] == "CREATE":
+                if ( 
+                    #(request["kind"]["kind"] == "Pod" and request["operation"] == "CREATE") or 
+                    (request["kind"]["kind"] == "Node" and request["operation"] == "CREATE")
+                ):
 
                     print("Request:")
                     print(json.dumps(post_data, indent=2))
 
                     patch = [
+                        
+                        # Add a label
                         {
                             "op": "add",
-                            "path": "/metadata/labels/injected-by",
-                            "value": "mutation-webhook"
+                            "path": "/metadata/labels/mutating-webhook-label",
+                            "value": "123"
+                        },
+
+                        # Add a taint
+                        {
+                            "op": "add",
+                            "path": "/spec/taints/-",
+                            "value": {
+                                "key": "mutating-webhook-taint",
+                                "effect": "NoSchedule",
+                                "value": "true",
+                            }
                         }
                     ]
                     
@@ -162,9 +108,6 @@ class APIHandler(BaseHTTPRequestHandler):
         else:
             self.send_response(404)
             self.end_headers()
-
-        print("---")
-        print("")
 
 
 def run_server(host='0.0.0.0', port=8443):
