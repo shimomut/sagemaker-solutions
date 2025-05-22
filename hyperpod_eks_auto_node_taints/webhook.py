@@ -3,7 +3,7 @@ import ssl
 import json
 import base64
 from http.server import HTTPServer, BaseHTTPRequestHandler
-from urllib.parse import urlparse, parse_qs
+from urllib.parse import urlparse
 
 
 if os.path.exists("./certs"):
@@ -65,17 +65,39 @@ class APIHandler(BaseHTTPRequestHandler):
                     print("Request:")
                     print(json.dumps(post_data, indent=2))
 
-                    patch = [
-                        
-                        # # Add a label
-                        # {
-                        #     "op": "add",
-                        #     "path": "/metadata/labels/mutating-webhook-label",
-                        #     "value": "123"
-                        # },
+                    patch = []
 
+                    # Create labels field if it doesn't exist.
+                    if "labels" not in request["object"]["metadata"]:
+                        patch.append(
+                            {
+                                "op": "add",
+                                "path": "/metadata/labels",
+                                "value": {}
+                            }
+                        )
 
-                        # Add a taint
+                    # Add a label
+                    patch.append(
+                        {
+                            "op": "add",
+                            "path": "/metadata/labels/mutating-webhook-label",
+                            "value": "123"
+                        }
+                    )
+
+                    # Create taints field if it doesn't exist.
+                    if "taints" not in request["object"]["spec"]:
+                        patch.append(
+                            {
+                                "op": "add",
+                                "path": "/spec/taints",
+                                "value": []
+                            }
+                        )
+
+                    # Add a taint
+                    patch.append(
                         {
                             "op": "add",
                             "path": "/spec/taints/-",
@@ -84,21 +106,8 @@ class APIHandler(BaseHTTPRequestHandler):
                                 "effect": "NoSchedule",
                                 "value": "true",
                             }
-                        },
-
-
-                        # # Add a taint
-                        # {
-                        #     "op": "add",
-                        #     "path": "/spec/taints/-",
-                        #     "value": {
-                        #         "key": "mutating-webhook-taint",
-                        #         "effect": "PreferNoSchedule",
-                        #         "value": "true",
-                        #     }
-                        # }
-
-                    ]
+                        }
+                    )
                     
                     # Base64 encode the patch
                     patch_bytes = json.dumps(patch).encode('utf-8')
@@ -123,31 +132,20 @@ class APIHandler(BaseHTTPRequestHandler):
 
                     if request["namespace"] in ["aws-hyperpod"] and name.split("-")[0] in ["hardwarecheck", "dcgm", "efa", "nccl"]:
 
-                        patch = [
-                            
-                            # FIXME: Pod creation fails if labels itself doesn't exist
-                            # Should check existence and add an enpty array first.
+                        patch = []
 
-                            # # Add a label
-                            # {
-                            #     "op": "add",
-                            #     "path": "/metadata/labels/mutating-webhook-label",
-                            #     "value": "123"
-                            # },
+                        # Create tolerations field if it doesn't exist.
+                        if "tolerations" not in request["object"]["spec"]:
+                            patch.append(
+                                {
+                                    "op": "add",
+                                    "path": "/spec/tolerations",
+                                    "value": []
+                                }
+                            )
 
-                            # # Add a toleration
-                            # {
-                            #     "op": "add",
-                            #     "path": "/spec/tolerations/-",
-                            #     "value": {
-                            #         "key": "mutating-webhook-taint",
-                            #         "operator": "Equal",
-                            #         "effect": "NoSchedule",
-                            #         "value": "true",
-                            #     }
-                            # }
-
-                            # Add a toleration
+                        # Add a toleration
+                        patch.append(
                             {
                                 "op": "add",
                                 "path": "/spec/tolerations/-",
@@ -155,8 +153,7 @@ class APIHandler(BaseHTTPRequestHandler):
                                     "operator": "Exists",
                                 }
                             }
-
-                        ]
+                        )
                             
                         # Base64 encode the patch
                         patch_bytes = json.dumps(patch).encode('utf-8')
@@ -208,6 +205,7 @@ def run_server(host='0.0.0.0', port=8443):
     
     print(f'Starting secure server on {host}:{port}')
     httpd.serve_forever()
+
 
 if __name__ == '__main__':
     run_server()

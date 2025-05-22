@@ -1,6 +1,26 @@
 ## Setup Mutating Admission Webhook to automatically set node taints
 
 
+1. Add tolerations for GPU device plugin and EFA device plugin
+
+    Uninstall existing dependency helm chart.
+
+    Add tolerations to the following places.
+
+    - https://github.com/aws/sagemaker-hyperpod-cli/blob/main/helm_chart/HyperPodHelmChart/values.yaml#L175
+    - https://github.com/aws/sagemaker-hyperpod-cli/blob/main/helm_chart/HyperPodHelmChart/values.yaml#L244
+
+        ``` yaml
+        tolerations:
+              :
+          - operator: Exists
+            effect: NoSchedule
+          - operator: Exists
+            effect: NoExecute
+        ```
+    Install with the updated helm chart.
+
+
 1. Generate certificate and key for the webhook
 
     ``` bash
@@ -47,6 +67,7 @@
     kubectl describe secret mutating-webhook-secret -n auto-node-taints-test
     ```
 
+
 1. Build the image for webhook, push it to ECR, and deploy it.
 
     ``` bash
@@ -72,11 +93,13 @@
     base64 -w 0 certs/tls.crt
     ```
 
+
 1. Depliy the Webhook config.
 
     ``` bash
     make deploy-webhook-config
     ```
+
 
 1. Watch log from the webhook.
 
@@ -84,5 +107,24 @@
     make watch-webhook-logs
     ```
 
-1. Create / delete resources to test the webhook (e.g. scale up instance group)
+
+1. Verify
+
+    Scale up the GPU instance group.
+
+    Confirm new nodes have intended node taints and labels.
+
+    Confirm Deep Health Checks run through.
+
+    Run this command to list nodes, and confirm Deep Health Check field shows "Passed"
+
+    ``` bash
+    kubectl get nodes "-o=custom-columns=NAME:.metadata.name,INSTANCETYPE:.metadata.labels.node\.kubernetes\.io/instance-type,GPU:.status.allocatable.nvidia\.com/gpu,EFA:.status.allocatable.vpc\.amazonaws\.com/efa,HEALTH:.metadata.labels.sagemaker\.amazonaws\.com/node-health-status,DHC:.metadata.labels.sagemaker\.amazonaws\.com\/deep-health-check-status"
+    ```
+
+    ``` text
+    NAME                          INSTANCETYPE   GPU  EFA  HEALTH      DHC
+    hyperpod-i-07dd1e8461b5048cc  ml.g5.8xlarge  1    1    Schedulable Passed
+    hyperpod-i-0b078973a60deb9c8  ml.g5.8xlarge  1    1    Schedulable Passed
+    ```
 
