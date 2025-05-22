@@ -34,18 +34,6 @@
     Note: For the SAN (X509v3 Subject Alternative Name), use following format: `{service-name}.{namespace-name}.svc.cluster.local`
 
 
-1. (Optional) Test the webhook locally
-
-    In terminal A,
-    ``` bash
-    python3 webhook.py
-    ```
-
-    In terminal B,
-    ``` bash
-    curl -s -k -H 'Content-Type: application/json' -XPOST https://localhost:8443/mutate -d @./sample-request.json
-    ```
-
 1. Add the cert and key as a Secret.
 
     ``` bash
@@ -72,7 +60,7 @@
     Confirm the webhook Pod exists and running.
 
     ```bash
-    kubectl get pods -n auto-node-taints-test
+    make list-webhook-pods
     ```
 
 
@@ -87,18 +75,14 @@
 1. Depliy the Webhook config.
 
     ``` bash
-    kubectl apply -f mutating_webhook_config.yaml
+    make deploy-webhook-config
     ```
 
 1. Watch log from the webhook.
 
     ``` bash
-    kubectl logs -f -l app=mutating-webhook -n auto-node-taints-test
+    make watch-webhook-logs
     ```
 
-1. Create / delete resources to test the webhook
+1. Create / delete resources to test the webhook (e.g. scale up instance group)
 
-    ```
-	kubectl apply -f hello.yaml
-	kubectl delete -f hello.yaml
-    ```

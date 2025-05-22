@@ -1,0 +1,224 @@
+{
+  "kind": "AdmissionReview",
+  "apiVersion": "admission.k8s.io/v1",
+  "request": {
+    "uid": "bd05f5d8-59f6-4327-944b-e2db3fda0df0",
+    "kind": {
+      "group": "",
+      "version": "v1",
+      "kind": "Node"
+    },
+    "resource": {
+      "group": "",
+      "version": "v1",
+      "resource": "nodes"
+    },
+    "requestKind": {
+      "group": "",
+      "version": "v1",
+      "kind": "Node"
+    },
+    "requestResource": {
+      "group": "",
+      "version": "v1",
+      "resource": "nodes"
+    },
+    "name": "hyperpod-i-058f5305a2b5046d1",
+    "operation": "CREATE",
+    "userInfo": {
+      "username": "system:node:hyperpod-i-058f5305a2b5046d1",
+      "uid": "aws-iam-authenticator:842413447717:AROA4II6BDIS56YWMOVCL",
+      "groups": [
+        "system:nodes",
+        "system:authenticated"
+      ],
+      "extra": {
+        "accessKeyId": [
+          "ASIA4II6BDIS5ANGFQFZ"
+        ],
+        "arn": [
+          "arn:aws:sts::842413447717:assumed-role/sagemaker-hyperpod-eks-SMHP-Exec-Role-us-west-2/i-058f5305a2b5046d1"
+        ],
+        "canonicalArn": [
+          "arn:aws:iam::842413447717:role/sagemaker-hyperpod-eks-SMHP-Exec-Role-us-west-2"
+        ],
+        "principalId": [
+          "AROA4II6BDIS56YWMOVCL"
+        ],
+        "sessionName": [
+          "i-058f5305a2b5046d1"
+        ],
+        "sigs.k8s.io/aws-iam-authenticator/principalId": [
+          "AROA4II6BDIS56YWMOVCL"
+        ]
+      }
+    },
+    "object": {
+      "kind": "Node",
+      "apiVersion": "v1",
+      "metadata": {
+        "name": "hyperpod-i-058f5305a2b5046d1",
+        "creationTimestamp": null,
+        "labels": {
+          "beta.kubernetes.io/arch": "amd64",
+          "beta.kubernetes.io/os": "linux",
+          "kubernetes.io/arch": "amd64",
+          "kubernetes.io/hostname": "hyperpod-i-058f5305a2b5046d1",
+          "kubernetes.io/os": "linux",
+          "node.kubernetes.io/instance-type": "ml.m5.2xlarge",
+          "sagemaker.amazonaws.com/cluster-name": "k8-1",
+          "sagemaker.amazonaws.com/compute-type": "hyperpod",
+          "sagemaker.amazonaws.com/instance-group-name": "general-purpose-worker-group-2",
+          "sagemaker.amazonaws.com/node-health-status": "Schedulable"
+        },
+        "annotations": {
+          "alpha.kubernetes.io/provided-node-ip": "10.1.108.50",
+          "volumes.kubernetes.io/controller-managed-attach-detach": "true"
+        },
+        "managedFields": [
+          {
+            "manager": "kubelet",
+            "operation": "Update",
+            "apiVersion": "v1",
+            "time": "2025-05-22T00:19:15Z",
+            "fieldsType": "FieldsV1",
+            "fieldsV1": {
+              "f:metadata": {
+                "f:annotations": {
+                  ".": {},
+                  "f:alpha.kubernetes.io/provided-node-ip": {},
+                  "f:volumes.kubernetes.io/controller-managed-attach-detach": {}
+                },
+                "f:labels": {
+                  ".": {},
+                  "f:beta.kubernetes.io/arch": {},
+                  "f:beta.kubernetes.io/os": {},
+                  "f:kubernetes.io/arch": {},
+                  "f:kubernetes.io/hostname": {},
+                  "f:kubernetes.io/os": {},
+                  "f:node.kubernetes.io/instance-type": {},
+                  "f:sagemaker.amazonaws.com/cluster-name": {},
+                  "f:sagemaker.amazonaws.com/compute-type": {},
+                  "f:sagemaker.amazonaws.com/instance-group-name": {},
+                  "f:sagemaker.amazonaws.com/node-health-status": {}
+                }
+              },
+              "f:spec": {
+                "f:providerID": {},
+                "f:taints": {}
+              }
+            }
+          }
+        ]
+      },
+      "spec": {
+        "providerID": "aws:///usw2-az1/sagemaker/cluster/hyperpod-t6ib1x710bqc-i-058f5305a2b5046d1",
+        "taints": [
+          {
+            "key": "node.cloudprovider.kubernetes.io/uninitialized",
+            "value": "true",
+            "effect": "NoSchedule"
+          },
+          {
+            "key": "node.kubernetes.io/not-ready",
+            "effect": "NoSchedule"
+          }
+        ]
+      },
+      "status": {
+        "capacity": {
+          "cpu": "4",
+          "ephemeral-storage": "104845292Ki",
+          "hugepages-1Gi": "0",
+          "hugepages-2Mi": "0",
+          "memory": "32387468Ki",
+          "pods": "14"
+        },
+        "allocatable": {
+          "cpu": "3920m",
+          "ephemeral-storage": "95551679124",
+          "hugepages-1Gi": "0",
+          "hugepages-2Mi": "0",
+          "memory": "31370636Ki",
+          "pods": "14"
+        },
+        "conditions": [
+          {
+            "type": "MemoryPressure",
+            "status": "False",
+            "lastHeartbeatTime": "2025-05-22T00:19:06Z",
+            "lastTransitionTime": "2025-05-22T00:19:06Z",
+            "reason": "KubeletHasSufficientMemory",
+            "message": "kubelet has sufficient memory available"
+          },
+          {
+            "type": "DiskPressure",
+            "status": "False",
+            "lastHeartbeatTime": "2025-05-22T00:19:06Z",
+            "lastTransitionTime": "2025-05-22T00:19:06Z",
+            "reason": "KubeletHasNoDiskPressure",
+            "message": "kubelet has no disk pressure"
+          },
+          {
+            "type": "PIDPressure",
+            "status": "False",
+            "lastHeartbeatTime": "2025-05-22T00:19:06Z",
+            "lastTransitionTime": "2025-05-22T00:19:06Z",
+            "reason": "KubeletHasSufficientPID",
+            "message": "kubelet has sufficient PID available"
+          },
+          {
+            "type": "Ready",
+            "status": "False",
+            "lastHeartbeatTime": "2025-05-22T00:19:06Z",
+            "lastTransitionTime": "2025-05-22T00:19:06Z",
+            "reason": "KubeletNotReady",
+            "message": "CSINode is not yet initialized"
+          }
+        ],
+        "addresses": [
+          {
+            "type": "InternalIP",
+            "address": "10.1.108.50"
+          },
+          {
+            "type": "Hostname",
+            "address": "hyperpod-i-058f5305a2b5046d1"
+          }
+        ],
+        "daemonEndpoints": {
+          "kubeletEndpoint": {
+            "Port": 10250
+          }
+        },
+        "nodeInfo": {
+          "machineID": "ec2bb04368ad9dfda806bd1290ab33d2",
+          "systemUUID": "ec25c0c2-e02e-92fb-2a26-8348862e2391",
+          "bootID": "930973e0-b1a8-43b6-b883-eb95d57a1410",
+          "kernelVersion": "5.10.236-227.928.amzn2.x86_64",
+          "osImage": "Amazon Linux 2",
+          "containerRuntimeVersion": "containerd://1.7.27",
+          "kubeletVersion": "v1.32.1-eks-5d632ec",
+          "kubeProxyVersion": "v1.32.1-eks-5d632ec",
+          "operatingSystem": "linux",
+          "architecture": "amd64"
+        },
+        "images": [
+          {
+            "names": [
+              "602401143452.dkr.ecr.us-west-2.amazonaws.com/eks/pause@sha256:529cf6b1b6e5b76e901abc43aee825badbd93f9c5ee5f1e316d46a83abbce5a2",
+              "602401143452.dkr.ecr.us-west-2.amazonaws.com/eks/pause:3.5"
+            ],
+            "sizeBytes": 298689
+          }
+        ]
+      }
+    },
+    "oldObject": null,
+    "dryRun": false,
+    "options": {
+      "kind": "CreateOptions",
+      "apiVersion": "meta.k8s.io/v1"
+    }
+  }
+}

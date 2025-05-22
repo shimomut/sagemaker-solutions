@@ -38,9 +38,6 @@ class APIHandler(BaseHTTPRequestHandler):
             try:
                 post_data = self._read_post_data()
 
-                # print("Request:")
-                # print(json.dumps(post_data, indent=2))
-
                 request = post_data["request"]
                 request_id = request["uid"]
 
@@ -55,10 +52,8 @@ class APIHandler(BaseHTTPRequestHandler):
                     }
                 }
 
-                if ( 
-                    #(request["kind"]["kind"] == "Pod" and request["operation"] == "CREATE") or 
-                    (request["kind"]["kind"] == "Node" and request["operation"] == "CREATE")
-                ):
+                # Add label and taint to new HyperPod nodes
+                if request["kind"]["kind"] == "Node" and request["operation"] == "CREATE" and request["name"].startswith("hyperpod-"):
 
                     print("Request:")
                     print(json.dumps(post_data, indent=2))
@@ -78,6 +73,46 @@ class APIHandler(BaseHTTPRequestHandler):
                             "path": "/spec/taints/-",
                             "value": {
                                 "key": "mutating-webhook-taint",
+                                "effect": "NoSchedule",
+                                "value": "true",
+                            }
+                        }
+                    ]
+                    
+                    # Base64 encode the patch
+                    patch_bytes = json.dumps(patch).encode('utf-8')
+                    base64_patch = base64.b64encode(patch_bytes).decode('utf-8')
+                    
+                    # Add the patch to the response
+                    response["response"]["patchType"] = "JSONPatch"
+                    response["response"]["patch"] = base64_patch                    
+
+                    print("Response:")
+                    print(json.dumps(response, indent=2))
+
+
+                # Add label and toleration to HyperPod system Pods
+                elif request["kind"]["kind"] == "Pod" and request["operation"] == "CREATE" and request["namespace"] == "aws-hyperpod":
+
+                    print("Request:")
+                    print(json.dumps(post_data, indent=2))
+
+                    patch = [
+                        
+                        # Add a label
+                        {
+                            "op": "add",
+                            "path": "/metadata/labels/mutating-webhook-label",
+                            "value": "123"
+                        },
+
+                        # Add a taint
+                        {
+                            "op": "add",
+                            "path": "/spec/tolerations/-",
+                            "value": {
+                                "key": "mutating-webhook-taint",
+                                "operator": "Equal",
                                 "effect": "NoSchedule",
                                 "value": "true",
                             }

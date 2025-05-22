@@ -31,16 +31,29 @@ list-webhook-pods:
 
 # ---
 
-deploy-hello:
-	kubectl apply -f hello.yaml
+deploy-webhook-config:
+	kubectl apply -f mutating_webhook_config.yaml
 
-delete-hello:
-	kubectl delete -f hello.yaml
+delete-webhook-config:
+	kubectl delete -f mutating_webhook_config.yaml
+
+list-webhook-config:
+	kubectl get MutatingWebhookConfiguration	
 
 # ---
 
 list-nodes:
 	kubectl get nodes "-o=custom-columns=NAME:.metadata.name,CREATION_TIME:.metadata.creationTimestamp,HEALTH:.metadata.labels.sagemaker\.amazonaws\.com/node-health-status,DHC:.metadata.labels.sagemaker\.amazonaws\.com\/deep-health-check-status,TAINTS:.spec.taints"
 
-delete-taints:
+list-hyperpod-pods:
+	kubectl get pods -n aws-hyperpod -o custom-columns=\
+	NAME:.metadata.name,\
+	READY:.status.containerStatuses[0].ready,\
+	STATUS:.status.phase,\
+	RESTARTS:.status.containerStatuses[0].restartCount,\
+	AGE:.metadata.creationTimestamp,\
+	NODE:.spec.nodeName,\
+	TOLERATIONS:.spec.tolerations[*].key
+
+manual-delete-taints:
 	kubectl taint nodes --all mutating-webhook-taint-
