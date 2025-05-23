@@ -1,4 +1,4 @@
-## Setup Mutating Admission Webhook to automatically set node taints
+## Setup Mutating Admission Webhook to automatically set node taints and labels
 
 
 1. Add tolerations for GPU device plugin and EFA device plugin
