@@ -61,7 +61,7 @@
     kubectl create secret tls mutating-webhook-secret --key certs/tls.key --cert certs/tls.crt -n auto-node-taints-test
     ```
 
-    Cerify it exists.
+    Verify it exists.
 
     ```bash
     kubectl describe secret mutating-webhook-secret -n auto-node-taints-test
