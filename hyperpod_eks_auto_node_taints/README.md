@@ -1,5 +1,14 @@
 ## Setup Mutating Admission Webhook to automatically set node taints and labels
 
+#### Overview
+
+HyperPod EKS currently doesn't have a feature to automatically add taints and labels to notes (as of 2025-05). 
+
+This solution deploys a Mutating Admission Webhook to automatically add taints and labels to HyperPod nodes. 
+
+> **Note:** The Webhook runs for newly created nodes only. For existing nodes, you need to set taints manually.
+
+#### Setup steps
 
 1. Add tolerations for GPU device plugin and EFA device plugin
 
