@@ -122,17 +122,23 @@
     ```
 
 
-1. Depliy the Webhook config
+1. Deploy the Webhook config
 
     ``` bash
     make deploy-webhook-config
     ```
 
 
-1. Watch log from the webhook
+1. Watch logs from the webhook
 
     ``` bash
     make watch-webhook-logs
+    ```
+
+    or if you use `stern` to watch logs:
+
+    ``` bash
+    stern mutating-webhook- -n auto-node-taints-test
     ```
 
 
