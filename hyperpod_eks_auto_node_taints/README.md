@@ -73,25 +73,25 @@
 
     Update labels and taints to apply.
 
-        ``` python
-        {
-            "op": "add",
-            "path": "/metadata/labels/mutating-webhook-label",
-            "value": "123"
-        }
-        ```
+    ``` python
+    {
+        "op": "add",
+        "path": "/metadata/labels/mutating-webhook-label",
+        "value": "123"
+    }
+    ```
 
-        ``` python
-        {
-            "op": "add",
-            "path": "/spec/taints/-",
-            "value": {
-                "key": "mutating-webhook-taint",
-                "effect": "NoSchedule",
-                "value": "true",
-            }
+    ``` python
+    {
+        "op": "add",
+        "path": "/spec/taints/-",
+        "value": {
+            "key": "mutating-webhook-taint",
+            "effect": "NoSchedule",
+            "value": "true",
         }
-        ```
+    }
+    ```
 
     You can delete label adding section if you don't need to apply node labels.
 
