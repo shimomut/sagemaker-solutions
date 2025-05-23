@@ -2,7 +2,7 @@
 
 #### Overview
 
-HyperPod EKS currently doesn't have a feature to automatically add taints and labels to notes (as of 2025-05). 
+HyperPod EKS currently doesn't have a feature to automatically add taints and labels to nodes (as of 2025-05). 
 
 This solution deploys a Mutating Admission Webhook to automatically add taints and labels to HyperPod nodes. 
 
@@ -60,7 +60,7 @@ This solution deploys a Mutating Admission Webhook to automatically add taints a
     $ openssl x509 -req -sha256 -days 365 -in tls_server.csr -signkey tls.key -out tls.crt -extfile san.txt
     ```
 
-    Note: For the SAN (X509v3 Subject Alternative Name), use following format: `{service-name}.{namespace-name}.svc.cluster.local`
+    > **Note:** For the SAN (X509v3 Subject Alternative Name), use following format: `{service-name}.{namespace-name}.svc.cluster.local`
 
 
 1. Add the cert and key as a Secret
