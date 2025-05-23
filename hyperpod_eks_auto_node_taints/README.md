@@ -54,7 +54,7 @@
     Note: For the SAN (X509v3 Subject Alternative Name), use following format: `{service-name}.{namespace-name}.svc.cluster.local`
 
 
-1. Add the cert and key as a Secret.
+1. Add the cert and key as a Secret
 
     ``` bash
     kubectl create namespace auto-node-taints-test
@@ -67,8 +67,36 @@
     kubectl describe secret mutating-webhook-secret -n auto-node-taints-test
     ```
 
+1. Customize the webhook script for intended behavior
 
-1. Build the image for webhook, push it to ECR, and deploy it.
+    Open `webhook.py` with your text editor.
+
+    Update labels and taints to apply.
+
+        ``` python
+        {
+            "op": "add",
+            "path": "/metadata/labels/mutating-webhook-label",
+            "value": "123"
+        }
+        ```
+
+        ``` python
+        {
+            "op": "add",
+            "path": "/spec/taints/-",
+            "value": {
+                "key": "mutating-webhook-taint",
+                "effect": "NoSchedule",
+                "value": "true",
+            }
+        }
+        ```
+
+    You can delete label adding section if you don't need to apply node labels.
+
+
+1. Build the image for webhook, push it to ECR, and deploy it
 
     ``` bash
     make login-ecr
@@ -94,14 +122,14 @@
     ```
 
 
-1. Depliy the Webhook config.
+1. Depliy the Webhook config
 
     ``` bash
     make deploy-webhook-config
     ```
 
 
-1. Watch log from the webhook.
+1. Watch log from the webhook
 
     ``` bash
     make watch-webhook-logs
