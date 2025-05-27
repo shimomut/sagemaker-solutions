@@ -66,24 +66,37 @@
         * https://github.com/aws-samples/awsome-distributed-training/blob/main/1.architectures/5.sagemaker-hyperpod/LifecycleScripts/base-config/add_users.sh
     1. Create “shared_users.txt”
         * Example:
-        * user1,1001,/fsx/user1
+            ``` text
+            user1,1001,/fsx/user1
             user2,1002,/fsx/user2
-    1. Run create-user-with-id.sh on the head node.
+            ```
+    1. Run create-user-with-id.sh **on the head node**.
         * You will be prompted to enter user name, user ID and number of worker nodes.
         * Repeat for all new users.
-        * This step will create users on the head node and all worker nodes.
-        * **Note:** this step doesn’t create users on Login nodes.
-    1. Run add_users.sh script on login nodes.
-        * Create users in shared_users.txt, on the current host
+        * This step will create users on the current host(= head node) and all worker nodes.
+        * This step will also setup cross-node SSH login, and optionally add the users to sudoer.
+        * **Note:** This step doesn’t create users on Login nodes.
+    1. Run add_users.sh script **on login nodes**.
+        * This step will create Create users in shared_users.txt, on the current host.
+            
             ``` bash
             # Repeat this on all login nodes
             sudo bash add_users.sh
+            ```
+
+        * Repeat this step for each login node.
+
+        * **Note:** This step doesn't add users to sudoer. You need to do it manually.
+
+            ```
+            sudo usermod -aG sudo {user-name}
+            ```
 
 1. Restore the contents of the backed-up home directory manually. Ownership of directories and files have to be manually fixed.
-            ```
+
 ### Verify
 
-1. Follow [Find inconsistency section]() again.
+1. Follow [Find inconsistency section](#find-inconsistency) again.
 1. Confirm you can login as the newly created users.
 1. Confirm you can SSH across nodes as the newly created users.
 1. Run some srun/sbatch commands as a newly created user.
