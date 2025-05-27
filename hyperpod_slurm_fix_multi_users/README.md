@@ -94,6 +94,12 @@
 
 1. Restore the contents of the backed-up home directory manually. Ownership of directories and files have to be manually fixed.
 
+1. Upload “shared_users.txt” to the S3 bucket for lifecycle configuration script
+
+    * Upload “shared_users.txt” to the S3 bucket for the lifecycle configuration script (next to "add_users.sh" script)
+    * This step will make sure users listed in the “shared_users.txt” file are automatically created when new instances are created. (e.g., Scaling up cluster, Replacing unhealthy nodes, Upgrading cluster software)
+
+
 ### Verify
 
 1. Follow [Find inconsistency section](#find-inconsistency) again.
@@ -101,4 +107,5 @@
 1. Confirm you can SSH across nodes as the newly created users.
 1. Run some srun/sbatch commands as a newly created user.
 1. Confirm home directories are owned by the correct users.
+1. (Optional) Replace a worker node, and confirm that users are created in the new node.
 
