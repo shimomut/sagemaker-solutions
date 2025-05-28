@@ -61,8 +61,8 @@
         ```
 
 1. Create users
-    1. Download “create-user-with-id.sh” script.
-    1. Download add_users.sh script
+    1. Download "create_user_with_id_on_head_node.sh” and "add_users_multi_nodes.sh" from this repo - this directory.
+    1. Download add_users.sh script from the awsome-distributed-training repo.
         * https://github.com/aws-samples/awsome-distributed-training/blob/main/1.architectures/5.sagemaker-hyperpod/LifecycleScripts/base-config/add_users.sh
     1. Create “shared_users.txt”
         * Example:
@@ -70,23 +70,25 @@
             user1,1001,/fsx/user1
             user2,1002,/fsx/user2
             ```
-    1. Run create-user-with-id.sh **on the head node**.
+    1. Run create_user_with_id_on_head_node.sh **on the head node**.
         * You will be prompted to enter user name, user ID and number of worker nodes.
         * Repeat for all new users.
-        * This step will create users on the current host(= head node) and all worker nodes.
+        * This step will create users **only on the head node**.
         * This step will also setup cross-node SSH login, and optionally add the users to sudoer.
-        * **Note:** This step doesn’t create users on Login nodes.
-    1. Run add_users.sh script **on login nodes**.
-        * This step will create Create users in shared_users.txt, on the current host.
+    1. Modify add_users_multi_nodes.sh
+        * Modify the variable `nodes`. Include worker nodes and login nodes.
+
+            ``` bash
+            nodes="ip-10-1-16-188,ip-10-1-75-77,ip-10-1-79-4"
+            ```
+    1. Run add_users_multi_nodes.sh script **on the head node**.
+        * This step will create users you listed in the shared_users.txt, on all the nodes you listed in the variable `nodes`.
             
             ``` bash
-            # Repeat this on all login nodes
-            sudo bash add_users.sh
+            bash add_users_multi_nodes.sh
             ```
 
-        * Repeat this step for each login node.
-
-        * **Note:** This step doesn't add users to sudoer. You need to do it manually.
+        * **Note:** This step doesn't add users to sudoer on each node. You need to do it manually as needed.
 
             ```
             sudo usermod -aG sudo {user-name}
