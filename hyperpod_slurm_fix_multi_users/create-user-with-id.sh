@@ -23,16 +23,10 @@ sudo usermod -aG docker ${USER}
 sudo -u $USER ssh-keygen -t rsa -q -f "/fsx/$USER/.ssh/id_rsa" -N ""
 sudo -u $USER cat /fsx/$USER/.ssh/id_rsa.pub | sudo -u $USER tee /fsx/$USER/.ssh/authorized_keys
 
-# add user to compute nodes
-read -p "Number of compute nodes in your cluster, i.e. 8: 
-" NUM_NODES
-srun -N $NUM_NODES sudo useradd -u $USER_ID $USER -d /fsx/$USER --shell /bin/bash;
-
 # add them as a sudoer
 read -p "Do you want this user to be a sudoer? (y/N):
 " SUDO
 if [ "$SUDO" = "y" ]; then
         sudo usermod -aG sudo $USER
-        sudo srun -N $NUM_NODES sudo usermod -aG sudo $USER
         echo -e "If you haven't already you'll need to run:\n\nsudo visudo /etc/sudoers\n\nChange the line:\n\n%sudo   ALL=(ALL:ALL) ALL\n\nTo\n\n%sudo   ALL=(ALL:ALL) NOPASSWD: ALL\n\nOn each node."
 fi
