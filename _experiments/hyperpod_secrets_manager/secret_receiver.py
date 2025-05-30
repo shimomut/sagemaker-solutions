@@ -1,14 +1,23 @@
 import os
+import time
 import json
+import threading
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse
 
+import boto3
 
-class SecretReceiver(BaseHTTPRequestHandler):
+
+class SecretCallbackServer(HTTPServer):
+    def __init__(self, server_address, RequestHandlerClass):
+        super().__init__(server_address, RequestHandlerClass)
+        self.secret = None
+
+
+class SecretCallbackHandler(BaseHTTPRequestHandler):
 
     def __init__(self, request, client_address, server):
         super().__init__(request, client_address, server)
-        self.secret = None
 
     def _send_response(self, data):
         self.send_response(200)
@@ -30,10 +39,10 @@ class SecretReceiver(BaseHTTPRequestHandler):
             try:
                 post_data = self._read_post_data()
 
-                print("PostData:")
-                print(json.dumps(post_data, indent=2))
+                # print("PostData:")
+                # print(json.dumps(post_data, indent=2))
 
-                self.secret = post_data["secret"]
+                self.server.secret = post_data["secret"]
 
                 response = {
                 }
@@ -58,10 +67,50 @@ class SecretReceiver(BaseHTTPRequestHandler):
             self.end_headers()
 
 
-def run_server(host='0.0.0.0', port=8080):
+def get_secret(host='0.0.0.0', port=8080):
+
+    region_name = os.environ['AWS_REGION']
+
+    # --------------------
+    # Start HTTP server
+
     server_address = (host, port)
-    http_server = HTTPServer(server_address, SecretReceiver)
-    http_server.serve_forever()
+    http_server = SecretCallbackServer(server_address, SecretCallbackHandler)
+
+    thread = threading.Thread(target=http_server.handle_request, args=())
+    thread.start()
+
+    # --------------------
+    # Invoke Lambda
+
+    # FIXME: Should automatically get from resource_config.json
+    lambda_payload = {
+        "cluster_name": "slurm-1",
+        "node_id": "i-04e74d163c94af4a0",
+        "secret_name": "hyperpod-lifecycle-secret-test1"
+    }    
+
+    lambda_client = boto3.client('lambda', region_name=region_name)
+
+    # FIXME: should handle errors and do retries
+    response = lambda_client.invoke(
+        FunctionName='scret_provider', # FIXME: typo in the function name
+        InvocationType='RequestResponse',
+        Payload=json.dumps(lambda_payload)
+    )
+
+    # --------------------
+    # Get received secret
+
+    thread.join()
+
+    return http_server.secret
+
 
 if __name__ == '__main__':
-    run_server()
+
+    os.environ['AWS_REGION'] = "us-west-2"
+
+    secret = get_secret()
+    print(secret)
+
