@@ -11,7 +11,6 @@ callback_port = 8080
 callback_path = "/secret"
 
 # FIXME: for testing
-os.environ['AWS_REGION'] = "us-west-2"
 skip_node_status_check = True
 
 
@@ -33,7 +32,7 @@ def provide_secret(cluster_name, node_id, secret_name):
 
     # We may be able to use this information to varidate that the node is 
     # really running lifecycle script in SystemUpdating status
-    last_software_update_time = response["NodeDetails"]["LastSoftwareUpdateTime"]
+    # last_software_update_time = response["NodeDetails"]["LastSoftwareUpdateTime"]
 
     # ----------
     # Validate node status
@@ -88,7 +87,20 @@ def provide_secret(cluster_name, node_id, secret_name):
 
 
 
+def lambda_handler(event, context):
+
+    provide_secret(event["cluster_name"], event["node_id"], event["secret_name"])
+
+    return {
+        'statusCode': 200,
+        'body': {}
+    }
+
+
+# local testing
 if __name__ == '__main__':
+
+    os.environ['AWS_REGION'] = "us-west-2"
 
     argparser = argparse.ArgumentParser(description="Lambda function to get secret value and call back to lifecycle script")
     argparser.add_argument('--cluster-name', action="store", required=True, help='Cluster name')
