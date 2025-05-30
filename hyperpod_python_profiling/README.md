@@ -28,8 +28,9 @@ This demo showcases how to profile a single frame of training loop on-demand, by
 1. Check output
 
     ```
-    {'arg1': 123, 'arg2': {'aaa': 456}}
-    {'arg1': 123, 'arg2': {'aaa': 456}}
+    frame 2: {'arg1': 123, 'arg2': {'aaa': 456}}
+    frame 3: {'arg1': 123, 'arg2': {'aaa': 456}}
+    frame 4: {'arg1': 123, 'arg2': {'aaa': 456}}
             21 function calls in 5.000 seconds
 
     Ordered by: standard name
@@ -42,7 +43,7 @@ This demo showcases how to profile a single frame of training loop on-demand, by
             1    0.000    0.000    0.000    0.000 decoder.py:343(raw_decode)
             1    0.000    0.000    0.000    0.000 encoder.py:183(encode)
             1    0.000    0.000    0.000    0.000 encoder.py:205(iterencode)
-            1    0.000    0.000    5.000    5.000 single_frame_profile.py:33(single_frame)
+            1    0.000    0.000    5.000    5.000 single_frame_profile.py:39(single_frame)
             1    0.000    0.000    5.000    5.000 {built-in method builtins.exec}
             3    0.000    0.000    0.000    0.000 {built-in method builtins.isinstance}
             1    0.000    0.000    0.000    0.000 {built-in method builtins.len}
@@ -54,8 +55,7 @@ This demo showcases how to profile a single frame of training loop on-demand, by
             1    0.000    0.000    0.000    0.000 {method 'startswith' of 'str' objects}
 
 
-    {'arg1': 123, 'arg2': {'aaa': 456}}
-    {'arg1': 123, 'arg2': {'aaa': 456}}
-    {'arg1': 123, 'arg2': {'aaa': 456}}
-    {'arg1': 123, 'arg2': {'aaa': 456}}    
+    frame 5: {'arg1': 123, 'arg2': {'aaa': 456}}
+    frame 6: {'arg1': 123, 'arg2': {'aaa': 456}}
+    frame 7: {'arg1': 123, 'arg2': {'aaa': 456}}
     ```

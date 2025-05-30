@@ -12,6 +12,7 @@ class SingleFrameProfilingDemo:
 
     def run_loop(self):
 
+        frame_count = 0
         while True:
 
             # Check if trigger file exists, enable profiling mode if exists
@@ -30,7 +31,9 @@ class SingleFrameProfilingDemo:
             else:
                 result = self.single_frame(arg1,arg2)
 
-            print(result)
+            print(f"frame {frame_count}: {result}")
+
+            frame_count += 1
 
         
     def single_frame(self, arg1, arg2):
