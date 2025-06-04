@@ -28,7 +28,7 @@ unblock-direct-access-to-sagemaker-role:
 
 
 run-proxy:
-	sudo python3 imds_proxy.py
+	sudo python3 imds_proxy_server.py
 
 
 check-direct-access:
@@ -36,16 +36,26 @@ check-direct-access:
 	curl -H "X-aws-ec2-metadata-token: $$TOKEN" http://169.254.0.2:9081/latest/meta-data/iam/security-credentials/XyzRole
 
 
-install-as-systemd-service:
-	sudo cp ./imds_proxy_service.sh /usr/local/bin/
-	sudo cp ./imds_proxy.py /usr/local/bin/
-	sudo chmod +x /usr/local/bin/imds_proxy_service.sh
-	sudo cp ./imds_proxy.service /etc/systemd/system/
+install-as-systemd-services:
+	sudo cp ./imds-proxy-iptables.sh /usr/local/bin/
+	sudo cp ./imds-proxy-server.py /usr/local/bin/
+	sudo cp ./imds-proxy-iptables.service /etc/systemd/system/
+	sudo cp ./imds-proxy-server.service /etc/systemd/system/
+	sudo chmod 755 /usr/local/bin/imds-proxy-iptables.sh
+	sudo chmod 644 /usr/local/bin/imds-proxy-server.py
 
-enable-and-start-service:
+enable-and-start-services:
 	sudo systemctl daemon-reload
-	sudo systemctl enable imds_proxy.service
-	sudo systemctl start imds_proxy.service
+	sudo systemctl enable imds-proxy-server.service
+	sudo systemctl start imds-proxy-server.service
+	sudo systemctl enable imds-proxy-iptables.service
+	sudo systemctl start imds-proxy-iptables.service
+
+stop-and-disable-services:
+	sudo systemctl stop imds-proxy-server.service
+	sudo systemctl disable imds-proxy-server.service
+	sudo systemctl stop imds-proxy-iptables.service
+	sudo systemctl disable imds-proxy-iptables.service
 
 service-status:
 	systemctl status imds_proxy.service

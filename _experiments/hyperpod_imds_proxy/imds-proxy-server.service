@@ -1,0 +1,19 @@
+[Unit]
+Description=IMDS Proxy service
+Requires=sagemaker-cluster-network-setup.service
+After=NetworkManager-wait-online.service systemd-networkd-wait-online.service
+Before=imds-proxy.service
+Before=slurmd.service
+Before=sshd.service
+
+[Service]
+Type=simple
+WorkingDirectory=/usr/local/bin
+ExecStart=/usr/bin/python3 /usr/local/bin/imds-proxy-server.py
+
+Restart=always
+RestartSec=5
+StartLimitInterval=0
+
+[Install]
+WantedBy=multi-user.target

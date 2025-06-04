@@ -1,0 +1,15 @@
+[Unit]
+Description=IMDS Proxy iptables configuration service
+Requires=sagemaker-cluster-network-setup.service
+After=NetworkManager-wait-online.service systemd-networkd-wait-online.service
+After=imds-proxy.service
+Before=slurmd.service
+Before=sshd.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/imds-proxy-iptables.sh
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
