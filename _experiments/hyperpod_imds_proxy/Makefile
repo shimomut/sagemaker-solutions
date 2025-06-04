@@ -18,18 +18,18 @@ remove-proxy-iptables-entries:
 
 
 run-proxy:
-	sudo python3 imdb_proxy.py
+	sudo python3 imds_proxy.py
 
 install-as-systemd-service:
-	sudo cp ./imdb_proxy_service.sh /usr/local/bin/
-	sudo chmod +x /usr/local/bin/imdb_proxy_service.sh
-	sudo cp ./imdb_proxy.service /etc/systemd/system/
+	sudo cp ./imds_proxy_service.sh /usr/local/bin/
+	sudo chmod +x /usr/local/bin/imds_proxy_service.sh
+	sudo cp ./imds_proxy.service /etc/systemd/system/
 
 enable-and-start-service:
 	sudo systemctl daemon-reload
-	sudo systemctl enable imdb_proxy.service
-	sudo systemctl start imdb_proxy.service
+	sudo systemctl enable imds_proxy.service
+	sudo systemctl start imds_proxy.service
 
 service-status:
-	systemctl status imdb_proxy.service
+	systemctl status imds_proxy.service
 

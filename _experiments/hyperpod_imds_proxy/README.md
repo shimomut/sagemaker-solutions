@@ -1,6 +1,6 @@
 #### Preparation
 
-1. Create an IAM Role ("ImdbProxyTestRole")
+1. Create an IAM Role ("ImdsProxyTestRole")
 
     - Trust entities should include following:
 
@@ -38,7 +38,7 @@
                 {
                 "Effect": "Allow",
                 "Action": "sts:AssumeRole",
-                "Resource": "arn:aws:iam::842413447717:role/ImdbProxyTestRole"
+                "Resource": "arn:aws:iam::842413447717:role/ImdsProxyTestRole"
                 }
             ]
         }
@@ -53,13 +53,13 @@
     make remove-original-iptables-entry
     ```
 
-1. Add IMDB proxy in iptables
+1. Add IMDS proxy in iptables
 
     ```
     make add-proxy-iptables-entries
     ```
 
-1. Run IMDB proxy for testing
+1. Run IMDS proxy for testing
 
     ```
     run-proxy
@@ -72,7 +72,7 @@
     {
         "UserId": "AROA4II6BDIS2CKJADTCY:test-session",
         "Account": "842413447717",
-        "Arn": "arn:aws:sts::842413447717:assumed-role/ImdbProxyTestRole/test-session"
+        "Arn": "arn:aws:sts::842413447717:assumed-role/ImdsProxyTestRole/test-session"
     }
 
     $ sudo aws sts get-caller-identity
@@ -88,7 +88,7 @@
     ```
     $ aws s3 ls
 
-    An error occurred (AccessDenied) when calling the ListBuckets operation: User: arn:aws:sts::842413447717:assumed-role/ImdbProxyTestRole/test-session is not authorized to perform: s3:ListAllMyBuckets because no identity-based policy allows the s3:ListAllMyBuckets action    
+    An error occurred (AccessDenied) when calling the ListBuckets operation: User: arn:aws:sts::842413447717:assumed-role/ImdsProxyTestRole/test-session is not authorized to perform: s3:ListAllMyBuckets because no identity-based policy allows the s3:ListAllMyBuckets action    
     ```
 
 

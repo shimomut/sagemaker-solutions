@@ -1,11 +1,11 @@
 [Unit]
-Description=IMDB Proxy service
+Description=IMDS Proxy service
 Requires=sagemaker-cluster-network-setup.service
 After=NetworkManager-wait-online.service systemd-networkd-wait-online.service
 
 [Service]
 Type=oneshot
-ExecStart=/usr/local/bin/imdb_proxy_service.sh
+ExecStart=/usr/local/bin/imds_proxy_service.sh
 RemainAfterExit=yes
 
 [Install]

@@ -7,7 +7,7 @@ import sys
 
 REAL_IMDS = "http://169.254.169.254"
 ROLE_NAME = "EmptyTestRole"  # The role you want to substitute
-ASSUME_ROLE_ARN =  "arn:aws:iam::842413447717:role/ImdbProxyTestRole"
+ASSUME_ROLE_ARN =  "arn:aws:iam::842413447717:role/ImdsProxyTestRole"
 SESSION_NAME = "test-session"
 
 class IMDSMockHandler(BaseHTTPRequestHandler):
