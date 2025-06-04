@@ -22,6 +22,7 @@ run-proxy:
 
 install-as-systemd-service:
 	sudo cp ./imds_proxy_service.sh /usr/local/bin/
+	sudo cp ./imds_proxy.py /usr/local/bin/
 	sudo chmod +x /usr/local/bin/imds_proxy_service.sh
 	sudo cp ./imds_proxy.service /etc/systemd/system/
 
