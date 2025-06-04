@@ -6,7 +6,7 @@ import boto3
 import sys
 
 REAL_IMDS = "http://169.254.169.254"
-ROLE_NAME = "EmptyTestRole"  # The role you want to substitute
+ROLE_NAME = "ImdsProxyRole"  # The role you want to substitute
 ASSUME_ROLE_ARN =  "arn:aws:iam::842413447717:role/ImdsProxyTestRole"
 SESSION_NAME = "test-session"
 
@@ -71,6 +71,27 @@ class IMDSMockHandler(BaseHTTPRequestHandler):
             except Exception as e:
                 self.send_error(500, f"Proxy failed: {e}")
 
+
+    def do_HEAD(self):
+        try:
+            # Forward the original headers
+            headers = {key: val for key, val in self.headers.items()}
+            
+            # Send HEAD request to target server using requests
+            response = requests.head(REAL_IMDS + self.path, headers=headers, timeout=2)
+            
+            # Send response status code
+            self.send_response(response.status_code)
+            
+            # Forward response headers
+            for header, value in response.headers.items():
+                self.send_header(header, value)
+            self.end_headers()
+            
+        except requests.exceptions.RequestException as e:
+            self.send_error(500, f"Proxy failed: {e}")
+
+
     def do_PUT(self):
         try:
             # Get the content length from headers
@@ -110,12 +131,14 @@ class IMDSMockHandler(BaseHTTPRequestHandler):
     def log_message(self, format, *args):
         return  # Suppress logs
 
+
 def run(server_class=HTTPServer, handler_class=IMDSMockHandler, port=8080):
     server_address = ("127.0.0.1", port)
     httpd = server_class(server_address, handler_class)
     print(f"Mock IMDS proxy running at http://127.0.0.1:{port}")
     httpd.serve_forever()
-    
+
+
 if __name__ == "__main__":
     if len(sys.argv) > 1:
         ROLE_NAME = sys.argv[1]
