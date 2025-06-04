@@ -91,6 +91,14 @@
     An error occurred (AccessDenied) when calling the ListBuckets operation: User: arn:aws:sts::842413447717:assumed-role/ImdsProxyTestRole/test-session is not authorized to perform: s3:ListAllMyBuckets because no identity-based policy allows the s3:ListAllMyBuckets action    
     ```
 
+1. Make sure there is no direct access to the instance role
+
+    This command should fail.
+
+    ```
+    make check-direct-access
+    ```
+
 
 #### Install this solution as a service
 

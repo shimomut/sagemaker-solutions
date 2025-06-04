@@ -11,6 +11,7 @@ ASSUME_ROLE_ARN =  "arn:aws:iam::842413447717:role/ImdsProxyTestRole"
 SESSION_NAME = "test-session"
 
 class IMDSMockHandler(BaseHTTPRequestHandler):
+    
     def do_GET(self):
         if self.path == "/latest/meta-data/iam/security-credentials/":
             # Return the spoofed role name
@@ -69,6 +70,42 @@ class IMDSMockHandler(BaseHTTPRequestHandler):
                 self.wfile.write(proxied.content)
             except Exception as e:
                 self.send_error(500, f"Proxy failed: {e}")
+
+    def do_PUT(self):
+        try:
+            # Get the content length from headers
+            content_length = int(self.headers.get('Content-Length', 0))
+            
+            # Read the request body
+            body = self.rfile.read(content_length) if content_length > 0 else None
+            
+            # Forward all headers from the original request
+            headers = dict(self.headers)
+            
+            # Forward the PUT request to the target server
+            # Replace 'target_url' with your actual target URL
+            target_url = REAL_IMDS + self.path
+            
+            response = requests.put(
+                target_url,
+                data=body,
+                headers=headers,
+                stream=True
+            )
+            
+            # Send response status code
+            self.send_response(response.status_code)
+            
+            # Forward response headers
+            for key, value in response.headers.items():
+                self.send_header(key, value)
+            self.end_headers()
+            
+            # Send response body
+            self.wfile.write(response.content)
+            
+        except Exception as e:
+            self.send_error(500, f"Proxy failed: {e}")
 
     def log_message(self, format, *args):
         return  # Suppress logs
