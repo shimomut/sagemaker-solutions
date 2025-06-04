@@ -59,6 +59,12 @@
     make add-proxy-iptables-entries
     ```
 
+1. Block direct access to SageMakerRoleProxyAgent
+
+    ```
+    make block-direct-access-to-sagemaker-role
+    ```
+
 1. Run IMDS proxy for testing
 
     ```
