@@ -94,5 +94,22 @@
 
 #### Install this solution as a service
 
-
 (WIP)
+
+1. Install the solution as a systemd service
+
+    ```
+    make install-as-systemd-service
+    ```
+
+1. Enable and start the service
+
+    ```
+    make enable-and-start-service
+    ```
+
+1. Verify by rebooting the instance
+
+    ```
+    sudo reboot
+    ```

@@ -1,0 +1,11 @@
+[Unit]
+Description=IMDB Proxy service
+After=NetworkManager-wait-online.service systemd-networkd-wait-online.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/imdb_proxy_service.sh
+RemainAfterExit=yes
+
+[Install]
+WantedBy=network-online.target

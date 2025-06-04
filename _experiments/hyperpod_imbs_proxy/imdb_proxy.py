@@ -83,14 +83,12 @@ if __name__ == "__main__":
     if len(sys.argv) > 1:
         ROLE_NAME = sys.argv[1]
 
-
-    # FIXME: test
+    # Make sure early that the instance execution role has permission to assume the role
     sts = boto3.client("sts")
     response = sts.assume_role(
         RoleArn=ASSUME_ROLE_ARN,
         RoleSessionName=SESSION_NAME,
         DurationSeconds=3600  # max 3600 for assume_role
     )
-
 
     run()
