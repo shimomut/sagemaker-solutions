@@ -1,5 +1,6 @@
 [Unit]
 Description=IMDB Proxy service
+Requires=sagemaker-cluster-network-setup.service
 After=NetworkManager-wait-online.service systemd-networkd-wait-online.service
 
 [Service]
