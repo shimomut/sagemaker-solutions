@@ -1,15 +1,23 @@
 [Unit]
+
 Description=IMDS Proxy service
-Requires=sagemaker-cluster-network-setup.service
-After=NetworkManager-wait-online.service systemd-networkd-wait-online.service
-Before=imds-proxy.service
-Before=slurmd.service
-Before=sshd.service
+
+After=network-online.target
+Wants=network-online.target
+
+After=sagemaker-role-proxy-agent.service
+Wants=sagemaker-role-proxy-agent.service
+
+After=sagemaker-cluster-after-network-online.service
+Wants=sagemaker-cluster-after-network-online.service
+
+# Before=slurmd.service
+# Before=sshd.service
 
 [Service]
 Type=simple
 WorkingDirectory=/usr/local/bin
-ExecStart=/usr/bin/python3 /usr/local/bin/imds-proxy-server.py
+ExecStart=/usr/bin/python3 -u /usr/local/bin/imds-proxy-server.py
 
 Restart=always
 RestartSec=5

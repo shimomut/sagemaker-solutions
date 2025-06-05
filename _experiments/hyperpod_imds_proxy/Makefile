@@ -36,7 +36,7 @@ check-direct-access:
 	curl -H "X-aws-ec2-metadata-token: $$TOKEN" http://169.254.0.2:9081/latest/meta-data/iam/security-credentials/XyzRole
 
 
-install-as-systemd-services:
+install-services:
 	sudo cp ./imds-proxy-iptables.sh /usr/local/bin/
 	sudo cp ./imds-proxy-server.py /usr/local/bin/
 	sudo cp ./imds-proxy-iptables.service /etc/systemd/system/
@@ -44,19 +44,23 @@ install-as-systemd-services:
 	sudo chmod 755 /usr/local/bin/imds-proxy-iptables.sh
 	sudo chmod 644 /usr/local/bin/imds-proxy-server.py
 
-enable-and-start-services:
+enable-services:
 	sudo systemctl daemon-reload
 	sudo systemctl enable imds-proxy-server.service
 	sudo systemctl start imds-proxy-server.service
 	sudo systemctl enable imds-proxy-iptables.service
 	sudo systemctl start imds-proxy-iptables.service
 
-stop-and-disable-services:
+disable-services:
 	sudo systemctl stop imds-proxy-server.service
 	sudo systemctl disable imds-proxy-server.service
 	sudo systemctl stop imds-proxy-iptables.service
 	sudo systemctl disable imds-proxy-iptables.service
 
 service-status:
-	systemctl status imds_proxy.service
+	systemctl status imds-proxy-iptables.service
+	@echo ""
+	@echo "-----------------------"
+	@echo ""
+	systemctl status imds-proxy-server.service
 

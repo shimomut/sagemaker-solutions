@@ -1,10 +1,18 @@
 [Unit]
+
 Description=IMDS Proxy iptables configuration service
-Requires=sagemaker-cluster-network-setup.service
-After=NetworkManager-wait-online.service systemd-networkd-wait-online.service
-After=imds-proxy.service
-Before=slurmd.service
-Before=sshd.service
+
+After=network-online.target
+Wants=network-online.target
+
+After=sagemaker-role-proxy-agent.service
+Wants=sagemaker-role-proxy-agent.service
+
+After=sagemaker-cluster-after-network-online.service
+Wants=sagemaker-cluster-after-network-online.service
+
+# Before=slurmd.service
+# Before=sshd.service
 
 [Service]
 Type=oneshot
