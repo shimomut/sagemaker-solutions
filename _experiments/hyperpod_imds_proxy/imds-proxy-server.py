@@ -32,7 +32,6 @@ class IMDSMockHandler(BaseHTTPRequestHandler):
                         RoleSessionName=SESSION_NAME,
                         DurationSeconds=3600  # max 3600 for assume_role
                     )
-                    print(response)
 
                     creds = response["Credentials"]
 
