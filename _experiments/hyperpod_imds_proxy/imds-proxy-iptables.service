@@ -2,17 +2,10 @@
 
 Description=IMDS Proxy iptables configuration service
 
-After=network-online.target
-Wants=network-online.target
-
-After=sagemaker-role-proxy-agent.service
-Wants=sagemaker-role-proxy-agent.service
-
 After=sagemaker-cluster-after-network-online.service
-Wants=sagemaker-cluster-after-network-online.service
 
-# Before=slurmd.service
-# Before=sshd.service
+Before=slurmd.service
+Before=sshd.service
 
 [Service]
 Type=oneshot
