@@ -1,0 +1,20 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pod-identity-test-deployment
+  namespace: pod-identity-test
+spec:
+  selector:
+    matchLabels:
+      app: pod-identity-test
+  replicas: 2
+  template:
+    metadata:
+      labels:
+        app: pod-identity-test
+    spec:
+      serviceAccountName: pod-identity-test-sa
+      containers:
+        - name: hello
+          image: 842413447717.dkr.ecr.us-east-1.amazonaws.com/hello:latest
+          imagePullPolicy: Always
