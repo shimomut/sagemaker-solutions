@@ -5,13 +5,19 @@ create-pod-role:
 	--template-body file://./pod-role.yaml \
     --capabilities CAPABILITY_IAM
 
-
 create-service-account:
-	kube
 	kubectl apply -f service-account.yaml
 
 deploy:
 	kubectl apply -f deployment.yaml
+
+list-pods:
+	kubectl get pods -n pod-identity-test
+
+POD_NAME := POD_NAME
+
+exec-bash-in-pod:
+	kubectl exec -it ${POD_NAME} -n pod-identity-test -- bash
 
 delete:
 	kubectl delete -f deployment.yaml
