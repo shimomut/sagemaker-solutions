@@ -8,7 +8,7 @@ create-pod-role:
 create-service-account:
 	kubectl apply -f service-account.yaml
 
-deploy:
+deploy-app:
 	kubectl apply -f deployment.yaml
 
 list-pods:
@@ -19,6 +19,8 @@ POD_NAME := POD_NAME
 exec-bash-in-pod:
 	kubectl exec -it ${POD_NAME} -n pod-identity-test -- bash
 
-delete:
+delete-app:
 	kubectl delete -f deployment.yaml
 
+delete-service-account:
+	kubectl delete -f service-account.yaml
