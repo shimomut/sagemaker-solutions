@@ -1,5 +1,5 @@
 
-create-pod-role:
+create-iam-role:
 	aws cloudformation create-stack \
 	--stack-name pod-identity-test-role \
 	--template-body file://./pod-role.yaml \
@@ -24,3 +24,7 @@ delete-app:
 
 delete-service-account:
 	kubectl delete -f service-account.yaml
+
+delete-iam-role:
+	aws cloudformation delete-stack \
+	--stack-name pod-identity-test-role
