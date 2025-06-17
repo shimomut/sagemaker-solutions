@@ -4,4 +4,4 @@
 #SBATCH --time=1:00:00
 #SBATCH -N 2
 
-srun -N 2 python3.9 hello.py
+srun -N 2 python3 hello.py
