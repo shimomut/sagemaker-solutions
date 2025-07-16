@@ -36,6 +36,12 @@ check-direct-access:
 	curl -H "X-aws-ec2-metadata-token: $$TOKEN" http://169.254.0.2:9081/latest/meta-data/iam/security-credentials/XyzRole
 
 
+check-direct-access2:
+	export TOKEN=`curl -X PUT "http://169.254.170.2/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 21600"` && \
+	curl -H "X-aws-ec2-metadata-token: $$TOKEN" http://169.254.0.2:9081/latest/meta-data/iam/security-credentials/XyzRole
+
+
+
 install-services:
 	sudo cp ./imds-proxy-iptables.sh /usr/local/bin/
 	sudo cp ./imds-proxy-server.py /usr/local/bin/
