@@ -1,0 +1,38 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: emptydir-test
+  labels:
+    app: emptydir-test
+spec:
+  selector:
+    matchLabels:
+      app: emptydir-test
+  replicas: 2
+  template:
+    metadata:
+      name: emptydir-test
+      labels:
+        app: emptydir-test
+    spec:
+      containers:
+        - name: emptydir-test
+          image: 842413447717.dkr.ecr.us-east-1.amazonaws.com/emptydir-test:latest
+          imagePullPolicy: Always
+
+          volumeMounts:
+          - mountPath: /cache
+            name: cache-volume
+
+      volumes:
+
+      # Disk based
+      - name: cache-volume
+        emptyDir: {}
+
+      # Memory based
+      # - name: cache-volume
+      #   emptyDir:
+      #     medium: Memory
+      #     sizeLimit: 10Gi
+
