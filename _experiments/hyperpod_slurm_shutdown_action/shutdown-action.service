@@ -6,7 +6,7 @@ After=network-online.target
 
 [Service]
 Type=oneshot
-ExecStop=/usr/local/bin/shutdown-action.sh
+ExecStop=/usr/bin/python3 -u /usr/local/bin/shutdown-action.py
 RemainAfterExit=yes
 
 [Install]

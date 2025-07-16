@@ -1,8 +1,8 @@
 
 install-services:
-	sudo cp ./shutdown-action.sh /usr/local/bin/
+	sudo cp ./shutdown-action.py /usr/local/bin/
 	sudo cp ./shutdown-action.service /etc/systemd/system/
-	sudo chmod 755 /usr/local/bin/shutdown-action.sh
+	sudo chmod 644 /usr/local/bin/shutdown-action.py
 
 enable-services:
 	sudo systemctl daemon-reload
@@ -17,7 +17,7 @@ service-status:
 	systemctl status shutdown-action.service
 
 check-executed:
-	ls -al /home/ubuntu/shutdown-action-executed.txt
+	ls -al /fsx/ubuntu/shutdown-action-executed.txt
 
 clear-executed:
-	rm /home/ubuntu/shutdown-action-executed.txt
+	rm /fsx/ubuntu/shutdown-action-executed.txt
