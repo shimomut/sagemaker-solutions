@@ -7,6 +7,7 @@ It means the size of ephemeral storage such as emptyDir is limited by the primar
 
 This solution explains how to configure kubelet root-dir in the lifecycle script, so that you can use 2ndary EBS volume for ephemeral storage.
 
+> **Note:** This solution is tested only on AL2 based AMI.
 
 #### Steps
 
