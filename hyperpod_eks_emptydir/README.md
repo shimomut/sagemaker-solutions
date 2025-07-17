@@ -2,10 +2,10 @@
 
 #### Overview
 
-As of 2025-07, HyperPod EKS uses the primary EBS storage for kubelet root-dir. 
+As of 2025-07, HyperPod EKS uses the primary EBS storage for kubelet root-dir.
 It means the size of ephemeral storage such as emptyDir is limited by the primary EBS volume of 100GB.
 
-This solution explains how to configure kubelet root-dir in the lifecycle script, so that you can use 2ndary EBS volume for ephemeral storage.
+This solution explains how to configure replace kubelet root-dir into the 2ndary EBS volume in the lifecycle script, so that you can use larger space for ephemeral storage.
 
 > **Note:** This solution is tested only on AL2 based AMI.
 
@@ -14,9 +14,11 @@ This solution explains how to configure kubelet root-dir in the lifecycle script
 1. Add following lines in the lifecycle script
 
     ``` bash
-    logger "Found secondary EBS volume. Setting kubelet data root to /opt/sagemaker/kubelet"
+    logger "Found secondary EBS volume. Creating symbolic link from /var/lib/kubelet to /opt/sagemaker/kubelet"
     mkdir -p /opt/sagemaker/kubelet
-    sed -i "\/ExecStart=\/usr\/bin\/kubelet/a \ \ \ \ --root-dir /opt/sagemaker/kubelet \\\\" "/etc/eks/containerd/kubelet-containerd.service"
+    mv /var/lib/kubelet/* /opt/sagemaker/kubelet/
+    rmdir /var/lib/kubelet
+    ln -s /opt/sagemaker/kubelet /var/lib/
     ```
 
 2. Create cluster (or, replace instances) to create instances with the updated lifecycle script
