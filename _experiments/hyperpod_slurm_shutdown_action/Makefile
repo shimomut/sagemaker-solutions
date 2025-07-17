@@ -17,7 +17,7 @@ service-status:
 	systemctl status shutdown-action.service
 
 check-executed:
-	ls -al /fsx/ubuntu/shutdown-action-executed.txt
+	ls -al /fsx/ubuntu/shutdown-action-data
 
 clear-executed:
-	rm /fsx/ubuntu/shutdown-action-executed.txt
+	sudo rm /fsx/ubuntu/shutdown-action-data/*.txt
