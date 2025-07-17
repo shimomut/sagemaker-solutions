@@ -1,3 +1,5 @@
+local-test:
+	sudo python3 ./shutdown-action.py
 
 install-services:
 	sudo cp ./shutdown-action.py /usr/local/bin/
