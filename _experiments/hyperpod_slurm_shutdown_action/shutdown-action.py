@@ -5,6 +5,7 @@ import logging
 import traceback
 
 output_dir = "/fsx/ubuntu/shutdown-action-logs"
+duration_sec = 30 * 60
 
 os.makedirs(output_dir, exist_ok=True)
 
@@ -28,7 +29,7 @@ def main():
 
         logger.info(f"Elapsed time: {elapsed_time}")
 
-        if elapsed_time > datetime.timedelta(minutes=3):
+        if elapsed_time > datetime.timedelta(seconds=duration_sec):
             break
 
         time.sleep(1)
@@ -43,3 +44,5 @@ except Exception as e:
     logger.error("Stack trace: %s", traceback.format_exc())
 
 logger.info("Finished")
+
+time.sleep(3)

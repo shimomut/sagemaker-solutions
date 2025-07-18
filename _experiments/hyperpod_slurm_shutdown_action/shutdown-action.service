@@ -8,6 +8,7 @@ After=network-online.target
 Type=oneshot
 ExecStop=/usr/bin/python3 -u /usr/local/bin/shutdown-action.py
 RemainAfterExit=yes
+TimeoutStopSec=3600
 
 [Install]
 WantedBy=multi-user.target
