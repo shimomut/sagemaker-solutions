@@ -11,4 +11,3 @@ q:
 
 clean:
 	rm output/log_*.txt
-	rm gpu-failure-happened.txt
