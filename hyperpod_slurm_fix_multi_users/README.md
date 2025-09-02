@@ -70,13 +70,15 @@
             user1,1001,/fsx/user1
             user2,1002,/fsx/user2
             ```
+       This file is used for 1) add_users_multi_nodes.sh to create users in worker nodes and login nodes, and 2) lifecycle script for new nodes.
+    1. Place all these files somewhere under the `/fsx` (e.g., /fsx/ubuntu/adding-users)
     1. Run create_user_with_id_on_head_node.sh **on the head node**.
-        * You will be prompted to enter user name, user ID and number of worker nodes.
+        * You will be prompted to enter user name, and user ID.
         * Repeat for all new users.
         * This step will create users **only on the head node**.
         * This step will also setup cross-node SSH login, and optionally add the users to sudoer.
     1. Modify add_users_multi_nodes.sh
-        * Modify the variable `nodes`. Include worker nodes and login nodes.
+        * Modify the variable `nodes`. Include worker nodes **and login nodes**.
 
             ``` bash
             nodes="ip-10-1-16-188,ip-10-1-75-77,ip-10-1-79-4"
