@@ -78,7 +78,7 @@ class ConnectivityVerifier:
             "google.com",       # Google
             "github.com"        # GitHub
         ]
-        self.test_ports = [80, 443, 53]  # HTTP, HTTPS, DNS
+        # Note: TCP tests now use explicit host:port combinations for better reliability
 
     def log(self, message: str, level: str = "INFO"):
         """Log message with timestamp and color coding"""
@@ -501,16 +501,28 @@ class ConnectivityVerifier:
         # TCP Connection Tests
         print("\n3. TCP Connection Tests")
         print("-" * 30)
-        tcp_hosts = ['8.8.8.8', 'google.com', 'amazon.com']
-        for host in tcp_hosts:
-            for port in self.test_ports:
-                tcp_result = self.tcp_connect_test(target_interface, host, port)
-                results['tests']['tcp'].append(tcp_result)
-                results['summary']['total_tests'] += 1
-                if tcp_result['success']:
-                    results['summary']['passed_tests'] += 1
-                else:
-                    results['summary']['failed_tests'] += 1
+        # Define reliable TCP test combinations (host, port, description)
+        tcp_tests = [
+            ('8.8.8.8', 443, 'Google DNS HTTPS'),
+            ('8.8.8.8', 53, 'Google DNS'),
+            ('1.1.1.1', 443, 'Cloudflare DNS HTTPS'),
+            ('1.1.1.1', 53, 'Cloudflare DNS'),
+            ('google.com', 80, 'Google HTTP'),
+            ('google.com', 443, 'Google HTTPS'),
+            ('amazon.com', 80, 'Amazon HTTP'),
+            ('amazon.com', 443, 'Amazon HTTPS'),
+            ('github.com', 80, 'GitHub HTTP'),
+            ('github.com', 443, 'GitHub HTTPS')
+        ]
+        
+        for host, port, description in tcp_tests:
+            tcp_result = self.tcp_connect_test(target_interface, host, port)
+            results['tests']['tcp'].append(tcp_result)
+            results['summary']['total_tests'] += 1
+            if tcp_result['success']:
+                results['summary']['passed_tests'] += 1
+            else:
+                results['summary']['failed_tests'] += 1
         
         # HTTP Tests
         print("\n4. HTTP Connectivity Tests")

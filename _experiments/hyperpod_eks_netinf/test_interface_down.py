@@ -119,9 +119,9 @@ def test_interface_down_behavior(interface_name: str = "enp74s0"):
     
     # Validate expected behavior
     expected_behavior = (
-        success_rate_up >= 70 and          # Should work when UP
+        success_rate_up >= 90 and          # Should work well when UP (expect ~100%)
         success_rate_down < 30 and         # Should fail when DOWN
-        success_rate_restored >= 70        # Should work when restored
+        success_rate_restored >= 90        # Should work well when restored
     )
     
     if expected_behavior:
