@@ -57,6 +57,9 @@ make verify-connectivity
 # Test a specific interface
 make verify-interface INTERFACE=eth2
 
+# Test all interfaces starting with 'enp' prefix
+make verify-enp-interfaces
+
 # Complete workflow: move interface and verify connectivity (requires sudo)
 make move-and-verify
 
@@ -76,7 +79,28 @@ python3 verify_connectivity.py --interface eth2 --verbose
 
 # Save results to custom file
 python3 verify_connectivity.py --output my_test_results.json
+
+# Test all enp interfaces with detailed reporting
+python3 verify_connectivity.py --all-enp --verbose --save-results
+
+# Test specific list of interfaces
+python3 verify_connectivity.py --interfaces enp72s0 enp75s0 --verbose
 ```
+
+### Bulk Interface Testing
+
+The solution includes specialized support for testing multiple network interfaces:
+
+- **ENP Interface Discovery**: Automatically discovers all interfaces with 'enp' prefix (modern Linux predictable names)
+- **Custom Interface Lists**: Test specific sets of interfaces by name
+- **Batch Testing**: Runs comprehensive connectivity tests on all specified interfaces
+- **Consolidated Reporting**: Provides per-interface and aggregate statistics
+- **JSON Export**: Saves detailed results for all interfaces in timestamped files
+
+#### New Command Line Options
+
+- `--all-enp`: Test all interfaces starting with 'enp' prefix
+- `--interfaces <list>`: Test specific interfaces by name (e.g., `--interfaces enp72s0 enp75s0`)
 
 ## What the Scripts Do
 

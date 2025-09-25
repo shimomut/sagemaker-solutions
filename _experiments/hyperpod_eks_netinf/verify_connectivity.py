@@ -11,6 +11,7 @@ import socket
 import time
 import sys
 import argparse
+import re
 from typing import List, Dict, Optional, Tuple
 import json
 
@@ -561,6 +562,257 @@ class ConnectivityVerifier:
             self.log(f"Failed to save results: {e}", "ERROR")
 
 
+def discover_enp_interfaces() -> List[str]:
+    """Discover all network interfaces starting with 'enp'"""
+    try:
+        # Get interface list using ip command
+        result = subprocess.run(
+            ["ip", "link", "show"], 
+            capture_output=True, 
+            text=True, 
+            timeout=10
+        )
+        
+        if result.returncode != 0:
+            return []
+        
+        # Parse interface names
+        interfaces = []
+        for line in result.stdout.split('\n'):
+            # Match lines like: "2: enp75s0: <BROADCAST,MULTICAST,UP,LOWER_UP> ..."
+            import re
+            match = re.match(r'^\d+:\s+(enp\d+s\d+):', line)
+            if match:
+                interface_name = match.group(1)
+                interfaces.append(interface_name)
+        
+        return sorted(interfaces)
+        
+    except Exception:
+        return []
+
+
+def get_interface_status(interface_name: str) -> Dict[str, any]:
+    """Get basic status information for an interface"""
+    try:
+        # Get interface details
+        result = subprocess.run(
+            ["ip", "-j", "addr", "show", interface_name], 
+            capture_output=True, 
+            text=True, 
+            timeout=5
+        )
+        
+        if result.returncode != 0:
+            return {'exists': False, 'error': result.stderr.strip()}
+        
+        interface_data = json.loads(result.stdout)
+        if not interface_data:
+            return {'exists': False, 'error': 'No interface data returned'}
+        
+        iface = interface_data[0]
+        
+        # Extract key information
+        status = {
+            'exists': True,
+            'name': iface.get('ifname', interface_name),
+            'state': iface.get('operstate', 'unknown'),
+            'flags': iface.get('flags', []),
+            'addresses': []
+        }
+        
+        # Extract IP addresses
+        for addr in iface.get('addr_info', []):
+            if addr.get('family') == 'inet':
+                status['addresses'].append({
+                    'ip': addr.get('local'),
+                    'prefix': addr.get('prefixlen')
+                })
+        
+        return status
+        
+    except Exception as e:
+        return {'exists': False, 'error': str(e)}
+
+
+def test_multiple_interfaces(interface_names: List[str], verbose: bool = False) -> Dict[str, any]:
+    """Test multiple interfaces and provide consolidated reporting"""
+    print(f"{Colors.bold('HyperPod EKS Multiple Interface Connectivity Verifier')}")
+    print(f"{Colors.bold('='*70)}")
+    
+    # Filter testable interfaces
+    testable_interfaces = []
+    print(f"\n{Colors.info(f'Checking {len(interface_names)} interface(s)...')}")
+    
+    for interface_name in interface_names:
+        status = get_interface_status(interface_name)
+        
+        if not status.get('exists', False):
+            print(f"  {Colors.error('✗')} {interface_name}: {Colors.error(status.get('error', 'Unknown error'))}")
+            continue
+        
+        is_up = 'UP' in status.get('flags', [])
+        addresses = status.get('addresses', [])
+        
+        if is_up and addresses:
+            addr_str = f" ({addresses[0]['ip']}/{addresses[0]['prefix']})" if addresses else ""
+            print(f"  {Colors.success('✓')} {interface_name}: {Colors.success('UP')}{addr_str}")
+            testable_interfaces.append(interface_name)
+        else:
+            state = status.get('state', 'unknown').upper()
+            print(f"  {Colors.warning('⚠')} {interface_name}: {Colors.warning(state)} (not testable)")
+    
+    if not testable_interfaces:
+        print(f"\n{Colors.error('No testable interfaces found')}")
+        return {'success': False, 'error': 'No testable interfaces'}
+    
+    print(f"\n{Colors.info(f'Testing {len(testable_interfaces)} interface(s): {testable_interfaces}')}")
+    
+    # Run tests on each interface
+    all_results = {}
+    
+    for interface_name in testable_interfaces:
+        print(f"\n{Colors.bold('='*70)}")
+        print(f"{Colors.bold(f'Testing Interface: {interface_name}')}")
+        print(f"{Colors.bold('='*70)}")
+        
+        try:
+            verifier = ConnectivityVerifier(
+                interface_name=interface_name,
+                verbose=verbose
+            )
+            result = verifier.run_comprehensive_test()
+            all_results[interface_name] = result
+        except KeyboardInterrupt:
+            print(f"\n{Colors.warning('Testing interrupted by user')}")
+            break
+        except Exception as e:
+            print(f"\n{Colors.error(f'Error testing {interface_name}: {e}')}")
+            all_results[interface_name] = {
+                'success': False,
+                'error': str(e),
+                'interface': interface_name
+            }
+    
+    # Generate summary
+    if all_results:
+        summary = generate_summary_report(all_results)
+        print_summary_report(summary)
+        save_bulk_results(all_results, summary)
+        return {'success': summary['overall_success_rate'] >= 70, 'summary': summary}
+    else:
+        return {'success': False, 'error': 'No test results'}
+
+
+def generate_summary_report(all_results: Dict[str, Dict]) -> Dict[str, any]:
+    """Generate a summary report of all interface tests"""
+    summary = {
+        'total_interfaces': len(all_results),
+        'successful_interfaces': 0,
+        'failed_interfaces': 0,
+        'interface_details': {},
+        'overall_stats': {
+            'total_tests': 0,
+            'passed_tests': 0,
+            'failed_tests': 0
+        }
+    }
+    
+    for interface_name, result in all_results.items():
+        if result.get('success', False):
+            summary['successful_interfaces'] += 1
+        else:
+            summary['failed_interfaces'] += 1
+        
+        # Aggregate test statistics
+        if 'summary' in result:
+            test_summary = result['summary']
+            summary['overall_stats']['total_tests'] += test_summary.get('total_tests', 0)
+            summary['overall_stats']['passed_tests'] += test_summary.get('passed_tests', 0)
+            summary['overall_stats']['failed_tests'] += test_summary.get('failed_tests', 0)
+        
+        # Store interface details
+        summary['interface_details'][interface_name] = {
+            'success': result.get('success', False),
+            'success_rate': result.get('summary', {}).get('success_rate', 0),
+            'total_tests': result.get('summary', {}).get('total_tests', 0),
+            'passed_tests': result.get('summary', {}).get('passed_tests', 0),
+            'interface_ip': result.get('interface_ip', 'N/A')
+        }
+    
+    # Calculate overall success rate
+    total_tests = summary['overall_stats']['total_tests']
+    passed_tests = summary['overall_stats']['passed_tests']
+    summary['overall_success_rate'] = (passed_tests / total_tests * 100) if total_tests > 0 else 0
+    
+    return summary
+
+
+def print_summary_report(summary: Dict[str, any]):
+    """Print the final summary report"""
+    print(f"\n{Colors.bold('='*80)}")
+    print(f"{Colors.bold('MULTIPLE INTERFACES CONNECTIVITY SUMMARY')}")
+    print(f"{Colors.bold('='*80)}")
+    
+    # Overall statistics
+    total_interfaces = summary['total_interfaces']
+    successful = summary['successful_interfaces']
+    failed = summary['failed_interfaces']
+    overall_success_rate = summary['overall_success_rate']
+    
+    print(f"Total Interfaces Tested: {total_interfaces}")
+    print(f"Successful Interfaces: {Colors.success(str(successful))}")
+    print(f"Failed Interfaces: {Colors.error(str(failed))}")
+    print(f"Overall Success Rate: {Colors.success(f'{overall_success_rate:.1f}%') if overall_success_rate >= 70 else Colors.error(f'{overall_success_rate:.1f}%')}")
+    
+    # Test statistics
+    stats = summary['overall_stats']
+    print(f"\nAggregate Test Statistics:")
+    print(f"  Total Tests: {stats['total_tests']}")
+    print(f"  Passed: {Colors.success(str(stats['passed_tests']))}")
+    print(f"  Failed: {Colors.error(str(stats['failed_tests']))}")
+    
+    # Per-interface breakdown
+    print(f"\n{Colors.bold('Per-Interface Results:')}")
+    print("-" * 80)
+    
+    for interface_name, details in summary['interface_details'].items():
+        success_rate = details['success_rate']
+        passed = details['passed_tests']
+        total = details['total_tests']
+        ip = details['interface_ip']
+        
+        if details['success']:
+            status_icon = Colors.success('✓')
+            rate_color = Colors.success(f"{success_rate:.1f}%")
+        else:
+            status_icon = Colors.error('✗')
+            rate_color = Colors.error(f"{success_rate:.1f}%")
+        
+        print(f"{status_icon} {interface_name:12} ({ip:15}) - {rate_color} ({passed}/{total} tests)")
+    
+    print(f"{Colors.bold('='*80)}")
+
+
+def save_bulk_results(all_results: Dict[str, Dict], summary: Dict[str, any]):
+    """Save bulk test results to JSON file"""
+    timestamp = time.strftime("%Y%m%d_%H%M%S")
+    filename = f"bulk_interfaces_test_{timestamp}.json"
+    
+    output_data = {
+        'timestamp': time.strftime("%Y-%m-%d %H:%M:%S"),
+        'summary': summary,
+        'detailed_results': all_results
+    }
+    
+    try:
+        with open(filename, 'w') as f:
+            json.dump(output_data, f, indent=2)
+        print(f"\n{Colors.success(f'Detailed results saved to: {filename}')}")
+    except Exception as e:
+        print(f"\n{Colors.error(f'Failed to save results: {e}')}")
+
+
 def main():
     """Main entry point"""
     parser = argparse.ArgumentParser(description='Verify network interface connectivity')
@@ -568,29 +820,47 @@ def main():
     parser.add_argument('-v', '--verbose', action='store_true', help='Enable verbose logging')
     parser.add_argument('-o', '--output', help='Output file for results (JSON format)')
     parser.add_argument('--save-results', action='store_true', help='Save results to timestamped JSON file')
+    parser.add_argument('--all-enp', action='store_true', help='Test all interfaces starting with "enp" prefix')
+    parser.add_argument('--interfaces', nargs='+', help='Test specific list of interfaces')
     
     args = parser.parse_args()
     
     try:
-        verifier = ConnectivityVerifier(
-            interface_name=args.interface,
-            verbose=args.verbose
-        )
+        # Handle bulk testing modes
+        if args.all_enp:
+            interfaces = discover_enp_interfaces()
+            if not interfaces:
+                print(Colors.error("No 'enp' interfaces found on this system"))
+                sys.exit(1)
+            
+            result = test_multiple_interfaces(interfaces, args.verbose)
+            sys.exit(0 if result.get('success', False) else 1)
         
-        results = verifier.run_comprehensive_test()
+        elif args.interfaces:
+            result = test_multiple_interfaces(args.interfaces, args.verbose)
+            sys.exit(0 if result.get('success', False) else 1)
         
-        # Save results if requested
-        if args.save_results or args.output:
-            verifier.save_results(results, args.output)
-        
-        # Exit with appropriate code
-        sys.exit(0 if results.get('success', False) else 1)
+        # Single interface testing (existing functionality)
+        else:
+            verifier = ConnectivityVerifier(
+                interface_name=args.interface,
+                verbose=args.verbose
+            )
+            
+            results = verifier.run_comprehensive_test()
+            
+            # Save results if requested
+            if args.save_results or args.output:
+                verifier.save_results(results, args.output)
+            
+            # Exit with appropriate code
+            sys.exit(0 if results.get('success', False) else 1)
         
     except KeyboardInterrupt:
-        print("\nOperation cancelled by user")
+        print(f"\n{Colors.warning('Operation cancelled by user')}")
         sys.exit(1)
     except Exception as e:
-        print(f"Unexpected error: {e}")
+        print(f"\n{Colors.error(f'Unexpected error: {e}')}")
         sys.exit(1)
 
 

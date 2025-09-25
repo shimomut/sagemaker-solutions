@@ -1,6 +1,6 @@
 # HyperPod EKS Network Interface Script Makefile
 
-.PHONY: help install run clean test verify-connectivity verify-interface move-and-verify diagnose
+.PHONY: help install run clean test verify-connectivity verify-interface verify-enp-interfaces move-and-verify diagnose
 
 help:
 	@echo "Available targets:"
@@ -9,6 +9,7 @@ help:
 	@echo "  test                - Run basic syntax and import tests"
 	@echo "  verify-connectivity - Verify internet connectivity of moved interfaces"
 	@echo "  verify-interface    - Verify connectivity of specific interface (use INTERFACE=name)"
+	@echo "  verify-enp-interfaces - Verify connectivity of all interfaces starting with 'enp'"
 	@echo "  move-and-verify     - Move network interface and verify connectivity (requires sudo)"
 	@echo "  diagnose            - Run diagnostic tests for TCP connectivity issues"
 	@echo "  clean               - Clean up temporary files"
@@ -46,6 +47,10 @@ verify-interface:
 	@echo "Verifying connectivity for interface: $(INTERFACE)"
 	python3 verify_connectivity.py --interface $(INTERFACE) --verbose --save-results
 
+verify-enp-interfaces:
+	@echo "Verifying connectivity for all 'enp' network interfaces..."
+	python3 verify_connectivity.py --all-enp --verbose --save-results
+
 move-and-verify:
 	@echo "Moving network interface and verifying connectivity..."
 	@echo "Step 1: Moving network interface (requires sudo)..."
@@ -67,4 +72,5 @@ clean:
 	find . -name "*.pyc" -delete
 	find . -name "__pycache__" -type d -exec rm -rf {} +
 	find . -name "connectivity_test_*.json" -delete
+	find . -name "bulk_interfaces_test_*.json" -delete
 	@echo "Cleaned up temporary files and test results"
