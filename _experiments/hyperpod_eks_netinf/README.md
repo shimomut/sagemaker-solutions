@@ -38,44 +38,146 @@ chmod +x hyperpod_eks_netinf.py
 
 ## Usage
 
+### Basic Network Interface Management
+
 Run the script with sudo privileges:
 
 ```bash
 sudo python3 hyperpod_eks_netinf.py
 ```
 
-## What the Script Does
+### Connectivity Verification
 
-### 1. Discovery Phase
+After moving network interfaces, verify internet connectivity:
+
+```bash
+# Auto-detect and test recently moved interfaces
+make verify-connectivity
+
+# Test a specific interface
+make verify-interface INTERFACE=eth2
+
+# Complete workflow: move interface and verify connectivity (requires sudo)
+make move-and-verify
+```
+
+### Manual Connectivity Testing
+
+```bash
+# Test auto-detected interface with verbose output
+python3 verify_connectivity.py --verbose --save-results
+
+# Test specific interface
+python3 verify_connectivity.py --interface eth2 --verbose
+
+# Save results to custom file
+python3 verify_connectivity.py --output my_test_results.json
+```
+
+## What the Scripts Do
+
+### Network Interface Manager (hyperpod_eks_netinf.py)
+
+#### 1. Discovery Phase
 - Executes `sudo ip netns exec default ip link` to list interfaces in default namespace
 - Executes `sudo ip netns exec sagemaker_agent_namespace ip link` to list interfaces in sagemaker namespace
 - Executes `ip route` to capture current routing table
 
-### 2. Analysis Phase
+#### 2. Analysis Phase
 - Parses network interface information (name, state, MAC address)
 - Identifies the first DOWN interface in sagemaker_agent_namespace
 - Uses boto3 to query AWS EC2 API and match the interface MAC address to an ENI
 
-### 3. Confirmation Phase
+#### 3. Confirmation Phase
 - Displays detailed information about the selected interface and its ENI
 - Shows interface name, MAC address, current state, and ENI details
 - Asks for user confirmation before proceeding
 
-### 4. Configuration Phase (if confirmed)
+#### 4. Configuration Phase (if confirmed)
 - Moves the interface from sagemaker_agent_namespace to default namespace
 - Assigns the ENI's private IP address with /16 subnet mask
 - Brings the interface up
 - Adds a default route via 10.1.0.1 with metric 400
 
-### 5. Verification Phase
+#### 5. Verification Phase
 - Displays final `ip addr` output
 - Displays final `ip link` output  
 - Displays final `ip route` output
 
+### Connectivity Verifier (verify_connectivity.py)
+
+#### 1. Interface Detection
+- Auto-detects recently moved network interfaces (prioritizes 10.1.x.x addresses)
+- Can target specific interfaces when specified
+- Validates interface state and IP configuration
+
+#### 2. DNS Resolution Tests
+- Tests DNS resolution for common domains (google.com, amazon.com, github.com)
+- Measures resolution time and validates responses
+
+#### 3. Ping Connectivity Tests
+- Tests ICMP connectivity to multiple hosts (8.8.8.8, 1.1.1.1, amazon.com, google.com, github.com)
+- Measures packet loss and round-trip times
+- Uses interface-specific routing
+
+#### 4. TCP Connection Tests
+- Tests TCP connectivity on ports 80, 443, and 53
+- Binds connections to specific interface IP
+- Measures connection establishment time
+
+#### 5. HTTP Connectivity Tests
+- Tests HTTP/HTTPS requests using curl with interface binding
+- Validates response codes and measures request times
+- Tests multiple endpoints for comprehensive validation
+
+#### 6. Results Analysis
+- Calculates overall success rate (70% threshold for pass/fail)
+- Generates detailed JSON reports with timestamps
+- Provides summary statistics and recommendations
+
+## Connectivity Verification Features
+
+### Test Categories
+
+1. **DNS Resolution Tests**
+   - Validates DNS functionality for common domains
+   - Measures resolution time and success rate
+
+2. **Ping Connectivity Tests**
+   - Tests ICMP reachability to multiple hosts
+   - Measures packet loss and latency
+   - Uses interface-specific routing
+
+3. **TCP Connection Tests**
+   - Tests TCP connectivity on standard ports (80, 443, 53)
+   - Validates socket binding to interface IP
+   - Measures connection establishment time
+
+4. **HTTP Connectivity Tests**
+   - Tests actual HTTP/HTTPS requests
+   - Validates response codes and content delivery
+   - Uses curl with interface binding
+
+### Success Criteria
+
+- **DNS Tests**: All domains should resolve successfully
+- **Ping Tests**: <10% packet loss acceptable
+- **TCP Tests**: Connections should establish within 5 seconds
+- **HTTP Tests**: Should receive 2xx/3xx response codes
+- **Overall**: 70% success rate required for PASS status
+
+### Output Formats
+
+- **Console**: Real-time progress with colored status indicators
+- **JSON**: Detailed results with timestamps and metrics
+- **Summary**: Pass/fail status with success rate percentage
+
 ## Example Output
 
+### Network Interface Management
+
 ```
-HyperPod EKS Network Interface Script
+HyperPod EKS Network Interface Manager
 ==================================================
 Getting network interfaces in default namespace...
 Found 2 interfaces in default namespace
@@ -116,9 +218,58 @@ VERIFICATION - Final Configuration
 [Verification output follows...]
 ```
 
+### Connectivity Verification
+
+```
+HyperPod EKS Network Interface Connectivity Verifier
+============================================================
+
+Testing connectivity for interface: eth2
+Interface IP: 10.1.45.123
+------------------------------------------------------------
+
+1. DNS Resolution Tests
+------------------------------
+[2024-09-25 14:30:15] SUCCESS: ✓ DNS google.com: Resolved to ['142.250.191.14'] in 12.3ms
+[2024-09-25 14:30:15] SUCCESS: ✓ DNS amazon.com: Resolved to ['205.251.242.103'] in 8.7ms
+[2024-09-25 14:30:15] SUCCESS: ✓ DNS github.com: Resolved to ['140.82.113.4'] in 15.2ms
+
+2. Ping Connectivity Tests
+------------------------------
+[2024-09-25 14:30:16] SUCCESS: ✓ Ping to 8.8.8.8: 0.0% loss, avg 2.1ms
+[2024-09-25 14:30:17] SUCCESS: ✓ Ping to 1.1.1.1: 0.0% loss, avg 3.4ms
+[2024-09-25 14:30:18] SUCCESS: ✓ Ping to amazon.com: 0.0% loss, avg 12.7ms
+[2024-09-25 14:30:19] SUCCESS: ✓ Ping to google.com: 0.0% loss, avg 8.9ms
+[2024-09-25 14:30:20] SUCCESS: ✓ Ping to github.com: 0.0% loss, avg 15.3ms
+
+3. TCP Connection Tests
+------------------------------
+[2024-09-25 14:30:21] SUCCESS: ✓ TCP 8.8.8.8:53: Connected in 2.1ms
+[2024-09-25 14:30:21] SUCCESS: ✓ TCP 8.8.8.8:80: Connected in 3.4ms
+[2024-09-25 14:30:22] SUCCESS: ✓ TCP google.com:443: Connected in 12.7ms
+[2024-09-25 14:30:23] SUCCESS: ✓ TCP amazon.com:443: Connected in 18.9ms
+
+4. HTTP Connectivity Tests
+------------------------------
+[2024-09-25 14:30:24] SUCCESS: ✓ HTTP http://google.com: 301 in 45.2ms
+[2024-09-25 14:30:25] SUCCESS: ✓ HTTP https://amazon.com: 200 in 67.8ms
+[2024-09-25 14:30:26] SUCCESS: ✓ HTTP https://github.com: 200 in 89.1ms
+
+============================================================
+CONNECTIVITY TEST SUMMARY
+============================================================
+Interface: eth2 (10.1.45.123)
+Total Tests: 20
+Passed: 20
+Failed: 0
+Success Rate: 100.0%
+Overall Result: ✓ PASS
+============================================================
+```
+
 ## Commands Executed
 
-The script executes the following system commands:
+### Network Interface Manager Commands
 
 1. **Discovery Commands**:
    ```bash
@@ -140,6 +291,26 @@ The script executes the following system commands:
    ip addr
    ip link
    ip route
+   ```
+
+### Connectivity Verifier Commands
+
+1. **Interface Discovery**:
+   ```bash
+   ip -j addr show
+   ```
+
+2. **Connectivity Tests**:
+   ```bash
+   ping -I {interface} -c 3 -W 5 {host}
+   curl --interface {interface} --connect-timeout 10 --max-time 10 -s -o /dev/null -w '%{http_code},%{time_total}' {url}
+   ```
+
+3. **Make Targets**:
+   ```bash
+   make verify-connectivity              # Auto-detect and test interfaces
+   make verify-interface INTERFACE=eth2  # Test specific interface
+   make move-and-verify                  # Complete workflow (requires sudo)
    ```
 
 ## Error Handling
