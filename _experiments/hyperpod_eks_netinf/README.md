@@ -66,6 +66,10 @@ make move-and-verify
 # Diagnose TCP connectivity issues
 make diagnose
 make diagnose INTERFACE=enp75s0
+
+# Test interface DOWN detection (requires sudo)
+make test-interface-down
+make test-interface-down INTERFACE=enp74s0
 ```
 
 ### Manual Connectivity Testing
@@ -209,6 +213,13 @@ The solution includes specialized support for testing multiple network interface
 - **Detailed Error Messages**: Human-readable explanations for connection failures
 - **Interface Validation**: Comprehensive interface state and configuration checks
 - **Diagnostic Script**: Separate diagnostic tool for troubleshooting TCP connectivity issues
+- **Interface DOWN Detection**: Automated testing of interface failure scenarios
+
+### Testing Features
+
+- **Interface DOWN Testing**: Comprehensive test that disables an interface, verifies failure detection, and restores functionality
+- **Failure Validation**: Confirms that disabled interfaces are properly detected and excluded from bulk testing
+- **Recovery Testing**: Validates that interfaces can be restored to working state after being disabled
 
 ## Example Output
 

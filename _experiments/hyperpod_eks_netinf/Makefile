@@ -1,6 +1,6 @@
 # HyperPod EKS Network Interface Script Makefile
 
-.PHONY: help install run clean test verify-connectivity verify-interface verify-enp-interfaces move-and-verify diagnose
+.PHONY: help install run clean test verify-connectivity verify-interface verify-enp-interfaces move-and-verify diagnose test-interface-down
 
 help:
 	@echo "Available targets:"
@@ -12,6 +12,7 @@ help:
 	@echo "  verify-enp-interfaces - Verify connectivity of all interfaces starting with 'enp'"
 	@echo "  move-and-verify     - Move network interface and verify connectivity (requires sudo)"
 	@echo "  diagnose            - Run diagnostic tests for TCP connectivity issues"
+	@echo "  test-interface-down - Test interface DOWN detection (requires sudo)"
 	@echo "  clean               - Clean up temporary files"
 
 install:
@@ -27,9 +28,11 @@ test:
 	python3 -m py_compile hyperpod_eks_netinf.py
 	python3 -m py_compile verify_connectivity.py
 	python3 -m py_compile test_metric_calculation.py
+	python3 -m py_compile test_interface_down.py
 	@echo "Running import test..."
 	python3 -c "import hyperpod_eks_netinf; print('Main script import successful')"
 	python3 -c "import verify_connectivity; print('Connectivity verifier import successful')"
+	python3 -c "import test_interface_down; print('Interface DOWN test import successful')"
 	@echo "Running metric calculation tests..."
 	python3 test_metric_calculation.py
 
@@ -66,6 +69,17 @@ diagnose:
 	else \
 		echo "Running diagnostic for interface: $(INTERFACE)"; \
 		python3 diagnose_tcp_issue.py $(INTERFACE); \
+	fi
+
+test-interface-down:
+	@if [ -z "$(INTERFACE)" ]; then \
+		echo "Testing interface DOWN detection with default interface (enp74s0)..."; \
+		echo "This test requires sudo privileges to disable/enable network interfaces"; \
+		python3 test_interface_down.py; \
+	else \
+		echo "Testing interface DOWN detection with interface: $(INTERFACE)"; \
+		echo "This test requires sudo privileges to disable/enable network interfaces"; \
+		python3 test_interface_down.py $(INTERFACE); \
 	fi
 
 clean:
