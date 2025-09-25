@@ -1,6 +1,6 @@
 # HyperPod EKS Network Interface Script Makefile
 
-.PHONY: help install run clean test verify-connectivity verify-interface move-and-verify
+.PHONY: help install run clean test verify-connectivity verify-interface move-and-verify diagnose
 
 help:
 	@echo "Available targets:"
@@ -10,6 +10,7 @@ help:
 	@echo "  verify-connectivity - Verify internet connectivity of moved interfaces"
 	@echo "  verify-interface    - Verify connectivity of specific interface (use INTERFACE=name)"
 	@echo "  move-and-verify     - Move network interface and verify connectivity (requires sudo)"
+	@echo "  diagnose            - Run diagnostic tests for TCP connectivity issues"
 	@echo "  clean               - Clean up temporary files"
 
 install:
@@ -52,6 +53,15 @@ move-and-verify:
 	@echo ""
 	@echo "Step 2: Verifying connectivity..."
 	python3 verify_connectivity.py --verbose --save-results
+
+diagnose:
+	@if [ -z "$(INTERFACE)" ]; then \
+		echo "Running diagnostic for default interface (enp75s0)..."; \
+		python3 diagnose_tcp_issue.py; \
+	else \
+		echo "Running diagnostic for interface: $(INTERFACE)"; \
+		python3 diagnose_tcp_issue.py $(INTERFACE); \
+	fi
 
 clean:
 	find . -name "*.pyc" -delete

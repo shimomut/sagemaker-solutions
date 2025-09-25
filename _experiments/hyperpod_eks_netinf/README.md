@@ -59,6 +59,10 @@ make verify-interface INTERFACE=eth2
 
 # Complete workflow: move interface and verify connectivity (requires sudo)
 make move-and-verify
+
+# Diagnose TCP connectivity issues
+make diagnose
+make diagnose INTERFACE=enp75s0
 ```
 
 ### Manual Connectivity Testing
@@ -123,8 +127,10 @@ python3 verify_connectivity.py --output my_test_results.json
 
 #### 4. TCP Connection Tests
 - Tests TCP connectivity on ports 80, 443, and 53
-- Binds connections to specific interface IP
+- Uses SO_BINDTODEVICE socket option for reliable interface binding
+- Falls back to IP binding if SO_BINDTODEVICE requires root privileges
 - Measures connection establishment time
+- Provides detailed error messages for connection failures
 
 #### 5. HTTP Connectivity Tests
 - Tests HTTP/HTTPS requests using curl with interface binding
@@ -169,9 +175,16 @@ python3 verify_connectivity.py --output my_test_results.json
 
 ### Output Formats
 
-- **Console**: Real-time progress with colored status indicators
+- **Console**: Real-time progress with colored status indicators (red for errors, green for success)
 - **JSON**: Detailed results with timestamps and metrics
 - **Summary**: Pass/fail status with success rate percentage
+
+### Diagnostic Features
+
+- **TCP Connection Diagnostics**: Automatic fallback from SO_BINDTODEVICE to IP binding
+- **Detailed Error Messages**: Human-readable explanations for connection failures
+- **Interface Validation**: Comprehensive interface state and configuration checks
+- **Diagnostic Script**: Separate diagnostic tool for troubleshooting TCP connectivity issues
 
 ## Example Output
 

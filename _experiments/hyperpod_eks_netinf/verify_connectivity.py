@@ -15,6 +15,57 @@ from typing import List, Dict, Optional, Tuple
 import json
 
 
+class Colors:
+    """ANSI color codes for terminal output"""
+    RED = '\033[91m'
+    GREEN = '\033[92m'
+    YELLOW = '\033[93m'
+    BLUE = '\033[94m'
+    MAGENTA = '\033[95m'
+    CYAN = '\033[96m'
+    WHITE = '\033[97m'
+    BOLD = '\033[1m'
+    UNDERLINE = '\033[4m'
+    RESET = '\033[0m'
+    
+    @staticmethod
+    def is_tty():
+        """Check if output is to a terminal (supports colors)"""
+        return sys.stdout.isatty()
+    
+    @staticmethod
+    def colorize(text: str, color: str) -> str:
+        """Apply color to text if terminal supports it"""
+        if Colors.is_tty():
+            return f"{color}{text}{Colors.RESET}"
+        return text
+    
+    @staticmethod
+    def error(text: str) -> str:
+        """Red text for errors"""
+        return Colors.colorize(text, Colors.RED)
+    
+    @staticmethod
+    def success(text: str) -> str:
+        """Green text for success"""
+        return Colors.colorize(text, Colors.GREEN)
+    
+    @staticmethod
+    def warning(text: str) -> str:
+        """Yellow text for warnings"""
+        return Colors.colorize(text, Colors.YELLOW)
+    
+    @staticmethod
+    def info(text: str) -> str:
+        """Blue text for info"""
+        return Colors.colorize(text, Colors.BLUE)
+    
+    @staticmethod
+    def bold(text: str) -> str:
+        """Bold text"""
+        return Colors.colorize(text, Colors.BOLD)
+
+
 class ConnectivityVerifier:
     def __init__(self, interface_name: Optional[str] = None, verbose: bool = False):
         self.interface_name = interface_name
@@ -29,10 +80,27 @@ class ConnectivityVerifier:
         self.test_ports = [80, 443, 53]  # HTTP, HTTPS, DNS
 
     def log(self, message: str, level: str = "INFO"):
-        """Log message with timestamp"""
+        """Log message with timestamp and color coding"""
         timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
         if self.verbose or level in ["ERROR", "SUCCESS"]:
-            print(f"[{timestamp}] {level}: {message}")
+            # Apply color coding based on level
+            if level == "ERROR":
+                colored_message = Colors.error(message)
+                colored_level = Colors.error(level)
+            elif level == "SUCCESS":
+                colored_message = Colors.success(message)
+                colored_level = Colors.success(level)
+            elif level == "WARNING":
+                colored_message = Colors.warning(message)
+                colored_level = Colors.warning(level)
+            elif level == "DEBUG":
+                colored_message = Colors.info(message)
+                colored_level = Colors.info(level)
+            else:
+                colored_message = message
+                colored_level = level
+            
+            print(f"[{timestamp}] {colored_level}: {colored_message}")
 
     def run_command(self, command: str, capture_output: bool = True, timeout: int = 10) -> Tuple[int, str, str]:
         """Execute a shell command and return exit code, stdout, stderr"""
@@ -211,7 +279,7 @@ class ConnectivityVerifier:
         """Test TCP connectivity to specific host:port through interface"""
         interface_name = interface.get('ifname')
         
-        # Get interface IP for binding
+        # Get interface IP for display purposes
         interface_ip = None
         for addr in interface.get('addr_info', []):
             if addr.get('family') == 'inet':
@@ -230,10 +298,21 @@ class ConnectivityVerifier:
         self.log(f"Testing TCP connection to {host}:{port} via {interface_name} ({interface_ip})...")
         
         try:
-            # Create socket and bind to interface IP
+            # Create socket and bind to interface using SO_BINDTODEVICE
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             sock.settimeout(timeout)
-            sock.bind((interface_ip, 0))  # Bind to interface IP, any port
+            
+            # Use SO_BINDTODEVICE to bind to specific interface (more reliable than IP binding)
+            try:
+                sock.setsockopt(socket.SOL_SOCKET, socket.SO_BINDTODEVICE, interface_name.encode())
+            except PermissionError:
+                # Fall back to IP binding if SO_BINDTODEVICE requires root
+                self.log(f"SO_BINDTODEVICE requires root, falling back to IP binding", "DEBUG")
+                sock.bind((interface_ip, 0))
+            except OSError as e:
+                # If SO_BINDTODEVICE fails, try IP binding
+                self.log(f"SO_BINDTODEVICE failed ({e}), falling back to IP binding", "DEBUG")
+                sock.bind((interface_ip, 0))
             
             start_time = time.time()
             result = sock.connect_ex((host, port))
@@ -246,7 +325,9 @@ class ConnectivityVerifier:
             if success:
                 self.log(f"✓ TCP {host}:{port}: Connected in {connect_time:.1f}ms", "SUCCESS")
             else:
-                self.log(f"✗ TCP {host}:{port}: Connection failed (error {result})", "ERROR")
+                # Provide more detailed error information
+                error_msg = self._get_socket_error_message(result)
+                self.log(f"✗ TCP {host}:{port}: Connection failed - {error_msg}", "ERROR")
             
             return {
                 'host': host,
@@ -254,7 +335,7 @@ class ConnectivityVerifier:
                 'interface': interface_name,
                 'success': success,
                 'connect_time_ms': connect_time if success else None,
-                'error': f"Connection error {result}" if not success else None
+                'error': f"Connection error {result}: {self._get_socket_error_message(result)}" if not success else None
             }
             
         except Exception as e:
@@ -266,6 +347,19 @@ class ConnectivityVerifier:
                 'success': False,
                 'error': str(e)
             }
+
+    def _get_socket_error_message(self, error_code: int) -> str:
+        """Get human-readable error message for socket error codes"""
+        error_messages = {
+            0: "Success",
+            11: "Resource temporarily unavailable (EAGAIN/EWOULDBLOCK)",
+            101: "Network unreachable",
+            110: "Connection timed out",
+            111: "Connection refused",
+            113: "No route to host",
+            115: "Operation now in progress"
+        }
+        return error_messages.get(error_code, f"Unknown error {error_code}")
 
     def dns_resolution_test(self, hostname: str) -> Dict[str, any]:
         """Test DNS resolution"""
