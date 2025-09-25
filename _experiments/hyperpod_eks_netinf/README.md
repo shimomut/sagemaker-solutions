@@ -97,7 +97,8 @@ python3 verify_connectivity.py --output my_test_results.json
 - Moves the interface from sagemaker_agent_namespace to default namespace
 - Assigns the ENI's private IP address with /16 subnet mask
 - Brings the interface up
-- Adds a default route via 10.1.0.1 with metric 400
+- Calculates appropriate route metric based on existing routing table
+- Adds a default route via 10.1.0.1 with dynamically calculated metric
 
 #### 5. Verification Phase
 - Displays final `ip addr` output
@@ -283,7 +284,7 @@ Overall Result: ✓ PASS
    sudo ip netns exec sagemaker_agent_namespace ip link set {interface-name} netns default
    sudo ip addr add {ipaddr}/16 brd 10.1.255.255 dev {interface-name}
    sudo ip link set {interface-name} up
-   sudo ip route add default via 10.1.0.1 dev {interface-name} metric 400
+   sudo ip route add default via 10.1.0.1 dev {interface-name} metric {calculated-metric}
    ```
 
 3. **Verification Commands**:
@@ -328,6 +329,37 @@ Overall Result: ✓ PASS
 - Uses AWS credentials for EC2 API access
 - Modifies system network configuration
 - Interactive confirmation prevents accidental changes
+
+## Route Metric Calculation
+
+The script dynamically calculates the appropriate metric for the new default route to avoid conflicts with existing routes:
+
+### Calculation Logic
+
+1. **Analyze Existing Routes**: Scans current routing table for existing default routes and their metrics
+2. **Metric Selection**:
+   - If no existing metrics found: Uses metric 100
+   - If existing metrics are low (< 50): Uses metric 100 for clear secondary priority
+   - If higher metrics exist: Uses (max_existing_metric + 100)
+   - Maximum cap: 1000 to prevent excessively high values
+
+### Examples
+
+```bash
+# Scenario 1: No existing default routes
+# Result: metric 100
+
+# Scenario 2: Existing default route with metric 0
+# Result: metric 100 (ensures secondary priority)
+
+# Scenario 3: Existing routes with metrics 0, 200, 300
+# Result: metric 400 (300 + 100)
+
+# Scenario 4: High existing metrics (e.g., 950)
+# Result: metric 1000 (capped at maximum)
+```
+
+This ensures the moved interface route has appropriate priority without disrupting existing network connectivity.
 
 ## Limitations
 

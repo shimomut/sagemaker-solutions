@@ -204,17 +204,93 @@ class NetworkInterfaceManager:
         print(f"Successfully brought {interface_name} up")
         return True
 
+    def calculate_route_metric(self) -> int:
+        """Calculate appropriate metric for new default route based on existing routes"""
+        print("Calculating appropriate route metric...")
+        
+        # Get current routing table
+        exit_code, stdout, stderr = self.run_command("ip route show")
+        if exit_code != 0:
+            print(f"Warning: Could not get routing table, using default metric 400: {stderr}")
+            return 400
+        
+        existing_metrics = []
+        default_routes = []
+        
+        for line in stdout.strip().split('\n'):
+            if not line.strip():
+                continue
+                
+            # Look for default routes and extract metrics
+            if line.startswith('default'):
+                default_routes.append(line)
+                # Extract metric if present (format: "metric 100" or just implicit metric 0)
+                if 'metric' in line:
+                    try:
+                        parts = line.split()
+                        metric_idx = parts.index('metric')
+                        if metric_idx + 1 < len(parts):
+                            metric = int(parts[metric_idx + 1])
+                            existing_metrics.append(metric)
+                    except (ValueError, IndexError):
+                        pass
+                else:
+                    # Default routes without explicit metric have metric 0
+                    existing_metrics.append(0)
+            
+            # Also check non-default routes for metric patterns
+            elif 'metric' in line:
+                try:
+                    parts = line.split()
+                    metric_idx = parts.index('metric')
+                    if metric_idx + 1 < len(parts):
+                        metric = int(parts[metric_idx + 1])
+                        existing_metrics.append(metric)
+                except (ValueError, IndexError):
+                    pass
+        
+        print(f"Found {len(default_routes)} existing default routes")
+        print(f"Existing metrics: {sorted(existing_metrics) if existing_metrics else 'None'}")
+        
+        # Calculate new metric
+        if not existing_metrics:
+            # No existing routes with metrics, use a reasonable default
+            new_metric = 100
+            print(f"No existing metrics found, using metric {new_metric}")
+        else:
+            # Find the highest existing metric and add 100, or use 100 if all are very low
+            max_metric = max(existing_metrics)
+            if max_metric < 50:
+                # If all existing metrics are very low (0-49), use 100 to be clearly secondary
+                new_metric = 100
+            else:
+                # Add 100 to the highest metric to ensure this route has lower priority
+                new_metric = max_metric + 100
+            
+            print(f"Calculated metric {new_metric} (max existing: {max_metric})")
+        
+        # Ensure metric is reasonable (not too high)
+        if new_metric > 1000:
+            new_metric = 1000
+            print(f"Capped metric at {new_metric}")
+        
+        return new_metric
+
     def add_default_route(self, interface_name: str) -> bool:
-        """Add default route via the interface"""
+        """Add default route via the interface with calculated metric"""
         print(f"Adding default route via {interface_name}...")
-        command = f"sudo ip route add default via 10.1.0.1 dev {interface_name} metric 400"
+        
+        # Calculate appropriate metric
+        metric = self.calculate_route_metric()
+        
+        command = f"sudo ip route add default via 10.1.0.1 dev {interface_name} metric {metric}"
         exit_code, stdout, stderr = self.run_command(command)
         
         if exit_code != 0:
             print(f"Error adding default route: {stderr}")
             return False
         
-        print(f"Successfully added default route via {interface_name}")
+        print(f"Successfully added default route via {interface_name} with metric {metric}")
         return True
 
     def verify_configuration(self) -> bool:

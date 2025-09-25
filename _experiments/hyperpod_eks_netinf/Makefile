@@ -24,9 +24,12 @@ test:
 	@echo "Running syntax check..."
 	python3 -m py_compile hyperpod_eks_netinf.py
 	python3 -m py_compile verify_connectivity.py
+	python3 -m py_compile test_metric_calculation.py
 	@echo "Running import test..."
 	python3 -c "import hyperpod_eks_netinf; print('Main script import successful')"
 	python3 -c "import verify_connectivity; print('Connectivity verifier import successful')"
+	@echo "Running metric calculation tests..."
+	python3 test_metric_calculation.py
 
 verify-connectivity:
 	@echo "Verifying internet connectivity of network interfaces..."
