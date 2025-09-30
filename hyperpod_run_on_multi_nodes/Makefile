@@ -26,16 +26,26 @@ debug:
 	@echo "Starting HyperPod Multi-Node Command Runner (debug mode)..."
 	python main.py --debug
 
-# List all running instances
-list-instances:
-	@echo "Listing all running EC2 instances..."
-	python main.py --list-instances
+
 
 # Run with specific cluster
 run-cluster:
 	@echo "Usage: make run-cluster CLUSTER=your-cluster-name"
 	@if [ -z "$(CLUSTER)" ]; then echo "Please specify CLUSTER=your-cluster-name"; exit 1; fi
 	python main.py --cluster $(CLUSTER)
+
+# Test SSM connectivity to a specific instance
+test-node:
+	@echo "Usage: make test-node INSTANCE=i-1234567890abcdef0"
+	@if [ -z "$(INSTANCE)" ]; then echo "Please specify INSTANCE=your-instance-id"; exit 1; fi
+	python main.py --test-node $(INSTANCE)
+
+# Run single command on cluster
+run-command:
+	@echo "Usage: make run-command CLUSTER=your-cluster-name COMMAND='your-command'"
+	@if [ -z "$(CLUSTER)" ]; then echo "Please specify CLUSTER=your-cluster-name"; exit 1; fi
+	@if [ -z "$(COMMAND)" ]; then echo "Please specify COMMAND='your-command'"; exit 1; fi
+	python main.py --cluster $(CLUSTER) --command "$(COMMAND)"
 
 # Clean up
 clean:
