@@ -135,7 +135,7 @@ class HyperPodMultiNodeRunner:
             # Send a newline to get a fresh prompt
             child.sendline('')
             
-            # Wait for prompt with simpler patterns
+            # Wait for prompt
             try:
                 child.expect([
                     r'[\$#]\s*$',  # Simple prompt
@@ -143,36 +143,42 @@ class HyperPodMultiNodeRunner:
                     pexpect.TIMEOUT
                 ], timeout=10)
             except Exception:
-                # Continue anyway
                 pass
             
             # Send the actual command
             child.sendline(command)
             
-            # Wait for command to execute and manually collect output
-            time.sleep(2)  # Give command time to execute
+            # Wait for command to execute and collect output manually
+            time.sleep(3)  # Give command more time to execute
             
-            # Try to read all available output
             raw_output = ""
             try:
-                # Read any available output
-                while True:
+                # Read all available output
+                max_attempts = 10
+                attempts = 0
+                
+                while attempts < max_attempts:
                     try:
-                        chunk = child.read_nonblocking(size=1024, timeout=1)
+                        chunk = child.read_nonblocking(size=1024, timeout=0.5)
                         if chunk:
                             raw_output += chunk
+                            attempts = 0  # Reset counter if we're still getting data
                         else:
-                            break
+                            attempts += 1
                     except pexpect.TIMEOUT:
-                        break
+                        attempts += 1
                     except pexpect.EOF:
                         break
                         
-            except Exception:
-                pass
+            except Exception as e:
+                return instance_id, f"Error reading command output: {str(e)}", False
             
-            # Debug: show raw output
-            print(f"[DEBUG] Raw output from {instance_id}: {repr(raw_output[:200])}")
+            # Debug: show what we captured
+            print(f"[DEBUG] {instance_id}: Raw output length={len(raw_output)}")
+            if raw_output:
+                print(f"[DEBUG] {instance_id}: Raw sample: {repr(raw_output[:100])}")
+            
+
             
             # Clean up the output - remove command echo and prompts
             if raw_output:
@@ -186,7 +192,7 @@ class HyperPodMultiNodeRunner:
                     if not stripped_line:
                         continue
                     
-                    # Skip command echo lines (lines that contain the full command)
+                    # Skip command echo lines (lines that contain the command and start with prompt)
                     if command in stripped_line and stripped_line.startswith('sh-'):
                         continue
                     
@@ -194,7 +200,7 @@ class HyperPodMultiNodeRunner:
                     if stripped_line.startswith('sh-') and stripped_line.endswith('#'):
                         continue
                     
-                    # Keep actual output
+                    # Keep actual command output
                     cleaned_lines.append(stripped_line)
                 
                 output = '\n'.join(cleaned_lines)
