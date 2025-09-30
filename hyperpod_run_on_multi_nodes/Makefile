@@ -26,8 +26,6 @@ debug:
 	@echo "Starting HyperPod Multi-Node Command Runner (debug mode)..."
 	python main.py --debug
 
-
-
 # Run with specific cluster
 run-cluster:
 	@echo "Usage: make run-cluster CLUSTER=your-cluster-name"

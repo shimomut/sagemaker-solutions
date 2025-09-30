@@ -4,37 +4,67 @@ A utility tool to execute commands on all nodes in a HyperPod cluster using AWS 
 
 ## Features
 
-- Lists all nodes in a HyperPod cluster using boto3
+- Lists all nodes in a HyperPod cluster using SageMaker APIs
 - Executes commands on multiple nodes simultaneously via SSM sessions
-- Real-time output display from all nodes
-- Interactive command input loop
-- Handles node connectivity and session management
+- **Improved output parsing** with custom prompts for reliable command execution
+- Real-time output display from all nodes with clean formatting
+- Interactive command input loop with built-in help
+- Robust session management and error handling
+- Debug mode for troubleshooting connectivity issues
+- Command-line interface for non-interactive usage
 
 ## Prerequisites
 
 - AWS CLI configured with appropriate permissions
 - SSM permissions for the HyperPod cluster nodes
-- Python 3.x with required dependencies
+- Python 3.x with required dependencies (see `requirements.txt`)
 
 ## Usage
+
+### Interactive Mode
 
 ```bash
 python main.py
 ```
 
-The tool will:
-1. Prompt for the HyperPod cluster name
-2. List all available nodes in the cluster
-3. Enter interactive mode where you can input commands
-4. Execute commands on all nodes simultaneously
-5. Display output from each node
-6. Return to command prompt when execution completes
+### Command Line Mode
 
-## Commands
+```bash
+# Specify cluster and run single command
+python main.py --cluster my-cluster --command "uptime"
+
+# Enable debug mode
+python main.py --cluster my-cluster --debug
+
+# Test connectivity to specific node
+python main.py --test-node i-1234567890abcdef0
+```
+
+### Options
+
+- `--cluster, -c`: Specify HyperPod cluster name
+- `--command`: Execute single command (non-interactive mode)
+- `--debug, -d`: Enable debug mode for troubleshooting
+- `--test-node, -t`: Test SSM connectivity to specific instance ID
+
+## Interactive Commands
 
 - Enter any shell command to execute on all nodes
-- Type `exit` or `quit` to exit the tool
+- `test` - Run a simple connectivity test on all nodes
+- `help` - Show available commands
+- `exit`, `quit`, or `q` - Exit the tool
 - Use `Ctrl+C` to interrupt current execution
+
+## Key Improvements
+
+This version includes several improvements over the basic implementation:
+
+1. **Custom Prompt Handling**: Uses a custom prompt (`pexpect# `) for reliable output parsing, eliminating issues with varying shell prompts
+2. **Better Session Management**: Improved pexpect session handling with proper cleanup
+3. **Enhanced Error Handling**: More robust error detection and reporting
+4. **Debug Mode**: Detailed logging for troubleshooting connectivity issues
+5. **Command Line Interface**: Support for non-interactive usage
+6. **Cleaner Output**: Better separation of command output from shell prompts
 
 ## Example
 

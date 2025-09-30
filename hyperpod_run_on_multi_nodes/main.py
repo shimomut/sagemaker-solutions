@@ -8,6 +8,7 @@ A utility to execute commands on all nodes in a HyperPod cluster using SSM sessi
 import argparse
 import boto3
 import pexpect
+import signal
 import sys
 import threading
 import time
@@ -16,12 +17,13 @@ from typing import List, Dict, Tuple
 
 
 class HyperPodMultiNodeRunner:
-    def __init__(self):
+    def __init__(self, debug=False):
         self.sagemaker_client = boto3.client('sagemaker')
         self.cluster_name = None
         self.cluster_arn = None
         self.cluster_id = None
         self.nodes = []
+        self.debug = debug
     
     def get_hyperpod_ssm_target(self, instance_id: str, instance_group_name: str) -> str:
         """Construct the HyperPod SSM target format."""
@@ -94,123 +96,72 @@ class HyperPodMultiNodeRunner:
             return []
     
     def execute_command_on_node(self, node: Dict, command: str, timeout: int = 60) -> Tuple[str, str, bool]:
-        """Execute a command on a single node via SSM."""
+        """Execute a command on a single node via SSM using improved prompt handling."""
         instance_id = node['InstanceId']
         instance_group_name = node.get('NodeGroup', 'unknown')
         
         if not self.cluster_id:
             return instance_id, "Cluster ID not available - cannot construct HyperPod SSM target", False
         
-        # Use HyperPod SSM target format only
+        # Use HyperPod SSM target format
         ssm_target = self.get_hyperpod_ssm_target(instance_id, instance_group_name)
         child = None
         
+        # Custom prompt for reliable output parsing
+        custom_prompt = "pexpect# "
+        
+        def print_pexpect_output(p):
+            """Helper function to print pexpect output for debugging."""
+            if self.debug:
+                print(f"[DEBUG] {instance_id} Before: {repr(p.before)}")
+                print(f"[DEBUG] {instance_id} After: {repr(p.after)}")
+        
         try:
             ssm_command = f"aws ssm start-session --target {ssm_target}"
-
+            
+            if self.debug:
+                print(f"[DEBUG] {instance_id}: Starting SSM session with command: {ssm_command}")
             
             # Use pexpect to handle the interactive session
             child = pexpect.spawn(ssm_command, timeout=timeout, encoding='utf-8')
             child.logfile_read = None  # Disable verbose logging
             
-            # Wait for the SSM session to establish
-            # Look for various possible prompts and session indicators
-            session_patterns = [
-                r'Starting session with SessionId:',  # SSM session start
-                r'sh-\d+\.\d+\$',  # Common shell prompt
-                r'\[.*@.*\][\$#]',  # Common Linux prompt
-                r'[\$#]\s*$',  # Generic shell prompt
-                r'.*@.*:.*[\$#]',  # User@host prompt
-                pexpect.TIMEOUT
-            ]
+            # Wait for initial prompt (any shell prompt)
+            child.expect([r'[\$#]\s*'], timeout=15)
+            if self.debug:
+                print_pexpect_output(child)
             
-            # Wait for session to be ready
-            index = child.expect(session_patterns, timeout=15)
-            if index == len(session_patterns) - 1:  # TIMEOUT
-                return instance_id, "Timeout waiting for SSM session to start", False
-            
-            # Give the session a moment to fully initialize
-            time.sleep(2)
-            
-            # Send a newline to get a fresh prompt
-            child.sendline('')
-            
-            # Wait for prompt
-            try:
-                child.expect([
-                    r'[\$#]\s*$',  # Simple prompt
-                    r'.*[\$#]',    # Any prompt
-                    pexpect.TIMEOUT
-                ], timeout=10)
-            except Exception:
-                pass
+            # Set custom prompt for reliable parsing
+            child.sendline(f'export PS1="{custom_prompt}"')
+            child.expect("\n" + custom_prompt, timeout=10)
+            if self.debug:
+                print_pexpect_output(child)
             
             # Send the actual command
             child.sendline(command)
             
-            # Wait for command to execute and collect output manually
-            time.sleep(3)  # Give command more time to execute
+            # Wait for command completion and custom prompt return
+            child.expect(custom_prompt, timeout=timeout)
+            if self.debug:
+                print_pexpect_output(child)
             
-            raw_output = ""
-            try:
-                # Read all available output
-                max_attempts = 10
-                attempts = 0
+            # Extract output (everything before the final prompt)
+            output = child.before
+            if output:
+                # Clean up the output - remove command echo
+                lines = output.split('\n')
+                if lines and command in lines[0]:
+                    # Remove the first line if it contains the command echo
+                    lines = lines[1:]
                 
-                while attempts < max_attempts:
-                    try:
-                        chunk = child.read_nonblocking(size=1024, timeout=0.5)
-                        if chunk:
-                            raw_output += chunk
-                            attempts = 0  # Reset counter if we're still getting data
-                        else:
-                            attempts += 1
-                    except pexpect.TIMEOUT:
-                        attempts += 1
-                    except pexpect.EOF:
-                        break
-                        
-            except Exception as e:
-                return instance_id, f"Error reading command output: {str(e)}", False
-            
-            # Debug: show what we captured
-            print(f"[DEBUG] {instance_id}: Raw output length={len(raw_output)}")
-            if raw_output:
-                print(f"[DEBUG] {instance_id}: Raw sample: {repr(raw_output[:100])}")
-            
-
-            
-            # Clean up the output - remove command echo and prompts
-            if raw_output:
-                lines = raw_output.split('\n')
-                cleaned_lines = []
-                
-                for line in lines:
-                    stripped_line = line.strip()
-                    
-                    # Skip empty lines
-                    if not stripped_line:
-                        continue
-                    
-                    # Skip command echo lines (lines that contain the command and start with prompt)
-                    if command in stripped_line and stripped_line.startswith('sh-'):
-                        continue
-                    
-                    # Skip prompt-only lines
-                    if stripped_line.startswith('sh-') and stripped_line.endswith('#'):
-                        continue
-                    
-                    # Keep actual command output
-                    cleaned_lines.append(stripped_line)
-                
-                output = '\n'.join(cleaned_lines)
+                # Join remaining lines and strip whitespace
+                output = '\n'.join(lines).strip()
             else:
                 output = ""
             
             # Close the session gracefully
             try:
-                child.sendline('exit')
-                child.expect(pexpect.EOF, timeout=5)
+                child.kill(signal.SIGINT)
             except:
                 pass  # Ignore errors during cleanup
             
@@ -287,14 +238,14 @@ class HyperPodMultiNodeRunner:
         
         print(f"Testing SSM connectivity to {instance_id} ({instance_group_name})...")
         
-        # Show both target formats for debugging
+        # Show target format for debugging
         hyperpod_target = self.get_hyperpod_ssm_target(instance_id, instance_group_name)
         print(f"HyperPod SSM target: {hyperpod_target}")
         
-        # Test basic connectivity
-        result_instance_id, output, success = self.execute_command_on_node(node, "echo 'SSM test successful'", timeout=30)
+        # Test basic connectivity with hostname command for better verification
+        result_instance_id, output, success = self.execute_command_on_node(node, "echo 'SSM test successful from' $(hostname)", timeout=30)
         
-        if success:
+        if success and output:
             print(f"✓ SSM connectivity test passed: {output}")
             return True
         else:
@@ -334,6 +285,15 @@ class HyperPodMultiNodeRunner:
                 if command.lower() == 'test':
                     # Run a simple test command
                     self.run_command_on_all_nodes("echo 'Hello from $(hostname)'")
+                    continue
+                
+                if command.lower() == 'help':
+                    print("\nAvailable commands:")
+                    print("  test     - Run a simple test command on all nodes")
+                    print("  help     - Show this help message")
+                    print("  exit/quit/q - Exit the tool")
+                    print("  Any other command will be executed on all nodes")
+                    print()
                     continue
                 
                 if not command:
@@ -439,7 +399,7 @@ def main():
     args = parser.parse_args()
     
     try:
-        runner = HyperPodMultiNodeRunner()
+        runner = HyperPodMultiNodeRunner(debug=args.debug)
         
         if args.test_node:
             # Test single node connectivity
