@@ -107,11 +107,11 @@ class HyperPodMultiNodeRunner:
         
         try:
             ssm_command = f"aws ssm start-session --target {ssm_target}"
-            print(f"[DEBUG] Using HyperPod SSM target: {ssm_target}")
+
             
             # Use pexpect to handle the interactive session
             child = pexpect.spawn(ssm_command, timeout=timeout, encoding='utf-8')
-            child.logfile_read = sys.stdout if False else None  # Set to True for debugging
+            child.logfile_read = None  # Disable verbose logging
             
             # Wait for the SSM session to establish
             # Look for various possible prompts and session indicators
@@ -126,55 +126,78 @@ class HyperPodMultiNodeRunner:
             
             # Wait for session to be ready
             index = child.expect(session_patterns, timeout=15)
-            
             if index == len(session_patterns) - 1:  # TIMEOUT
                 return instance_id, "Timeout waiting for SSM session to start", False
             
             # Give the session a moment to fully initialize
-            time.sleep(1)
+            time.sleep(2)
             
             # Send a newline to get a fresh prompt
             child.sendline('')
             
-            # Wait for prompt again with more flexible patterns
-            prompt_patterns = [
-                r'sh-\d+\.\d+\$',
-                r'\[.*@.*\][\$#]',
-                r'[\$#]\s*$',
-                r'.*@.*:.*[\$#]',
-                r'.*[\$#]\s*$',
-                pexpect.TIMEOUT
-            ]
-            
-            child.expect(prompt_patterns, timeout=10)
+            # Wait for prompt with simpler patterns
+            try:
+                child.expect([
+                    r'[\$#]\s*$',  # Simple prompt
+                    r'.*[\$#]',    # Any prompt
+                    pexpect.TIMEOUT
+                ], timeout=10)
+            except Exception:
+                # Continue anyway
+                pass
             
             # Send the actual command
             child.sendline(command)
             
-            # Wait for command completion with the same prompt patterns
-            index = child.expect(prompt_patterns, timeout=timeout)
+            # Wait for command to execute and manually collect output
+            time.sleep(2)  # Give command time to execute
             
-            if index == len(prompt_patterns) - 1:  # TIMEOUT
-                return instance_id, f"Command '{command}' timed out after {timeout} seconds", False
+            # Try to read all available output
+            raw_output = ""
+            try:
+                # Read any available output
+                while True:
+                    try:
+                        chunk = child.read_nonblocking(size=1024, timeout=1)
+                        if chunk:
+                            raw_output += chunk
+                        else:
+                            break
+                    except pexpect.TIMEOUT:
+                        break
+                    except pexpect.EOF:
+                        break
+                        
+            except Exception:
+                pass
             
-            # Get the output
-            output = child.before
+            # Debug: show raw output
+            print(f"[DEBUG] Raw output from {instance_id}: {repr(raw_output[:200])}")
             
-            # Clean up the output
-            if output:
-                lines = output.split('\n')
-                # Remove the command echo (first line) and empty lines
+            # Clean up the output - remove command echo and prompts
+            if raw_output:
+                lines = raw_output.split('\n')
                 cleaned_lines = []
-                skip_first = True
-                for line in lines:
-                    line = line.strip()
-                    if skip_first and line == command:
-                        skip_first = False
-                        continue
-                    if line and not line.startswith(command):
-                        cleaned_lines.append(line)
                 
-                output = '\n'.join(cleaned_lines).strip()
+                for line in lines:
+                    stripped_line = line.strip()
+                    
+                    # Skip empty lines
+                    if not stripped_line:
+                        continue
+                    
+                    # Skip command echo lines (lines that contain the full command)
+                    if command in stripped_line and stripped_line.startswith('sh-'):
+                        continue
+                    
+                    # Skip prompt-only lines
+                    if stripped_line.startswith('sh-') and stripped_line.endswith('#'):
+                        continue
+                    
+                    # Keep actual output
+                    cleaned_lines.append(stripped_line)
+                
+                output = '\n'.join(cleaned_lines)
             else:
                 output = ""
             
