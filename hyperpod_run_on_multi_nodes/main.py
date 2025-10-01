@@ -29,7 +29,7 @@ class HyperPodMultiNodeRunner:
     def get_hyperpod_ssm_target(self, instance_id: str, instance_group_name: str) -> str:
         """Construct the HyperPod SSM target format."""
         if not self.cluster_id:
-            return instance_id  # Fallback to regular EC2 format
+            raise ValueError("Cluster ID is required for HyperPod SSM targets. Cannot proceed without valid cluster information.")
         
         # Format: sagemaker-cluster:{cluster-id}_{instance-group-name}-{instance-id}
         return f"sagemaker-cluster:{self.cluster_id}_{instance_group_name}-{instance_id}"
@@ -66,22 +66,44 @@ class HyperPodMultiNodeRunner:
             if not self.cluster_id:
                 print("Warning: Could not extract cluster ID from ARN. SSM targets may not work correctly.")
             
-            # Use SageMaker list_cluster_nodes API
+            # Use SageMaker list_cluster_nodes API with pagination support
             instance_ids = []
+            next_token = None
+            page_count = 0
+            
             try:
-                nodes_response = self.sagemaker_client.list_cluster_nodes(ClusterName=cluster_name)
-                print(f"Found {len(nodes_response.get('ClusterNodeSummaries', []))} nodes via list_cluster_nodes")
+                while True:
+                    page_count += 1
+                    print(f"Fetching nodes page {page_count}...")
+                    
+                    # Prepare API call parameters
+                    list_params = {'ClusterName': cluster_name}
+                    if next_token:
+                        list_params['NextToken'] = next_token
+                    
+                    nodes_response = self.sagemaker_client.list_cluster_nodes(**list_params)
+                    
+                    # Process nodes from current page
+                    current_page_nodes = nodes_response.get('ClusterNodeSummaries', [])
+                    print(f"Found {len(current_page_nodes)} nodes on page {page_count}")
+                    
+                    for node in current_page_nodes:
+                        instance_id = node.get('InstanceId')
+                        if instance_id:
+                            instance_ids.append({
+                                'InstanceId': instance_id,
+                                'NodeGroup': node.get('InstanceGroupName', 'unknown'),
+                                'InstanceType': node.get('InstanceType', 'unknown'),
+                                'LaunchTime': node.get('LaunchTime', 'unknown'),
+                                'InstanceStatus': node.get('InstanceStatus', {}).get('Status', 'unknown')
+                            })
+                    
+                    # Check if there are more pages
+                    next_token = nodes_response.get('NextToken')
+                    if not next_token:
+                        break
                 
-                for node in nodes_response.get('ClusterNodeSummaries', []):
-                    instance_id = node.get('InstanceId')
-                    if instance_id:
-                        instance_ids.append({
-                            'InstanceId': instance_id,
-                            'NodeGroup': node.get('InstanceGroupName', 'unknown'),
-                            'InstanceType': node.get('InstanceType', 'unknown'),
-                            'LaunchTime': node.get('LaunchTime', 'unknown'),
-                            'InstanceStatus': node.get('InstanceStatus', {}).get('Status', 'unknown')
-                        })
+                print(f"Completed pagination: {page_count} pages processed")
                         
             except Exception as e:
                 print(f"list_cluster_nodes failed: {e}")
@@ -101,11 +123,11 @@ class HyperPodMultiNodeRunner:
         instance_id = node['InstanceId']
         instance_group_name = node.get('NodeGroup', 'unknown')
         
-        if not self.cluster_id:
-            return instance_id, "Cluster ID not available - cannot construct HyperPod SSM target", False
-        
         # Use HyperPod SSM target format
-        ssm_target = self.get_hyperpod_ssm_target(instance_id, instance_group_name)
+        try:
+            ssm_target = self.get_hyperpod_ssm_target(instance_id, instance_group_name)
+        except ValueError as e:
+            return instance_id, f"Failed to construct HyperPod SSM target: {str(e)}", False
         child = None
         
         # Custom prompt for reliable output parsing
