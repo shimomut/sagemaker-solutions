@@ -25,6 +25,7 @@ class HyperPodMultiNodeRunner:
         self.cluster_id = None
         self.nodes = []
         self.debug = debug
+        self.current_instance_group = None  # For interactive mode filtering
     
     def get_hyperpod_ssm_target(self, instance_id: str, instance_group_name: str) -> str:
         """Construct the HyperPod SSM target format."""
@@ -273,21 +274,53 @@ class HyperPodMultiNodeRunner:
                 except:
                     pass
     
-    def run_command_on_all_nodes(self, command: str, max_workers: int = 10) -> None:
-        """Execute command on all nodes concurrently."""
+    def get_nodes_by_instance_group(self, instance_group: str = None) -> List[Dict]:
+        """Filter nodes by instance group. If None, return all nodes."""
+        if not instance_group:
+            return self.nodes
+        
+        filtered_nodes = [node for node in self.nodes if node.get('NodeGroup', '').lower() == instance_group.lower()]
+        return filtered_nodes
+    
+    def list_instance_groups(self) -> Dict[str, int]:
+        """Get a summary of all instance groups and their node counts."""
+        groups = {}
+        for node in self.nodes:
+            group_name = node.get('NodeGroup', 'unknown')
+            groups[group_name] = groups.get(group_name, 0) + 1
+        return groups
+    
+    def run_command_on_all_nodes(self, command: str, max_workers: int = 10, instance_group: str = None) -> None:
+        """Execute command on all nodes or nodes in a specific instance group concurrently."""
         if not self.nodes:
             print("No nodes available. Please check cluster name.")
             return
         
-        print(f"\nExecuting command on {len(self.nodes)} nodes: {command}")
+        # Filter nodes by instance group if specified
+        target_nodes = self.get_nodes_by_instance_group(instance_group)
+        
+        if not target_nodes:
+            if instance_group:
+                print(f"No nodes found in instance group '{instance_group}'.")
+                available_groups = self.list_instance_groups()
+                if available_groups:
+                    print("Available instance groups:")
+                    for group, count in available_groups.items():
+                        print(f"  - {group}: {count} nodes")
+            else:
+                print("No nodes available.")
+            return
+        
+        group_info = f" in instance group '{instance_group}'" if instance_group else ""
+        print(f"\nExecuting command on {len(target_nodes)} nodes{group_info}: {command}")
         print("-" * 60)
         
         # Use ThreadPoolExecutor for concurrent execution
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            # Submit tasks for all nodes
+            # Submit tasks for target nodes
             future_to_node = {
                 executor.submit(self.execute_command_on_node, node, command): node
-                for node in self.nodes
+                for node in target_nodes
             }
             
             # Collect results as they complete
@@ -342,8 +375,64 @@ class HyperPodMultiNodeRunner:
             print("4. Check if instance is registered: aws ssm describe-instance-information")
             return False
     
+    def select_instance_group(self) -> str:
+        """Prompt user to select an instance group or all groups."""
+        groups = self.list_instance_groups()
+        
+        if not groups:
+            print("No instance groups found.")
+            return None
+        
+        if len(groups) == 1:
+            group_name = list(groups.keys())[0]
+            print(f"Only one instance group found: {group_name} ({groups[group_name]} nodes)")
+            return group_name
+        
+        print("\nAvailable instance groups:")
+        print("0. All groups (run on all nodes)")
+        
+        group_list = sorted(groups.items())
+        for i, (group_name, count) in enumerate(group_list, 1):
+            print(f"{i}. {group_name} ({count} nodes)")
+        
+        while True:
+            try:
+                choice = input(f"\nSelect instance group (0-{len(group_list)}): ").strip()
+                
+                if not choice:
+                    continue
+                
+                choice_num = int(choice)
+                
+                if choice_num == 0:
+                    print("Selected: All groups")
+                    return None  # None means all groups
+                elif 1 <= choice_num <= len(group_list):
+                    selected_group = group_list[choice_num - 1][0]
+                    selected_count = group_list[choice_num - 1][1]
+                    print(f"Selected: {selected_group} ({selected_count} nodes)")
+                    return selected_group
+                else:
+                    print(f"Invalid choice. Please enter a number between 0 and {len(group_list)}")
+                    
+            except ValueError:
+                print("Invalid input. Please enter a number.")
+            except KeyboardInterrupt:
+                print("\nExiting...")
+                return None
+    
     def interactive_mode(self):
         """Run in interactive mode with command input loop."""
+        # Select instance group first
+        print("Instance Group Selection")
+        print("=" * 25)
+        selected_group = self.select_instance_group()
+        
+        if selected_group is False:  # User cancelled
+            return
+        
+        self.current_instance_group = selected_group
+        
         # Test SSM connectivity on first node before starting
         if self.nodes:
             print("Testing SSM connectivity...")
@@ -364,9 +453,20 @@ class HyperPodMultiNodeRunner:
             else:
                 print("SSM connectivity test passed!\n")
         
+        # Show current target
+        target_info = "all nodes" if not self.current_instance_group else f"instance group '{self.current_instance_group}'"
+        print(f"\nReady to execute commands on {target_info}")
+        print("Use 'exit' to quit the tool.\n")
+        
         while True:
             try:
-                command = input("Enter command to run on all nodes (or 'exit' to quit): ").strip()
+                # Simple prompt based on current target
+                if self.current_instance_group:
+                    prompt = f"[{self.current_instance_group}] Enter command: "
+                else:
+                    prompt = "[all nodes] Enter command: "
+                
+                command = input(prompt).strip()
                 
                 if command.lower() in ['exit', 'quit', 'q']:
                     print("Goodbye!")
@@ -374,17 +474,18 @@ class HyperPodMultiNodeRunner:
                 
                 if command.lower() == 'test':
                     # Run a simple test command
-                    self.run_command_on_all_nodes("echo 'Hello from $(hostname)'")
+                    self.run_command_on_all_nodes("echo 'Hello from $(hostname)'", instance_group=self.current_instance_group)
                     continue
                 
                 if command.lower() == 'help':
                     print("\nAvailable commands:")
-                    print("  test     - Run a simple test command on all nodes")
+                    print("  test     - Run a simple test command")
                     print("  help     - Show this help message")
                     print("  debug    - Toggle debug mode for troubleshooting")
                     print("  al2023   - Show AL2023 specific troubleshooting tips")
                     print("  exit/quit/q - Exit the tool")
-                    print("  Any other command will be executed on all nodes")
+                    print("  Any other command will be executed on the selected target")
+                    print(f"\nCurrent target: {target_info}")
                     print()
                     continue
                 
@@ -407,7 +508,8 @@ class HyperPodMultiNodeRunner:
                 if not command:
                     continue
                 
-                self.run_command_on_all_nodes(command)
+                # Execute command on selected target
+                self.run_command_on_all_nodes(command, instance_group=self.current_instance_group)
                 
             except KeyboardInterrupt:
                 print("\n\nInterrupted by user. Exiting...")
@@ -481,16 +583,22 @@ class HyperPodMultiNodeRunner:
             
             return
         
-        # Display found nodes
+        # Display found nodes summary
         print(f"\nFound {len(self.nodes)} nodes in cluster: {cluster_name}")
-        for node in self.nodes:
-            node_group = node.get('NodeGroup', 'unknown')
-            instance_type = node.get('InstanceType', 'unknown')
-            print(f"- {node['InstanceId']} ({node_group}) [{instance_type}]")
         
-        print("\nStarting interactive mode...")
-        print("Note: Commands will be executed on ALL nodes simultaneously.")
-        print("Use 'exit' to quit the tool.\n")
+        # Show instance groups summary
+        groups = self.list_instance_groups()
+        if len(groups) > 1:
+            print(f"Instance groups: {', '.join(f'{g}({c})' for g, c in sorted(groups.items()))}")
+        
+        # List individual nodes if not too many
+        if len(self.nodes) <= 20:
+            for node in self.nodes:
+                node_group = node.get('NodeGroup', 'unknown')
+                instance_type = node.get('InstanceType', 'unknown')
+                print(f"- {node['InstanceId']} ({node_group}) [{instance_type}]")
+        else:
+            print(f"({len(self.nodes)} nodes total)")
         
         # Start interactive mode
         self.interactive_mode()
@@ -503,6 +611,8 @@ def main():
     parser.add_argument('--debug', '-d', action='store_true', help='Enable debug mode')
     parser.add_argument('--test-node', '-t', help='Test SSM connectivity to specific instance ID')
     parser.add_argument('--command', help='Single command to execute (non-interactive mode)')
+    parser.add_argument('--instance-group', '-g', help='Target specific instance group only')
+    parser.add_argument('--list-groups', action='store_true', help='List all instance groups and exit')
     
     args = parser.parse_args()
     
@@ -526,17 +636,46 @@ def main():
             runner.nodes = runner.get_cluster_nodes(args.cluster)
             if runner.nodes:
                 print(f"Found {len(runner.nodes)} nodes in cluster: {args.cluster}")
-                for node in runner.nodes:
-                    node_group = node.get('NodeGroup', 'unknown')
-                    instance_type = node.get('InstanceType', 'unknown')
-                    print(f"- {node['InstanceId']} ({node_group}) [{instance_type}]")
+                
+                # Show instance groups summary
+                groups = runner.list_instance_groups()
+                if len(groups) > 1:
+                    print(f"Instance groups: {', '.join(f'{g}({c})' for g, c in sorted(groups.items()))}")
+                
+                # List individual nodes if not too many or if debug mode
+                if len(runner.nodes) <= 20 or args.debug:
+                    for node in runner.nodes:
+                        node_group = node.get('NodeGroup', 'unknown')
+                        instance_type = node.get('InstanceType', 'unknown')
+                        print(f"- {node['InstanceId']} ({node_group}) [{instance_type}]")
+                else:
+                    print(f"({len(runner.nodes)} nodes total - use --debug to see all)")
                 print()
+                
+                # Handle --list-groups option
+                if args.list_groups:
+                    print("Instance Groups:")
+                    for group, count in sorted(groups.items()):
+                        print(f"  - {group}: {count} nodes")
+                    return
+                
+                # Validate instance group if specified
+                if args.instance_group:
+                    if args.instance_group not in groups:
+                        print(f"Error: Instance group '{args.instance_group}' not found.")
+                        print("Available groups:")
+                        for group, count in sorted(groups.items()):
+                            print(f"  - {group}: {count} nodes")
+                        sys.exit(1)
                 
                 if args.command:
                     # Single command mode
-                    runner.run_command_on_all_nodes(args.command)
+                    runner.run_command_on_all_nodes(args.command, instance_group=args.instance_group)
                 else:
-                    # Interactive mode
+                    # Interactive mode - set instance group if specified via command line
+                    if args.instance_group:
+                        runner.current_instance_group = args.instance_group
+                        print(f"Using command-line specified instance group: {args.instance_group}")
                     runner.interactive_mode()
             else:
                 print(f"No nodes found for cluster: {args.cluster}")
