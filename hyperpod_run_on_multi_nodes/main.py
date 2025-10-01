@@ -8,6 +8,7 @@ A utility to execute commands on all nodes in a HyperPod cluster using SSM sessi
 import argparse
 import boto3
 import pexpect
+import re
 import signal
 import sys
 import threading
@@ -96,7 +97,7 @@ class HyperPodMultiNodeRunner:
             return []
     
     def execute_command_on_node(self, node: Dict, command: str, timeout: int = 60) -> Tuple[str, str, bool]:
-        """Execute a command on a single node via SSM using improved prompt handling."""
+        """Execute a command on a single node via SSM using improved prompt handling for AL2023."""
         instance_id = node['InstanceId']
         instance_group_name = node.get('NodeGroup', 'unknown')
         
@@ -108,7 +109,7 @@ class HyperPodMultiNodeRunner:
         child = None
         
         # Custom prompt for reliable output parsing
-        custom_prompt = "pexpect# "
+        custom_prompt = "PEXPECT_READY# "
         
         def print_pexpect_output(p):
             """Helper function to print pexpect output for debugging."""
@@ -126,61 +127,121 @@ class HyperPodMultiNodeRunner:
             child = pexpect.spawn(ssm_command, timeout=timeout, encoding='utf-8')
             child.logfile_read = None  # Disable verbose logging
             
-            # Wait for initial prompt (any shell prompt)
-            child.expect([r'[\$#]\s*'], timeout=15)
+            # AL2023 compatibility: Wait for SSM session establishment first
             if self.debug:
+                print(f"[DEBUG] {instance_id}: Waiting for SSM session establishment...")
+            
+            # More flexible initial prompt detection for AL2023
+            # AL2023 may have different prompt formats, so we try multiple patterns
+            initial_prompt_patterns = [
+                r'[\$#]\s+',            # HyperPod Slurm
+                r'sh-\d+\.\d+[\$#]\s*', # HyperPod EKS
+                pexpect.TIMEOUT         # Fallback for timeout
+            ]
+            
+            if self.debug:
+                print(f"[DEBUG] {instance_id}: Waiting for initial prompt...")
+            
+            # Try to match any of the prompt patterns with extended timeout for AL2023
+            prompt_index = child.expect(initial_prompt_patterns, timeout=30)
+            
+            if prompt_index == len(initial_prompt_patterns) - 1:  # TIMEOUT case
+                if self.debug:
+                    print(f"[DEBUG] {instance_id}: Initial prompt timeout, trying to proceed anyway...")
+                # Send a newline to potentially trigger a prompt
+                child.sendline('')
+                try:
+                    child.expect(initial_prompt_patterns[:-1], timeout=10)
+                except pexpect.TIMEOUT:
+                    return instance_id, "Failed to establish shell session - no prompt detected", False
+            
+            if self.debug:
+                print(f"[DEBUG] {instance_id}: Initial prompt detected (pattern {prompt_index})")
                 print_pexpect_output(child)
             
-            # Set custom prompt for reliable parsing
+            # Set the custom prompt with explicit formatting
+            # Use a marker-based approach to avoid matching the prompt in the command itself
             child.sendline(f'export PS1="{custom_prompt}"')
-            child.expect("\n" + custom_prompt, timeout=10)
+            
+            # Send a unique marker command to verify the new prompt is active
+            marker_command = 'echo "PROMPT_SET_MARKER"'
+            child.sendline(marker_command)
+            
+            # Wait for the marker output followed by the new custom prompt
+            child.expect('PROMPT_SET_MARKER', timeout=10)
+            child.expect(custom_prompt, timeout=10)
+            
             if self.debug:
+                print(f"[DEBUG] {instance_id}: Custom prompt set successfully")
                 print_pexpect_output(child)
             
             # Send the actual command
+            if self.debug:
+                print(f"[DEBUG] {instance_id}: Executing command: {command}")
+            
             child.sendline(command)
             
             # Wait for command completion and custom prompt return
             child.expect(custom_prompt, timeout=timeout)
+            
             if self.debug:
+                print(f"[DEBUG] {instance_id}: Command completed")
                 print_pexpect_output(child)
             
             # Extract output (everything before the final prompt)
             output = child.before
             if output:
-                # Clean up the output - remove command echo
+                # Clean up the output - remove command echo and extra whitespace
                 lines = output.split('\n')
-                if lines and command in lines[0]:
-                    # Remove the first line if it contains the command echo
-                    lines = lines[1:]
                 
-                # Join remaining lines and strip whitespace
-                output = '\n'.join(lines).strip()
+                # Remove command echo if present (first non-empty line)
+                cleaned_lines = []
+                command_echo_removed = False
+                
+                for line in lines:
+                    line = line.strip()
+                    if not command_echo_removed and line == command:
+                        command_echo_removed = True
+                        continue
+                    if line:  # Only add non-empty lines
+                        cleaned_lines.append(line)
+                
+                output = '\n'.join(cleaned_lines)
             else:
                 output = ""
             
             # Close the session gracefully
             try:
-                child.kill(signal.SIGINT)
+                child.sendline('exit')
+                child.expect(pexpect.EOF, timeout=5)
             except:
-                pass  # Ignore errors during cleanup
+                try:
+                    child.kill(signal.SIGINT)
+                except:
+                    pass  # Ignore errors during cleanup
             
             return instance_id, output, True
             
         except pexpect.TIMEOUT:
             error_msg = f"Command '{command}' timed out after {timeout} seconds"
             if child and hasattr(child, 'before') and child.before:
-                error_msg += f"\nPartial output: {child.before[:200]}..."
+                error_msg += f"\nPartial output: {child.before[:500]}..."
+            if self.debug:
+                error_msg += f"\nSSM Target: {ssm_target}"
             return instance_id, error_msg, False
             
         except pexpect.EOF:
             error_msg = "SSM session ended unexpectedly"
             if child and hasattr(child, 'before') and child.before:
-                error_msg += f"\nLast output: {child.before[:200]}..."
+                error_msg += f"\nLast output: {child.before[:500]}..."
             return instance_id, error_msg, False
             
         except Exception as e:
-            return instance_id, f"Error executing command: {str(e)}", False
+            error_msg = f"Error executing command: {str(e)}"
+            if self.debug:
+                import traceback
+                error_msg += f"\nTraceback: {traceback.format_exc()}"
+            return instance_id, error_msg, False
             
         finally:
             # Ensure child process is cleaned up
@@ -243,13 +304,20 @@ class HyperPodMultiNodeRunner:
         print(f"HyperPod SSM target: {hyperpod_target}")
         
         # Test basic connectivity with hostname command for better verification
-        result_instance_id, output, success = self.execute_command_on_node(node, "echo 'SSM test successful from' $(hostname)", timeout=30)
+        # Use a longer timeout for the initial connectivity test
+        result_instance_id, output, success = self.execute_command_on_node(node, "echo 'SSM test successful from' $(hostname)", timeout=45)
         
         if success and output:
             print(f"✓ SSM connectivity test passed: {output}")
             return True
         else:
             print(f"✗ SSM connectivity test failed: {output}")
+            # Provide additional troubleshooting info for AL2023
+            print("\nTroubleshooting tips for AL2023:")
+            print("1. Ensure SSM Agent is running: sudo systemctl status amazon-ssm-agent")
+            print("2. Check SSM Agent logs: sudo journalctl -u amazon-ssm-agent -f")
+            print("3. Verify instance has SSM permissions in IAM role")
+            print("4. Check if instance is registered: aws ssm describe-instance-information")
             return False
     
     def interactive_mode(self):
@@ -291,9 +359,27 @@ class HyperPodMultiNodeRunner:
                     print("\nAvailable commands:")
                     print("  test     - Run a simple test command on all nodes")
                     print("  help     - Show this help message")
+                    print("  debug    - Toggle debug mode for troubleshooting")
+                    print("  al2023   - Show AL2023 specific troubleshooting tips")
                     print("  exit/quit/q - Exit the tool")
                     print("  Any other command will be executed on all nodes")
                     print()
+                    continue
+                
+                if command.lower() == 'al2023':
+                    print("\nAL2023 Troubleshooting Tips:")
+                    print("1. SSM Agent status: sudo systemctl status amazon-ssm-agent")
+                    print("2. SSM Agent logs: sudo journalctl -u amazon-ssm-agent -f")
+                    print("3. Instance registration: aws ssm describe-instance-information")
+                    print("4. Test single node: python main.py --test-node <instance-id>")
+                    print("5. Enable debug mode: python main.py --debug")
+                    print("6. Check IAM role has AmazonSSMManagedInstanceCore policy")
+                    print()
+                    continue
+                
+                if command.lower() == 'debug':
+                    self.debug = not self.debug
+                    print(f"Debug mode {'enabled' if self.debug else 'disabled'}")
                     continue
                 
                 if not command:
