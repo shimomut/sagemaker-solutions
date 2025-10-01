@@ -494,8 +494,8 @@ class HyperPodMultiNodeRunner:
                     print("1. SSM Agent status: sudo systemctl status amazon-ssm-agent")
                     print("2. SSM Agent logs: sudo journalctl -u amazon-ssm-agent -f")
                     print("3. Instance registration: aws ssm describe-instance-information")
-                    print("4. Test single node: python main.py --test-node <instance-id>")
-                    print("5. Enable debug mode: python main.py --debug")
+                    print("4. Test single node: python hyperpod_run_on_multi_nodes.py --test-node <instance-id>")
+                    print("5. Enable debug mode: python hyperpod_run_on_multi_nodes.py --debug")
                     print("6. Check IAM role has AmazonSSMManagedInstanceCore policy")
                     print()
                     continue
