@@ -2,25 +2,32 @@
 
 set -ex
 
+# Configuration: Choose disk for containerd and kubelet
+# Options: "/opt/sagemaker" or "/opt/dlami/nvme"
+
+#DISK_FOR_CONTAINERD_KUBELET="/opt/sagemaker"
+DISK_FOR_CONTAINERD_KUBELET="/opt/dlami/nvme"
+
 logger() {
   echo "$@"
 }
 
 logger "[start] on_create_main.sh"
+logger "Disk for containerd and kubelet: $DISK_FOR_CONTAINERD_KUBELET"
 
-# Wait for /opt/sagemaker to be mounted (max 60s)
+# Wait for disk to be mounted (max 60s)
 for i in {1..12}; do
-  if mount | grep -q "/opt/sagemaker"; then
-    logger "/opt/sagemaker is mounted"
+  if mount | grep -q "$DISK_FOR_CONTAINERD_KUBELET"; then
+    logger "$DISK_FOR_CONTAINERD_KUBELET is mounted"
     break
   else
-    logger "Waiting for /opt/sagemaker to be mounted..."
+    logger "Waiting for $DISK_FOR_CONTAINERD_KUBELET to be mounted..."
     sleep 5
   fi
 done
 
-if mount | grep -q "/opt/sagemaker"; then
-  logger "Found secondary EBS volume. Setting containerd data root to /opt/sagemaker/containerd/data-root"
+if mount | grep -q "$DISK_FOR_CONTAINERD_KUBELET"; then
+  logger "Setting containerd data root to $DISK_FOR_CONTAINERD_KUBELET/containerd/data-root"
 
   # Detect OS version reliably
   source /etc/os-release
@@ -32,7 +39,7 @@ if mount | grep -q "/opt/sagemaker"; then
     CONFIG_FILE="/etc/eks/containerd/containerd-config.toml"
     if [[ -f "$CONFIG_FILE" ]]; then
       logger "Amazon Linux 2 detected. Modifying $CONFIG_FILE using sed"
-      sed -i -e "/^[# ]*root\s*=/c\root = \"/opt/sagemaker/containerd/data-root\"" "$CONFIG_FILE"
+      sed -i -e "/^[# ]*root\s*=/c\root = \"$DISK_FOR_CONTAINERD_KUBELET/containerd/data-root\"" "$CONFIG_FILE"
     else
       logger "Amazon Linux 2 detected, but $CONFIG_FILE not found!"
     fi
@@ -42,18 +49,18 @@ if mount | grep -q "/opt/sagemaker"; then
     logger "Amazon Linux 2023 detected. Creating custom containerd config and systemd override"
 
     # Clean up old containerd data to avoid AL2->AL23 compatibility issues
-    if [[ -d "/opt/sagemaker/containerd/data-root" ]]; then
+    if [[ -d "$DISK_FOR_CONTAINERD_KUBELET/containerd/data-root" ]]; then
       logger "Removing existing containerd data-root to prevent AL2/AL23 incompatibility"
-      rm -rf /opt/sagemaker/containerd/data-root
+      rm -rf "$DISK_FOR_CONTAINERD_KUBELET/containerd/data-root"
     fi
 
     # Create custom containerd config directory
-    mkdir -p /opt/sagemaker/containerd
+    mkdir -p "$DISK_FOR_CONTAINERD_KUBELET/containerd"
 
     # Create complete custom containerd config
-    cat <<EOF | tee /opt/sagemaker/containerd/config.toml
+    cat <<EOF | tee "$DISK_FOR_CONTAINERD_KUBELET/containerd/config.toml"
 version = 2
-root = "/opt/sagemaker/containerd/data-root"
+root = "$DISK_FOR_CONTAINERD_KUBELET/containerd/data-root"
 state = "/run/containerd"
 
 [grpc]
@@ -88,31 +95,31 @@ EOF
 
     cat <<EOF | tee /etc/systemd/system/containerd.service.d/override.conf
 [Service]
-Environment="CONTAINERD_CONFIG=/opt/sagemaker/containerd/config.toml"
+Environment="CONTAINERD_CONFIG=$DISK_FOR_CONTAINERD_KUBELET/containerd/config.toml"
 ExecStart=
 ExecStart=/usr/bin/containerd --config \$CONTAINERD_CONFIG
 EOF
 
     systemctl daemon-reload
 
-    cp -a /var/lib/containerd /opt/sagemaker/containerd/data-root
+    cp -a /var/lib/containerd "$DISK_FOR_CONTAINERD_KUBELET/containerd/data-root"
 
   else
     logger "Unsupported OS version: $os_version. Skipping containerd configuration."
   fi
 
-  logger "Found secondary EBS volume. Creating symbolic link from /var/lib/kubelet to /opt/sagemaker/kubelet"
-  mkdir -p /opt/sagemaker/kubelet
+  logger "Creating symbolic link from /var/lib/kubelet to $DISK_FOR_CONTAINERD_KUBELET/kubelet"
+  mkdir -p "$DISK_FOR_CONTAINERD_KUBELET/kubelet"
   if [ "$(ls -A /var/lib/kubelet 2>/dev/null)" ]; then
-    mv /var/lib/kubelet/* /opt/sagemaker/kubelet/
+    mv /var/lib/kubelet/* "$DISK_FOR_CONTAINERD_KUBELET/kubelet/"
   else
     logger "/var/lib/kubelet is empty, skipping file move"
   fi
   rmdir /var/lib/kubelet
-  ln -s /opt/sagemaker/kubelet /var/lib/
+  ln -s "$DISK_FOR_CONTAINERD_KUBELET/kubelet" /var/lib/
 
 else
-  logger "/opt/sagemaker not mounted. Skipping containerd configuration"
+  logger "$DISK_FOR_CONTAINERD_KUBELET not mounted. Skipping containerd configuration"
 fi
 
 logger "no more steps to run"
