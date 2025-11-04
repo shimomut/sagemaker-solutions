@@ -36,6 +36,16 @@ Traditional HyperPod lifecycle scripts combine logging setup, error handling, an
 - Separate handling for Amazon Linux 2 and Amazon Linux 2023
 - Graceful handling of unsupported OS versions
 
+### Configurable Data Path
+- **Flexible disk selection**: Choose between `/opt/sagemaker` and `/opt/dlami/nvme` via `DISK_FOR_CONTAINERD_KUBELET` variable
+- **Single configuration point**: Change one variable to switch storage locations
+- **Clear naming**: Descriptive variable name indicates purpose for both containerd and kubelet data
+
+### Robust File Operations
+- **Safe kubelet migration**: Checks for existing files before attempting to move them
+- **Empty directory handling**: Gracefully handles empty `/var/lib/kubelet` directories
+- **Error prevention**: Avoids script failures when directories are empty
+
 ### Containerd Configuration
 - **Amazon Linux 2**: Direct modification of existing config file using `sed`
 - **Amazon Linux 2023**: Complete custom configuration with systemd overrides
@@ -66,6 +76,8 @@ Deploy this lifecycle script configuration in your HyperPod EKS cluster provisio
 3. **Maintainability**: Main script focuses purely on provisioning tasks
 4. **Reusability**: Bootstrap pattern can be reused across different lifecycle scripts
 5. **Reliability**: Proper error handling and log synchronization
+6. **Flexibility**: Easy configuration switching between different storage locations
+7. **Robustness**: Safe file operations that handle edge cases gracefully
 
 ## File Structure
 
@@ -78,8 +90,22 @@ hyperpod_eks_better_lcs/
 
 ## Implementation Details
 
+### Configurable Storage Location
+The script uses the `DISK_FOR_CONTAINERD_KUBELET` variable to determine where to store containerd and kubelet data:
+
+```bash
+# Configuration: Choose data path for containerd and kubelet
+# Options: "/opt/sagemaker" or "/opt/dlami/nvme"
+DISK_FOR_CONTAINERD_KUBELET="/opt/sagemaker"
+```
+
+To use NVMe storage instead, simply change to:
+```bash
+DISK_FOR_CONTAINERD_KUBELET="/opt/dlami/nvme"
+```
+
 ### Containerd Data Root Configuration
-The script automatically detects if a secondary EBS volume is mounted at `/opt/sagemaker` and configures containerd to use it for container storage, providing better performance and storage capacity for ML workloads.
+The script automatically detects if the configured secondary EBS volume is mounted and configures containerd to use it for container storage, providing better performance and storage capacity for ML workloads.
 
 ### GPU Runtime Support
 Includes proper configuration for nvidia-container-runtime to support GPU-accelerated containers in the HyperPod EKS cluster.
@@ -90,9 +116,18 @@ Handles differences between Amazon Linux 2 and Amazon Linux 2023, including:
 - Systemd service override requirements
 - Data directory compatibility issues
 
+## Recent Improvements
+
+### v1.1 - Enhanced Configuration and Robustness
+- **Configurable storage path**: Added `DISK_FOR_CONTAINERD_KUBELET` variable for flexible disk selection
+- **Improved error handling**: Safe kubelet file migration that handles empty directories
+- **Better variable naming**: More descriptive variable names for clarity
+- **Enhanced logging**: Added configuration logging for better debugging
+
 ## Future Enhancements
 
 - Add support for additional lifecycle events (on_update, on_delete)
-- Implement configuration validation
+- Implement configuration validation for storage paths
 - Add metrics collection for provisioning performance
 - Support for custom containerd plugins
+- Auto-detection of optimal storage location
