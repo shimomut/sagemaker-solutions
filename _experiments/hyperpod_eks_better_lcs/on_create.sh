@@ -1,6 +1,10 @@
 #!/bin/bash
 
-set -e
+
+# Workaround: Run until end regardless of failure
+# HyperPod doesn't wait until logs are uploaded to CW Logs currently.
+#
+#set -e
 
 LOG_FILE="/var/log/provision/provisioning.log"
 

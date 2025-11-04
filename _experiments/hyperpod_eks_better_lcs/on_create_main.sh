@@ -101,6 +101,16 @@ EOF
     logger "Unsupported OS version: $os_version. Skipping containerd configuration."
   fi
 
+  logger "Found secondary EBS volume. Creating symbolic link from /var/lib/kubelet to /opt/sagemaker/kubelet"
+  mkdir -p /opt/sagemaker/kubelet
+  if [ "$(ls -A /var/lib/kubelet 2>/dev/null)" ]; then
+    mv /var/lib/kubelet/* /opt/sagemaker/kubelet/
+  else
+    logger "/var/lib/kubelet is empty, skipping file move"
+  fi
+  rmdir /var/lib/kubelet
+  ln -s /opt/sagemaker/kubelet /var/lib/
+
 else
   logger "/opt/sagemaker not mounted. Skipping containerd configuration"
 fi
