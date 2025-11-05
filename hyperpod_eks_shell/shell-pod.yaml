@@ -1,0 +1,34 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: shell
+  labels:
+    app: shell
+spec:
+  containers:
+  - name: shell
+    image: ${SHELL_IMAGE}
+    command: ["/bin/bash"]
+    args: ["-c", "sleep infinity"]
+    resources:
+      requests:
+        memory: "1Gi"
+        cpu: "500m"
+      limits:
+        memory: "2Gi"
+        cpu: "1"
+    env:
+    - name: DEBIAN_FRONTEND
+      value: "noninteractive"
+    volumeMounts:
+    - name: workspace
+      mountPath: /workspace
+    - name: fsx-pv
+      mountPath: /fsx
+  volumes:
+  - name: workspace
+    emptyDir: {}
+  - name: fsx-pv
+    persistentVolumeClaim:
+      claimName: fsx-claim
+  restartPolicy: Never
