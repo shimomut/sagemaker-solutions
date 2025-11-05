@@ -23,11 +23,17 @@ spec:
     volumeMounts:
     - name: workspace
       mountPath: /workspace
+    - name: host-root
+      mountPath: /host-root
     - name: fsx-pv
       mountPath: /fsx
   volumes:
   - name: workspace
     emptyDir: {}
+  - name: host-root
+    hostPath:
+      path: /
+      type: Directory
   - name: fsx-pv
     persistentVolumeClaim:
       claimName: fsx-claim
