@@ -26,6 +26,13 @@ for i in {1..12}; do
   fi
 done
 
+
+# Dump the status of containerd.service and kubelet.service
+logger "Dumping the status of containerd.service and kubelet.service"
+systemctl status containerd.service --no-pager || true
+systemctl status kubelet.service --no-pager || true
+
+
 if mount | grep -q "$DISK_FOR_CONTAINERD_KUBELET"; then
   logger "Setting containerd data root to $DISK_FOR_CONTAINERD_KUBELET/containerd/data-root"
 
