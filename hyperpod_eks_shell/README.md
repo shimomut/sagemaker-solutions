@@ -7,7 +7,7 @@ This directory contains a YAML configuration and Dockerfile for an interactive s
 Set your AWS account and region, then use the Makefile for easy management:
 
 ```bash
-# Set environment variables
+# Set environment variables (REQUIRED)
 export ACCOUNT=123456789012
 export REGION=us-west-2
 
@@ -23,6 +23,8 @@ make shell
 # Clean up when done
 make delete-shell
 ```
+
+**Note:** The Makefile will automatically check that `REGION` and `ACCOUNT` environment variables are set before executing commands that require them. If they're not set, the command will fail with a helpful error message.
 
 ## Manual Usage
 
@@ -73,16 +75,20 @@ make delete-shell
 
 ## Available Make Targets
 
-- `make create-ecr-repo` - Create ECR repository
+- `make check-env` - Verify REGION and ACCOUNT environment variables are set
+- `make create-ecr-repo` - Create ECR repository (requires env vars)
 - `make build` - Build Docker image locally
-- `make login` - Login to ECR
-- `make tag` - Tag image for ECR
-- `make push` - Push image to ECR
-- `make all` - Complete build and push workflow
-- `make deploy-shell` - Deploy pod with custom ECR image
+- `make login` - Login to ECR (requires env vars)
+- `make tag` - Tag image for ECR (requires env vars)
+- `make push` - Push image to ECR (requires env vars)
+- `make all` - Complete build and push workflow (requires env vars)
+- `make deploy-shell` - Deploy pod with custom ECR image (requires env vars)
 - `make deploy-shell-default` - Deploy pod with default Ubuntu image
 - `make shell` - Connect to running pod
 - `make delete-shell` - Remove the pod
+
+**Environment Variable Requirements:**
+Commands marked with "requires env vars" will automatically check for `REGION` and `ACCOUNT` environment variables and fail with helpful error messages if they're not set.
 
 ## Common Use Cases
 

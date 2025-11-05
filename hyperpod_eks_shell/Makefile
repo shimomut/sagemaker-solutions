@@ -1,21 +1,36 @@
 IMAGE_NAME=shell-tools
 
-create-ecr-repo:
+# Check required environment variables
+check-env:
+	@echo "Checking required environment variables..."
+	@if [ -z "$(REGION)" ]; then \
+		echo "Error: REGION environment variable is not set"; \
+		echo "Please set it with: export REGION=your-region"; \
+		exit 1; \
+	fi
+	@if [ -z "$(ACCOUNT)" ]; then \
+		echo "Error: ACCOUNT environment variable is not set"; \
+		echo "Please set it with: export ACCOUNT=your-account-id"; \
+		exit 1; \
+	fi
+	@echo "Environment variables are set: REGION=$(REGION), ACCOUNT=$(ACCOUNT)"
+
+create-ecr-repo: check-env
 	aws ecr create-repository --repository-name ${IMAGE_NAME} --region ${REGION} || true
 
 build:
 	docker build --tag ${IMAGE_NAME} .
 
-login:
+login: check-env
 	aws ecr get-login-password --region ${REGION} | docker login --username AWS --password-stdin ${ACCOUNT}.dkr.ecr.${REGION}.amazonaws.com
 
-tag:
+tag: check-env
 	docker tag ${IMAGE_NAME}:latest ${ACCOUNT}.dkr.ecr.${REGION}.amazonaws.com/${IMAGE_NAME}:latest
 
-push:
+push: check-env
 	docker push ${ACCOUNT}.dkr.ecr.${REGION}.amazonaws.com/${IMAGE_NAME}:latest
 
-deploy-shell:
+deploy-shell: check-env
 	SHELL_IMAGE=${ACCOUNT}.dkr.ecr.${REGION}.amazonaws.com/${IMAGE_NAME}:latest envsubst < shell-pod.yaml | kubectl apply -f -
 
 deploy-shell-default:
