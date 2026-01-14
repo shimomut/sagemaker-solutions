@@ -62,8 +62,10 @@ def list_enis(ec2_client):
 
     eni_table = {}
     enis = _describe_network_interfaces_all(ec2_client)
+    # ENIs description contain the cluster ID, so check for the value
+    # current format is accountid_clusterid_<unique-code>
     for eni in enis:
-        if eni["Description"].startswith(Config.hyperpod_cluster_arn):
+        if Config.cluster_id in eni["Description"]:
             
             num_secondary_addr = 0
             for private_addr in eni["PrivateIpAddresses"]:
@@ -85,7 +87,7 @@ def list_eips(ec2_client):
         if "Tags" in eip:
             tags = tags_as_dict(eip["Tags"])
             if "HyperPodEni" in tags:
-                if tags["HyperPodEni"].startswith(Config.hyperpod_cluster_arn):
+                if Config.cluster_id in eni["Description"]:
                     eip_table[ tags["HyperPodEni"] ] = eip
 
     return eip_table
