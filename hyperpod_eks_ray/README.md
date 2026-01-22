@@ -174,6 +174,26 @@ make clean-namespace
 
 ## Docker Image Configuration
 
+### Understanding Ray Docker Image Variants
+
+Ray provides different Docker image variants on [Docker Hub](https://hub.docker.com/r/rayproject/ray):
+
+- **CPU images** (`rayproject/ray:X.X.X-pyXXX`): Based on Ubuntu, suitable for CPU-only workloads
+- **GPU images** (`rayproject/ray:X.X.X-pyXXX-gpu`): Based on NVIDIA CUDA, include GPU runtime dependencies
+
+**Important:** GPU images contain NVIDIA environment variables (`NVIDIA_VISIBLE_DEVICES=all`, `NVIDIA_DRIVER_CAPABILITIES`, `NVIDIA_REQUIRE_CUDA`) that trigger automatic GPU device injection via the [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/cdi-support.html). This causes failures when GPU images are scheduled on CPU-only nodes.
+
+### Image Selection for Head vs Worker Nodes
+
+For heterogeneous Ray clusters (CPU head node + GPU worker nodes):
+
+- **Head node**: Use CPU image (`rayproject/ray:2.42.1-py310`) to avoid GPU runtime injection errors
+- **Worker nodes**: Use GPU image (`rayproject/ray:2.42.1-py310-gpu`) or custom image built from GPU base
+
+The current configuration uses:
+- Head: Official Ray CPU image
+- Workers: Custom image built from GPU base with ML dependencies
+
 ### Customizing the Dockerfile
 
 After running `make generate-dockerfile`, you can edit the generated `Dockerfile` to add your own dependencies:
@@ -203,6 +223,29 @@ You can customize the build using these variables:
 - `ECR_REPO_NAME`: ECR repository name (default: `ray-hyperpod`)
 - `IMAGE_TAG`: Docker image tag (default: `latest`)
 - `RAY_VERSION`: Ray version to use (default: `2.42.1`)
+
+### Troubleshooting GPU Runtime Injection
+
+If you see errors like:
+```
+Error: failed to create containerd task: failed to create shim task: OCI runtime create failed: 
+could not apply required modification to OCI specification: error modifying OCI spec: 
+failed to inject CDI devices: unresolvable CDI devices runtime.nvidia.com/gpu=all
+```
+
+This indicates a GPU image is being used on a CPU-only node. Solutions:
+
+1. Use CPU image for head node (recommended)
+2. Use GPU-capable instance type for head node
+3. Verify image metadata doesn't contain NVIDIA environment variables:
+   ```bash
+   docker inspect rayproject/ray:2.42.1-py310-gpu | grep -i nvidia
+   ```
+
+**References:**
+- [NVIDIA Container Toolkit CDI Support](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/cdi-support.html)
+- [Ray Docker Hub](https://hub.docker.com/r/rayproject/ray)
+- [Ray Documentation on Custom Images](https://docs.ray.io/en/master/serve/production-guide/docker.html)
 
 ## KubeRay Configuration
 
