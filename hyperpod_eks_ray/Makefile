@@ -11,6 +11,20 @@ ECR_REPO_NAME ?= ray-hyperpod
 IMAGE_TAG ?= latest
 RAY_VERSION ?= 2.42.1
 
+# Ray cluster configuration
+CLUSTER_NAME ?= ray-cluster
+HEAD_CPU ?= 2
+HEAD_MEMORY ?= 8Gi
+HEAD_INSTANCE_TYPE ?= ml.m5.2xlarge
+WORKER_REPLICAS ?= 2
+WORKER_MIN_REPLICAS ?= 1
+WORKER_MAX_REPLICAS ?= 4
+WORKER_GPU ?= 8
+WORKER_CPU ?= 96
+WORKER_MEMORY ?= 1000Gi
+WORKER_INSTANCE_TYPE ?= ml.p5.48xlarge
+FSX_PVC_NAME ?= fsx-claim
+
 all:
 
 # ===== Docker Image Build =====
@@ -72,6 +86,99 @@ push:
 # Build, tag, and push in one command
 build-and-push: generate-dockerfile build login create-ecr-repo tag push
 	@echo "Image pushed to $(AWS_ACCOUNT_ID).dkr.ecr.$(AWS_REGION).amazonaws.com/$(ECR_REPO_NAME):$(IMAGE_TAG)"
+
+# ===== Ray Cluster Manifest =====
+
+# Generate Ray cluster manifest
+generate-ray-cluster:
+	@echo "Generating Ray cluster manifest..."
+	@echo "apiVersion: ray.io/v1" > ray-cluster.yaml
+	@echo "kind: RayCluster" >> ray-cluster.yaml
+	@echo "metadata:" >> ray-cluster.yaml
+	@echo "  name: $(CLUSTER_NAME)" >> ray-cluster.yaml
+	@echo "spec:" >> ray-cluster.yaml
+	@echo "  rayVersion: '$(RAY_VERSION)'" >> ray-cluster.yaml
+	@echo "  headGroupSpec:" >> ray-cluster.yaml
+	@echo "    rayStartParams:" >> ray-cluster.yaml
+	@echo "      dashboard-host: '0.0.0.0'" >> ray-cluster.yaml
+	@echo "      block: 'true'" >> ray-cluster.yaml
+	@echo "    template:" >> ray-cluster.yaml
+	@echo "      metadata:" >> ray-cluster.yaml
+	@echo "        labels:" >> ray-cluster.yaml
+	@echo "          app: ray" >> ray-cluster.yaml
+	@echo "          ray-node-type: head" >> ray-cluster.yaml
+	@echo "      spec:" >> ray-cluster.yaml
+	@echo "        nodeSelector:" >> ray-cluster.yaml
+	@echo "          node.kubernetes.io/instance-type: $(HEAD_INSTANCE_TYPE)" >> ray-cluster.yaml
+	@echo "        containers:" >> ray-cluster.yaml
+	@echo "        - name: ray-head" >> ray-cluster.yaml
+	@echo "          image: $(AWS_ACCOUNT_ID).dkr.ecr.$(AWS_REGION).amazonaws.com/$(ECR_REPO_NAME):$(IMAGE_TAG)" >> ray-cluster.yaml
+	@echo "          ports:" >> ray-cluster.yaml
+	@echo "          - containerPort: 6379" >> ray-cluster.yaml
+	@echo "            name: gcs" >> ray-cluster.yaml
+	@echo "          - containerPort: 8265" >> ray-cluster.yaml
+	@echo "            name: dashboard" >> ray-cluster.yaml
+	@echo "          - containerPort: 10001" >> ray-cluster.yaml
+	@echo "            name: client" >> ray-cluster.yaml
+	@echo "          resources:" >> ray-cluster.yaml
+	@echo "            limits:" >> ray-cluster.yaml
+	@echo "              cpu: \"$(HEAD_CPU)\"" >> ray-cluster.yaml
+	@echo "              memory: \"$(HEAD_MEMORY)\"" >> ray-cluster.yaml
+	@echo "            requests:" >> ray-cluster.yaml
+	@echo "              cpu: \"$(HEAD_CPU)\"" >> ray-cluster.yaml
+	@echo "              memory: \"$(HEAD_MEMORY)\"" >> ray-cluster.yaml
+	@echo "          volumeMounts:" >> ray-cluster.yaml
+	@echo "          - name: fsx-storage" >> ray-cluster.yaml
+	@echo "            mountPath: /fsx" >> ray-cluster.yaml
+	@echo "        volumes:" >> ray-cluster.yaml
+	@echo "        - name: fsx-storage" >> ray-cluster.yaml
+	@echo "          persistentVolumeClaim:" >> ray-cluster.yaml
+	@echo "            claimName: $(FSX_PVC_NAME)" >> ray-cluster.yaml
+	@echo "  workerGroupSpecs:" >> ray-cluster.yaml
+	@echo "  - replicas: $(WORKER_REPLICAS)" >> ray-cluster.yaml
+	@echo "    minReplicas: $(WORKER_MIN_REPLICAS)" >> ray-cluster.yaml
+	@echo "    maxReplicas: $(WORKER_MAX_REPLICAS)" >> ray-cluster.yaml
+	@echo "    groupName: gpu-workers" >> ray-cluster.yaml
+	@echo "    rayStartParams:" >> ray-cluster.yaml
+	@echo "      block: 'true'" >> ray-cluster.yaml
+	@echo "    template:" >> ray-cluster.yaml
+	@echo "      metadata:" >> ray-cluster.yaml
+	@echo "        labels:" >> ray-cluster.yaml
+	@echo "          app: ray" >> ray-cluster.yaml
+	@echo "          ray-node-type: worker" >> ray-cluster.yaml
+	@echo "      spec:" >> ray-cluster.yaml
+	@echo "        nodeSelector:" >> ray-cluster.yaml
+	@echo "          node.kubernetes.io/instance-type: $(WORKER_INSTANCE_TYPE)" >> ray-cluster.yaml
+	@echo "        containers:" >> ray-cluster.yaml
+	@echo "        - name: ray-worker" >> ray-cluster.yaml
+	@echo "          image: $(AWS_ACCOUNT_ID).dkr.ecr.$(AWS_REGION).amazonaws.com/$(ECR_REPO_NAME):$(IMAGE_TAG)" >> ray-cluster.yaml
+	@echo "          resources:" >> ray-cluster.yaml
+	@echo "            limits:" >> ray-cluster.yaml
+	@echo "              nvidia.com/gpu: \"$(WORKER_GPU)\"" >> ray-cluster.yaml
+	@echo "              vpc.amazonaws.com/efa: \"1\"" >> ray-cluster.yaml
+	@echo "              cpu: \"$(WORKER_CPU)\"" >> ray-cluster.yaml
+	@echo "              memory: \"$(WORKER_MEMORY)\"" >> ray-cluster.yaml
+	@echo "            requests:" >> ray-cluster.yaml
+	@echo "              nvidia.com/gpu: \"$(WORKER_GPU)\"" >> ray-cluster.yaml
+	@echo "              vpc.amazonaws.com/efa: \"1\"" >> ray-cluster.yaml
+	@echo "              cpu: \"$(WORKER_CPU)\"" >> ray-cluster.yaml
+	@echo "              memory: \"$(WORKER_MEMORY)\"" >> ray-cluster.yaml
+	@echo "          volumeMounts:" >> ray-cluster.yaml
+	@echo "          - name: fsx-storage" >> ray-cluster.yaml
+	@echo "            mountPath: /fsx" >> ray-cluster.yaml
+	@echo "        volumes:" >> ray-cluster.yaml
+	@echo "        - name: fsx-storage" >> ray-cluster.yaml
+	@echo "          persistentVolumeClaim:" >> ray-cluster.yaml
+	@echo "            claimName: $(FSX_PVC_NAME)" >> ray-cluster.yaml
+	@echo "Ray cluster manifest generated: ray-cluster.yaml"
+
+# Deploy Ray cluster
+deploy-ray-cluster:
+	kubectl apply -f ray-cluster.yaml
+
+# Delete Ray cluster
+delete-ray-cluster:
+	kubectl delete -f ray-cluster.yaml
 
 # ===== KubeRay Installation =====
 
@@ -137,5 +244,6 @@ get-values:
 	helm get values kuberay-operator -n $(NAMESPACE)
 
 .PHONY: all generate-dockerfile build login create-ecr-repo tag push build-and-push \
+	generate-ray-cluster deploy-ray-cluster delete-ray-cluster \
 	install-kuberay status list-clusters list-services list-jobs list-all \
 	watch-logs describe upgrade uninstall clean-namespace show-values get-values

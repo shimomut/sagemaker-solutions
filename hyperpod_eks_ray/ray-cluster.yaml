@@ -1,0 +1,78 @@
+apiVersion: ray.io/v1
+kind: RayCluster
+metadata:
+  name: ray-cluster
+spec:
+  rayVersion: '2.42.1'
+  headGroupSpec:
+    rayStartParams:
+      dashboard-host: '0.0.0.0'
+      block: 'true'
+    template:
+      metadata:
+        labels:
+          app: ray
+          ray-node-type: head
+      spec:
+        nodeSelector:
+          node.kubernetes.io/instance-type: ml.m5.4xlarge
+        containers:
+        - name: ray-head
+          image: 842413447717.dkr.ecr.us-west-2.amazonaws.com/ray-hyperpod:latest
+          ports:
+          - containerPort: 6379
+            name: gcs
+          - containerPort: 8265
+            name: dashboard
+          - containerPort: 10001
+            name: client
+          resources:
+            limits:
+              cpu: "16"
+              memory: "64Gi"
+            requests:
+              cpu: "16"
+              memory: "64Gi"
+          volumeMounts:
+          - name: fsx-storage
+            mountPath: /fsx
+        volumes:
+        - name: fsx-storage
+          persistentVolumeClaim:
+            claimName: fsx-claim
+  workerGroupSpecs:
+  - replicas: 1
+    minReplicas: 1
+    maxReplicas: 4
+    groupName: gpu-workers
+    rayStartParams:
+      block: 'true'
+    template:
+      metadata:
+        labels:
+          app: ray
+          ray-node-type: worker
+      spec:
+        nodeSelector:
+          node.kubernetes.io/instance-type: ml.g5.8xlarge
+        containers:
+        - name: ray-worker
+          image: 842413447717.dkr.ecr.us-west-2.amazonaws.com/ray-hyperpod:latest
+          resources:
+            limits:
+              nvidia.com/gpu: "1"
+              vpc.amazonaws.com/efa: "1"
+              cpu: "32"
+              memory: "128Gi"
+            requests:
+              nvidia.com/gpu: "1"
+              vpc.amazonaws.com/efa: "1"
+              cpu: "32"
+              memory: "128Gi"
+          volumeMounts:
+          - name: fsx-storage
+            mountPath: /fsx
+        volumes:
+        - name: fsx-storage
+          persistentVolumeClaim:
+            claimName: fsx-claim

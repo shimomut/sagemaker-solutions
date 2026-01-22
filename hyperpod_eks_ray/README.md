@@ -73,7 +73,48 @@ This will:
 - Install the KubeRay operator in the `kuberay-system` namespace
 - Set up Custom Resource Definitions (CRDs) for Ray clusters
 
-### Verify Installation
+### 3. Generate and Deploy Ray Cluster
+
+Generate a Ray cluster manifest with your custom image:
+
+```bash
+# Generate ray-cluster.yaml with default settings
+make generate-ray-cluster
+
+# Deploy the Ray cluster
+make deploy-ray-cluster
+```
+
+Customize the cluster configuration:
+
+```bash
+# Use different instance types and sizes
+make generate-ray-cluster \
+  CLUSTER_NAME=my-ray-cluster \
+  HEAD_INSTANCE_TYPE=ml.m5.4xlarge \
+  WORKER_INSTANCE_TYPE=ml.p4d.24xlarge \
+  WORKER_REPLICAS=4 \
+  WORKER_GPU=8
+
+# Then deploy
+make deploy-ray-cluster
+```
+
+Available configuration variables:
+- `CLUSTER_NAME`: Name of the Ray cluster (default: `ray-cluster`)
+- `HEAD_CPU`: CPU for head node (default: `2`)
+- `HEAD_MEMORY`: Memory for head node (default: `8Gi`)
+- `HEAD_INSTANCE_TYPE`: Instance type for head node (default: `ml.m5.2xlarge`)
+- `WORKER_REPLICAS`: Initial number of workers (default: `2`)
+- `WORKER_MIN_REPLICAS`: Minimum workers for autoscaling (default: `1`)
+- `WORKER_MAX_REPLICAS`: Maximum workers for autoscaling (default: `4`)
+- `WORKER_GPU`: GPUs per worker (default: `8`)
+- `WORKER_CPU`: CPUs per worker (default: `96`)
+- `WORKER_MEMORY`: Memory per worker (default: `1000Gi`)
+- `WORKER_INSTANCE_TYPE`: Instance type for workers (default: `ml.p5.48xlarge`)
+- `FSX_PVC_NAME`: FSx PVC name for shared storage (default: `fsx-claim`)
+
+### 4. Verify Installation
 
 ```bash
 make status
@@ -101,6 +142,9 @@ make describe
 ```bash
 # List all Ray clusters
 make list-clusters
+
+# Delete Ray cluster
+make delete-ray-cluster
 
 # List Ray services
 make list-services
@@ -184,53 +228,38 @@ make install-kuberay NAMESPACE=my-ray-system
 
 ## Next Steps
 
-After installing KubeRay and building your custom image, you can:
+After deploying your Ray cluster, you can:
 
-1. Create an FSx for Lustre file system for shared storage (required for multi-node clusters)
-2. Deploy a Ray cluster using `RayCluster` custom resource with your custom image
-3. Submit Ray jobs using the Ray Jobs SDK or by exec'ing into the head pod
-4. Implement checkpointing for fault tolerance and auto-resume capabilities
+1. **Access the Ray Dashboard**: Port-forward to view the dashboard
+   ```bash
+   kubectl port-forward -n default service/ray-cluster-head-svc 8265:8265
+   ```
+   Then visit http://localhost:8265
 
-### Example Ray Cluster Manifest
+2. **Submit Ray Jobs**: Use the Ray Jobs SDK
+   ```bash
+   ray job submit --address http://localhost:8265 \
+     --working-dir ./my-training-code \
+     -- python train.py
+   ```
 
-Use your custom ECR image in the Ray cluster manifest:
+3. **Exec into Head Pod**: Run jobs directly
+   ```bash
+   kubectl exec -it $(kubectl get pods -l ray-node-type=head -o name) -- bash
+   python my_script.py
+   ```
 
-```yaml
-apiVersion: ray.io/v1
-kind: RayCluster
-metadata:
-  name: ray-cluster
-spec:
-  rayVersion: '2.42.1'
-  headGroupSpec:
-    rayStartParams:
-      dashboard-host: '0.0.0.0'
-    template:
-      spec:
-        containers:
-        - name: ray-head
-          image: 842413447717.dkr.ecr.us-east-1.amazonaws.com/ray-hyperpod:latest
-          resources:
-            limits:
-              cpu: "2"
-              memory: "8Gi"
-  workerGroupSpecs:
-  - replicas: 2
-    minReplicas: 1
-    maxReplicas: 4
-    groupName: gpu-workers
-    rayStartParams: {}
-    template:
-      spec:
-        containers:
-        - name: ray-worker
-          image: 842413447717.dkr.ecr.us-east-1.amazonaws.com/ray-hyperpod:latest
-          resources:
-            limits:
-              nvidia.com/gpu: "8"
-              cpu: "96"
-              memory: "1000Gi"
-```
+4. **Implement Checkpointing**: For fault tolerance and auto-resume
+   - Save checkpoints to `/fsx` (FSx shared storage)
+   - Use Ray Train's checkpoint API
+   - Set `max_failures=-1` in FailureConfig for unlimited retries
+
+### Example Ray Training Script
+
+See the [AWS blog article](https://aws.amazon.com/blogs/machine-learning/ray-jobs-on-amazon-sagemaker-hyperpod-scalable-and-resilient-distributed-ai/) for complete examples of:
+- Distributed training with Ray Train
+- Checkpointing for fault tolerance
+- Auto-resume on worker failures
 
 ## Resources
 

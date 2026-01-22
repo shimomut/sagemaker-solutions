@@ -1,5 +1,6 @@
-# Generated Dockerfile (can be regenerated with make generate-dockerfile)
+# Generated files (can be regenerated with make commands)
 # Dockerfile
+# ray-cluster.yaml
 
 # Python
 __pycache__/
