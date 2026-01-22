@@ -28,11 +28,11 @@ spec:
             name: client
           resources:
             limits:
-              cpu: "16"
-              memory: "64Gi"
+              cpu: "12"
+              memory: "48Gi"
             requests:
-              cpu: "16"
-              memory: "64Gi"
+              cpu: "12"
+              memory: "48Gi"
           volumeMounts:
           - name: fsx-storage
             mountPath: /fsx
@@ -62,13 +62,13 @@ spec:
             limits:
               nvidia.com/gpu: "1"
               vpc.amazonaws.com/efa: "1"
-              cpu: "32"
-              memory: "128Gi"
+              cpu: "30"
+              memory: "110Gi"
             requests:
               nvidia.com/gpu: "1"
               vpc.amazonaws.com/efa: "1"
-              cpu: "32"
-              memory: "128Gi"
+              cpu: "30"
+              memory: "110Gi"
           volumeMounts:
           - name: fsx-storage
             mountPath: /fsx

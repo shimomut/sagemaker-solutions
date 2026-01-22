@@ -78,15 +78,15 @@ create-ecr-repo:
 tag:
 	docker tag $(ECR_REPO_NAME):$(IMAGE_TAG) \
 		$(AWS_ACCOUNT_ID).dkr.ecr.$(AWS_REGION).amazonaws.com/$(ECR_REPO_NAME):$(IMAGE_TAG)
-
+	
 # Push image to ECR
 push:
 	docker push $(AWS_ACCOUNT_ID).dkr.ecr.$(AWS_REGION).amazonaws.com/$(ECR_REPO_NAME):$(IMAGE_TAG)
-
+	
 # Build, tag, and push in one command
 build-and-push: generate-dockerfile build login create-ecr-repo tag push
 	@echo "Image pushed to $(AWS_ACCOUNT_ID).dkr.ecr.$(AWS_REGION).amazonaws.com/$(ECR_REPO_NAME):$(IMAGE_TAG)"
-
+	
 # ===== Ray Cluster Manifest =====
 
 # Generate Ray cluster manifest
@@ -176,6 +176,35 @@ generate-ray-cluster:
 deploy-ray-cluster:
 	kubectl apply -f ray-cluster.yaml
 
+# Check Ray cluster deployment status
+check-ray-cluster:
+	@echo "=== Ray Cluster Status ==="
+	@kubectl get raycluster ray-cluster -o wide 2>/dev/null || echo "Ray cluster not found"
+	@echo ""
+	@echo "=== Ray Pods ==="
+	@kubectl get pods -l app=ray -o wide
+	@echo ""
+	@echo "=== Ray Services ==="
+	@kubectl get svc -l app=ray
+	@echo ""
+	@echo "=== Recent Events ==="
+	@kubectl get events --sort-by='.lastTimestamp' | grep ray | tail -10
+
+# Wait for Ray cluster to be ready
+wait-ray-cluster:
+	@echo "Waiting for Ray head pod to be ready..."
+	@kubectl wait --for=condition=ready pod -l ray-node-type=head --timeout=300s
+	@echo "Waiting for Ray worker pods to be ready..."
+	@kubectl wait --for=condition=ready pod -l ray-node-type=worker --timeout=300s
+	@echo "Ray cluster is ready!"
+
+# Test Ray cluster connectivity
+test-ray-cluster:
+	@echo "Testing Ray cluster..."
+	@POD=$$(kubectl get pods -l ray-node-type=head -o jsonpath='{.items[0].metadata.name}'); \
+	echo "Executing test in pod: $$POD"; \
+	kubectl exec -it $$POD -- python -c "import ray; ray.init(); print('Ray version:', ray.__version__); print('Cluster resources:', ray.cluster_resources()); ray.shutdown()"
+
 # Delete Ray cluster
 delete-ray-cluster:
 	kubectl delete -f ray-cluster.yaml
@@ -244,6 +273,6 @@ get-values:
 	helm get values kuberay-operator -n $(NAMESPACE)
 
 .PHONY: all generate-dockerfile build login create-ecr-repo tag push build-and-push \
-	generate-ray-cluster deploy-ray-cluster delete-ray-cluster \
+	generate-ray-cluster deploy-ray-cluster check-ray-cluster wait-ray-cluster test-ray-cluster delete-ray-cluster \
 	install-kuberay status list-clusters list-services list-jobs list-all \
 	watch-logs describe upgrade uninstall clean-namespace show-values get-values
