@@ -16,6 +16,8 @@ Setup and utilities for running Ray on AWS SageMaker HyperPod EKS clusters using
 
 Based on the [AWS blog article](https://aws.amazon.com/blogs/machine-learning/ray-jobs-on-amazon-sagemaker-hyperpod-scalable-and-resilient-distributed-ai/), create a custom Ray container image with your training dependencies:
 
+**Note:** The image is built for `linux/amd64` platform to ensure compatibility with HyperPod x86_64 instances, even when building on Apple Silicon (ARM) machines.
+
 ```bash
 # Generate Dockerfile, build, and push to ECR in one command
 make build-and-push

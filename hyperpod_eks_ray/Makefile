@@ -41,9 +41,10 @@ generate-dockerfile:
 	@echo "ENV RAY_DEDUP_LOGS=0" >> Dockerfile
 	@echo "Dockerfile generated successfully"
 
-# Build Docker image
+# Build Docker image (for x86_64/amd64 platform)
 build:
-	docker build --tag $(ECR_REPO_NAME):$(IMAGE_TAG) \
+	docker build --platform linux/amd64 \
+		--tag $(ECR_REPO_NAME):$(IMAGE_TAG) \
 		--build-arg RAY_VERSION=$(RAY_VERSION) .
 
 # Login to ECR
