@@ -112,7 +112,7 @@ generate-ray-cluster:
 	@echo "          node.kubernetes.io/instance-type: $(HEAD_INSTANCE_TYPE)" >> ray-cluster.yaml
 	@echo "        containers:" >> ray-cluster.yaml
 	@echo "        - name: ray-head" >> ray-cluster.yaml
-	@echo "          image: $(AWS_ACCOUNT_ID).dkr.ecr.$(AWS_REGION).amazonaws.com/$(ECR_REPO_NAME):$(IMAGE_TAG)" >> ray-cluster.yaml
+	@echo "          image: rayproject/ray:$(RAY_VERSION)-py310" >> ray-cluster.yaml
 	@echo "          ports:" >> ray-cluster.yaml
 	@echo "          - containerPort: 6379" >> ray-cluster.yaml
 	@echo "            name: gcs" >> ray-cluster.yaml
