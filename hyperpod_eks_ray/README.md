@@ -7,10 +7,60 @@ Setup and utilities for running Ray on AWS SageMaker HyperPod EKS clusters using
 - HyperPod EKS cluster already running
 - `kubectl` configured to access your cluster
 - `helm` installed (v3+)
+- Docker installed (for building custom Ray images)
+- AWS CLI configured with appropriate permissions
 
 ## Quick Start
 
-### Install KubeRay Operator
+### 1. Build and Push Custom Ray Image
+
+Based on the [AWS blog article](https://aws.amazon.com/blogs/machine-learning/ray-jobs-on-amazon-sagemaker-hyperpod-scalable-and-resilient-distributed-ai/), create a custom Ray container image with your training dependencies:
+
+```bash
+# Generate Dockerfile, build, and push to ECR in one command
+make build-and-push
+```
+
+Or run steps individually:
+
+```bash
+# Generate Dockerfile from template
+make generate-dockerfile
+
+# Build Docker image
+make build
+
+# Login to ECR
+make login
+
+# Create ECR repository (if needed)
+make create-ecr-repo
+
+# Tag image for ECR
+make tag
+
+# Push to ECR
+make push
+```
+
+The default configuration uses:
+- Base image: `rayproject/ray:2.42.1-py310-gpu`
+- Includes: PyTorch, Transformers, DeepSpeed, Accelerate, and other ML libraries
+
+To customize:
+
+```bash
+# Use different Ray version
+make build-and-push RAY_VERSION=2.40.0
+
+# Use different ECR repository name
+make build-and-push ECR_REPO_NAME=my-ray-image
+
+# Use different AWS region
+make build-and-push AWS_REGION=us-west-2
+```
+
+### 2. Install KubeRay Operator
 
 ```bash
 make install-kuberay
@@ -76,7 +126,39 @@ make uninstall
 make clean-namespace
 ```
 
-## Configuration
+## Docker Image Configuration
+
+### Customizing the Dockerfile
+
+After running `make generate-dockerfile`, you can edit the generated `Dockerfile` to add your own dependencies:
+
+```dockerfile
+# Add custom Python packages
+RUN pip install --no-cache-dir \
+    your-package==1.0.0 \
+    another-package==2.0.0
+
+# Copy your training code
+COPY ./training /app/training
+```
+
+Then rebuild and push:
+
+```bash
+make build login tag push
+```
+
+### Environment Variables
+
+You can customize the build using these variables:
+
+- `AWS_REGION`: AWS region for ECR (default: `us-east-1`)
+- `AWS_ACCOUNT_ID`: AWS account ID (default: `842413447717`)
+- `ECR_REPO_NAME`: ECR repository name (default: `ray-hyperpod`)
+- `IMAGE_TAG`: Docker image tag (default: `latest`)
+- `RAY_VERSION`: Ray version to use (default: `2.42.1`)
+
+## KubeRay Configuration
 
 ### Custom Installation
 
@@ -100,13 +182,53 @@ make install-kuberay NAMESPACE=my-ray-system
 
 ## Next Steps
 
-After installing KubeRay, you can:
+After installing KubeRay and building your custom image, you can:
 
-1. Deploy a Ray cluster using `RayCluster` custom resource
-2. Submit Ray jobs using `RayJob` custom resource
-3. Deploy Ray services using `RayService` custom resource
+1. Create an FSx for Lustre file system for shared storage (required for multi-node clusters)
+2. Deploy a Ray cluster using `RayCluster` custom resource with your custom image
+3. Submit Ray jobs using the Ray Jobs SDK or by exec'ing into the head pod
+4. Implement checkpointing for fault tolerance and auto-resume capabilities
 
-Example manifests will be added to demonstrate these use cases.
+### Example Ray Cluster Manifest
+
+Use your custom ECR image in the Ray cluster manifest:
+
+```yaml
+apiVersion: ray.io/v1
+kind: RayCluster
+metadata:
+  name: ray-cluster
+spec:
+  rayVersion: '2.42.1'
+  headGroupSpec:
+    rayStartParams:
+      dashboard-host: '0.0.0.0'
+    template:
+      spec:
+        containers:
+        - name: ray-head
+          image: 842413447717.dkr.ecr.us-east-1.amazonaws.com/ray-hyperpod:latest
+          resources:
+            limits:
+              cpu: "2"
+              memory: "8Gi"
+  workerGroupSpecs:
+  - replicas: 2
+    minReplicas: 1
+    maxReplicas: 4
+    groupName: gpu-workers
+    rayStartParams: {}
+    template:
+      spec:
+        containers:
+        - name: ray-worker
+          image: 842413447717.dkr.ecr.us-east-1.amazonaws.com/ray-hyperpod:latest
+          resources:
+            limits:
+              nvidia.com/gpu: "8"
+              cpu: "96"
+              memory: "1000Gi"
+```
 
 ## Resources
 
