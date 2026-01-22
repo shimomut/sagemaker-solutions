@@ -18,7 +18,7 @@ spec:
           node.kubernetes.io/instance-type: ml.m5.4xlarge
         containers:
         - name: ray-head
-          image: 842413447717.dkr.ecr.us-west-2.amazonaws.com/ray-hyperpod:latest
+          image: rayproject/ray:2.42.1-py310
           ports:
           - containerPort: 6379
             name: gcs
