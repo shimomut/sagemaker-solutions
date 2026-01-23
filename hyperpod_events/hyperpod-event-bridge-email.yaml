@@ -103,8 +103,14 @@ Resources:
           import os
           import json
           from datetime import datetime
-
           import boto3
+
+          def format_event_time(event_time):
+              try:
+                  dt = datetime.fromtimestamp(int(event_time) / 1000)
+                  return dt.strftime("%Y-%m-%d %H:%M:%S UTC")
+              except:
+                  return event_time
 
           def get_console_url(event):
               region = event["region"]
@@ -278,6 +284,11 @@ Resources:
               html_body += '<table border="1" >\n'
               html_body += '<caption>Event details</caption>\n'
 
+              html_body += "<tr> <td>%s</td> <td>%s</td> </tr>\n" % (
+                  "Resource Type", 
+                  event_details.get("ResourceType", "N/A")
+              )
+
               if "InstanceGroupName" in event_details:
                   html_body += "<tr> <td>%s</td> <td>%s</td> </tr>\n" % (
                       "Instance Group", 
@@ -291,23 +302,8 @@ Resources:
                   )
 
               html_body += "<tr> <td>%s</td> <td>%s</td> </tr>\n" % (
-                  "Resource Type", 
-                  event_details.get("ResourceType", "N/A")
-              )
-
-              # Format EventTime to human readable format
-              event_time = event_details.get("EventTime", "N/A")
-              if event_time != "N/A":
-                  try:
-                      # Parse ISO format datetime string
-                      dt = datetime.fromisoformat(event_time.replace('Z', '+00:00'))
-                      event_time = dt.strftime("%Y-%m-%d %H:%M:%S UTC")
-                  except:
-                      pass  # Keep original format if parsing fails
-
-              html_body += "<tr> <td>%s</td> <td>%s</td> </tr>\n" % (
                   "Event Time", 
-                  event_time
+                  format_event_time(event_details.get("EventTime", "N/A"))
               )
 
               html_body += "<tr> <td>%s</td> <td>%s</td> </tr>\n" % (
