@@ -1,5 +1,7 @@
 import os
 import json
+from datetime import datetime
+
 import boto3
 
 def get_console_url(event):
@@ -142,7 +144,8 @@ def format_html_for_node_health_event(event):
     return html_body
 
 def format_html_for_cluster_event(event):
-
+    """Format HTML for generic cluster events with EventDetails."""
+    
     event_details = event["detail"]["EventDetails"]
 
     html_body = '<body style="font-family:Helvetica; font-size: 11pt;">\n'
@@ -162,25 +165,52 @@ def format_html_for_cluster_event(event):
     
     html_body += "<tr> <td>%s</td> <td>%s</td> </tr>\n" % (
         "Cluster name:", 
-        event_details["ClusterName"]
+        event_details.get("ClusterName", "N/A")
     )
 
     html_body += '</table>\n'
 
     html_body += "<br>\n"
 
-    # Table of instance groups
+    # Table of event details
     html_body += '<table border="1" >\n'
     html_body += '<caption>Event details</caption>\n'
 
+    if "InstanceGroupName" in event_details:
+        html_body += "<tr> <td>%s</td> <td>%s</td> </tr>\n" % (
+            "Instance Group", 
+            event_details["InstanceGroupName"]
+        )
+
+    if "InstanceId" in event_details:
+        html_body += "<tr> <td>%s</td> <td>%s</td> </tr>\n" % (
+            "Instance ID", 
+            event_details["InstanceId"]
+        )
+
     html_body += "<tr> <td>%s</td> <td>%s</td> </tr>\n" % (
-        "Instance ID", 
-        event_details["InstanceId"]
+        "Resource Type", 
+        event_details.get("ResourceType", "N/A")
+    )
+
+    # Format EventTime to human readable format
+    event_time = event_details.get("EventTime", "N/A")
+    if event_time != "N/A":
+        try:
+            # Parse ISO format datetime string
+            dt = datetime.fromisoformat(event_time.replace('Z', '+00:00'))
+            event_time = dt.strftime("%Y-%m-%d %H:%M:%S UTC")
+        except:
+            pass  # Keep original format if parsing fails
+
+    html_body += "<tr> <td>%s</td> <td>%s</td> </tr>\n" % (
+        "Event Time", 
+        event_time
     )
 
     html_body += "<tr> <td>%s</td> <td>%s</td> </tr>\n" % (
         "Description", 
-        event_details["Description"]
+        event_details.get("Description", "N/A")
     )
 
     html_body += '</table>\n'
@@ -210,9 +240,10 @@ def lambda_handler(event, context):
         email_subject = f"HyperPod Cluster Node Health Event - {node_status}"
         email_body = format_html_for_node_health_event(event)
     elif event_type == "SageMaker HyperPod Cluster Event":
-        # FIXME: any useful information we can include in the email subject?
-        #cluster_status = event["detail"]["ClusterStatus"]
-        email_subject = f"HyperPod Cluster Event"
+        event_details = event["detail"]["EventDetails"]
+        cluster_name = event_details.get("ClusterName", "Unknown")
+        resource_type = event_details.get("ResourceType", "Unknown")
+        email_subject = f"HyperPod Cluster Event - {cluster_name} - {resource_type}"
         email_body = format_html_for_cluster_event(event)
     else:
         assert False, f"Unknown event type {event_type}"
