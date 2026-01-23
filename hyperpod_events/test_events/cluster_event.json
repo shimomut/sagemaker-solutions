@@ -1,0 +1,31 @@
+{
+    "version": "0",
+    "id": "0bd4a141-0a02-9d8a-f977-3924c3fb259c",
+    "detail-type": "SageMaker HyperPod Cluster Event",
+    "source": "aws.sagemaker",
+    "account": "842413447717",
+    "time": "2025-04-28T16:59:01Z",
+    "region": "us-west-2",
+    "resources": [
+        "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5"
+    ],
+    "detail": {
+        "EventDetails": {
+            "EventId": "a307fae0-6937-40f9-af2f-16eb873d340a",
+            "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+            "ClusterName": "k8-2",
+            "InstanceGroupName": "sample-instance-group",
+            "InstanceId": "i-0391f86fa0fe0d465",
+            "ResourceType": "Instance",
+            "EventTime": 1745858447412,
+            "EventDetails": {
+                "EventMetadata": {
+                    "Instance": {
+                        "LcsExecutionState": "Started"
+                    }
+                }
+            },
+            "Description": "Instance lifecycle script execution for EC2InstanceId i-0391f86fa0fe0d465 has Started"
+        }
+    }
+}

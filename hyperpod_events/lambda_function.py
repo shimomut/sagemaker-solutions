@@ -1,15 +1,19 @@
 import os
 import json
-
 import boto3
-
 
 def get_console_url(event):
     region = event["region"]
-    cluster_name = event["detail"]["ClusterName"]
+
+    if "ClusterName" in event["detail"]:
+        cluster_name = event["detail"]["ClusterName"]
+    elif "EventDetails" in event["detail"]:
+        cluster_name = event["detail"]["EventDetails"]["ClusterName"]
+    else:
+        cluster_name = ""
+    
     console_url = f"https://{region}.console.aws.amazon.com/sagemaker/home?region={region}#/cluster-management/{cluster_name}"
     return console_url
-
 
 def format_html_for_cluster_status_event(event):
 
@@ -70,7 +74,6 @@ def format_html_for_cluster_status_event(event):
     html_body += "</body>"
 
     return html_body
-
 
 def format_html_for_node_health_event(event):
 
@@ -138,7 +141,58 @@ def format_html_for_node_health_event(event):
 
     return html_body
 
+def format_html_for_cluster_event(event):
 
+    event_details = event["detail"]["EventDetails"]
+
+    html_body = '<body style="font-family:Helvetica; font-size: 11pt;">\n'
+
+    # Table of summary
+    html_body += '<table>\n'
+    
+    html_body += "<tr> <td>%s</td> <td>%s</td> </tr>\n" % (
+        "AWS account:", 
+        event["account"]
+    )
+    
+    html_body += "<tr> <td>%s</td> <td>%s</td> </tr>\n" % (
+        "Region:", 
+        event["region"]
+    )
+    
+    html_body += "<tr> <td>%s</td> <td>%s</td> </tr>\n" % (
+        "Cluster name:", 
+        event_details["ClusterName"]
+    )
+
+    html_body += '</table>\n'
+
+    html_body += "<br>\n"
+
+    # Table of instance groups
+    html_body += '<table border="1" >\n'
+    html_body += '<caption>Event details</caption>\n'
+
+    html_body += "<tr> <td>%s</td> <td>%s</td> </tr>\n" % (
+        "Instance ID", 
+        event_details["InstanceId"]
+    )
+
+    html_body += "<tr> <td>%s</td> <td>%s</td> </tr>\n" % (
+        "Description", 
+        event_details["Description"]
+    )
+
+    html_body += '</table>\n'
+
+    html_body += "<br>\n"
+
+    # Hyperlink to console page
+    html_body += '<a href="%s">Link to HyperPod console</a>\n' % get_console_url(event)
+
+    html_body += "</body>"
+
+    return html_body
 
 def lambda_handler(event, context):
     ses = boto3.client('ses')
@@ -155,6 +209,11 @@ def lambda_handler(event, context):
         node_status = event["detail"]["HealthSummary"]["HealthStatus"]
         email_subject = f"HyperPod Cluster Node Health Event - {node_status}"
         email_body = format_html_for_node_health_event(event)
+    elif event_type == "SageMaker HyperPod Cluster Event":
+        # FIXME: any useful information we can include in the email subject?
+        #cluster_status = event["detail"]["ClusterStatus"]
+        email_subject = f"HyperPod Cluster Event"
+        email_body = format_html_for_cluster_event(event)
     else:
         assert False, f"Unknown event type {event_type}"
 

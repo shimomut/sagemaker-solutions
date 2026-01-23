@@ -10,6 +10,12 @@ local-test2:
 	--receiver shimomut+receiver@amazon.com \
 	--test-event-file test_events/node_health_event.json
 
+local-test3:
+	python3 local_test.py \
+	--sender shimomut+sender@amazon.com \
+	--receiver shimomut+receiver@amazon.com \
+	--test-event-file test_events/cluster_event.json
+
 embed:
 	@echo "Embedding Lambda function into CloudFormation template..."
 	@awk '/# LAMBDA_CODE_PLACEHOLDER/ { \
