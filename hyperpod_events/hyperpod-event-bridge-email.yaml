@@ -385,7 +385,8 @@ Resources:
           "source": ["aws.sagemaker"],
           "detail-type": [
                 "SageMaker HyperPod Cluster State Change",
-                "SageMaker HyperPod Cluster Node Health Event"
+                "SageMaker HyperPod Cluster Node Health Event",
+                "SageMaker HyperPod Cluster Event"
             ]
         }
       Targets:
