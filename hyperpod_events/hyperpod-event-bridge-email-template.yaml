@@ -1,0 +1,122 @@
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: MIT-0
+
+AWSTemplateFormatVersion: '2010-09-09'
+
+Description: "Send SageMaker HyperPod cluster status changes and instance health events by emails."
+
+Parameters:
+
+  SenderEmailAddress:
+    Type: String
+    Description: "Email address to send from (must be verified in SES)."
+
+  ReceiverEmailAddress:
+    Type: String
+    Description: "Email address to send to."
+
+Resources:
+
+  # IAM Role for Lambda execution
+  HyperPodEventsLambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies: 
+        - PolicyName: "HyperPodEventsLambdaExecutionPolicy"
+          PolicyDocument: 
+            Version: "2012-10-17"
+            Statement: 
+              - Effect: "Allow"
+                Action:
+                  - "ses:SendEmail"
+                Resource: 
+                  - !Join
+                    - ""
+                    - 
+                        - "arn:aws:ses:"
+                        - !Ref AWS::Region
+                        - ":"
+                        - !Ref AWS::AccountId
+                        - ":identity/"
+                        - !Ref SenderEmailAddress
+                  - !Join
+                    - ""
+                    - 
+                        - "arn:aws:ses:"
+                        - !Ref AWS::Region
+                        - ":"
+                        - !Ref AWS::AccountId
+                        - ":identity/"
+                        - !Ref ReceiverEmailAddress
+
+              - Effect: "Allow"
+                Action: 
+                  - "logs:CreateLogGroup"
+                  - "logs:CreateLogStream"
+                  - "logs:PutLogEvents"
+                Resource:
+                  - "arn:aws:logs:*:*:log-group:/aws/lambda/*"
+                  - "arn:aws:logs:*:*:log-group:/aws/lambda/*:log-stream:*"
+
+  # IAM Role for EventBridge to invoke Lambda
+  EventBridgeTargetRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: events.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: EventBridgeInvokeLambda
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - lambda:InvokeFunction
+                Resource: !GetAtt HyperPodEventsLambdaFunction.Arn
+
+
+  # Lambda function to format and deliver emails
+  HyperPodEventsLambdaFunction:
+    DependsOn: HyperPodEventsLambdaExecutionRole
+    Type: AWS::Lambda::Function
+    Properties:
+      Role: !GetAtt HyperPodEventsLambdaExecutionRole.Arn
+      Runtime: python3.13
+      Handler:  index.lambda_handler
+      Environment:
+        Variables:
+          SENDER_EMAIL_ADDRESS: !Ref SenderEmailAddress
+          RECEIVER_EMAIL_ADDRESS: !Ref ReceiverEmailAddress
+      Code:
+        ZipFile: |
+          # LAMBDA_CODE_PLACEHOLDER
+
+  # EventBridge Rule
+  EventRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Description: "Rule to capture events and send to Lambda"
+      State: ENABLED
+      EventPattern: |
+        {
+          "source": ["aws.sagemaker"],
+          "detail-type": [
+                "SageMaker HyperPod Cluster State Change",
+                "SageMaker HyperPod Cluster Node Health Event"
+            ]
+        }
+      Targets:
+        - Arn: !GetAtt HyperPodEventsLambdaFunction.Arn
+          Id: "NotificationLambdaTarget"
+          RoleArn: !GetAtt EventBridgeTargetRole.Arn
