@@ -1,0 +1,1695 @@
+{
+  "ClusterName": "k8-2",
+  "Region": "us-west-2",
+  "TotalEvents": 181,
+  "Events": [
+    {
+      "EventId": "151400a3-ebb3-4128-8b0d-1fccb65e1c9f",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker2",
+      "InstanceId": "i-06ffc3e869a2c0f36",
+      "ResourceType": "Instance",
+      "EventTime": "2026-01-23T11:19:08.004000-08:00",
+      "Description": "Instance i-06ffc3e869a2c0f36 creation in Cluster k8-2 and InstanceGroup worker2 completed successfully"
+    },
+    {
+      "EventId": "20ad21cc-1381-4259-8043-c89e87b248ab",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker2",
+      "InstanceId": "i-06ffc3e869a2c0f36",
+      "ResourceType": "Instance",
+      "EventTime": "2026-01-23T11:19:07.755000-08:00",
+      "Description": "Instance lifecycle script execution for EC2 Instance i-06ffc3e869a2c0f36 has Succeeded"
+    },
+    {
+      "EventId": "a19a8468-a087-47c7-99b2-ce357d9bfbce",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker2",
+      "InstanceId": "i-06ffc3e869a2c0f36",
+      "ResourceType": "Instance",
+      "EventTime": "2026-01-23T11:18:07.058000-08:00",
+      "Description": "Instance lifecycle script execution for EC2 Instance i-06ffc3e869a2c0f36 has Started"
+    },
+    {
+      "EventId": "c88c43b1-cad9-41be-a185-b050e17516ba",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker1",
+      "InstanceId": "i-0c525eeaaee011241",
+      "ResourceType": "Instance",
+      "EventTime": "2026-01-23T11:18:06.955000-08:00",
+      "Description": "Instance i-0c525eeaaee011241 creation in Cluster k8-2 and InstanceGroup worker1 completed successfully"
+    },
+    {
+      "EventId": "15001975-5fdf-4b04-8d63-87c6ba642036",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker1",
+      "InstanceId": "i-0c525eeaaee011241",
+      "ResourceType": "Instance",
+      "EventTime": "2026-01-23T11:18:06.736000-08:00",
+      "Description": "Instance lifecycle script execution for EC2 Instance i-0c525eeaaee011241 has Succeeded"
+    },
+    {
+      "EventId": "e5b71bdc-124a-4215-8333-2cf6392c93ce",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker1",
+      "InstanceId": "i-0c525eeaaee011241",
+      "ResourceType": "Instance",
+      "EventTime": "2026-01-23T11:18:06.333000-08:00",
+      "Description": "Instance lifecycle script execution for EC2 Instance i-0c525eeaaee011241 has Started"
+    },
+    {
+      "EventId": "041e15e8-cdd4-4a38-b95a-217b3f0a6001",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker2",
+      "ResourceType": "Instance",
+      "EventTime": "2026-01-23T11:16:21.040000-08:00",
+      "Description": "EC2 Instance i-06ffc3e869a2c0f36 successfully provisioned in Cluster k8-2 and InstanceGroup worker2"
+    },
+    {
+      "EventId": "5ae2dd7e-590a-419b-967d-085bbd9e2ec0",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker1",
+      "ResourceType": "Instance",
+      "EventTime": "2026-01-23T11:16:18.449000-08:00",
+      "Description": "EC2 Instance i-0c525eeaaee011241 successfully provisioned in Cluster k8-2 and InstanceGroup worker1"
+    },
+    {
+      "EventId": "cb1d6f30-5804-49c7-b73d-6785cc7775d8",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker2",
+      "ResourceType": "Instance",
+      "EventTime": "2026-01-23T11:16:15.960000-08:00",
+      "Description": "Successfully created Customer ENI for instance in Cluster k8-2 and InstanceGroup worker2"
+    },
+    {
+      "EventId": "8d24229a-3bb9-450e-89ed-af076cc82c9d",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker2",
+      "ResourceType": "Instance",
+      "EventTime": "2026-01-23T11:16:15.035000-08:00",
+      "Description": "No CapacityReservation found for Cluster k8-2 and InstanceGroup worker2"
+    },
+    {
+      "EventId": "7e85f4f8-b8fb-4e2d-82c9-337634f24a78",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker2",
+      "ResourceType": "Instance",
+      "EventTime": "2026-01-23T11:16:14.933000-08:00",
+      "Description": "Instance creation started successfully in Cluster k8-2 and InstanceGroup worker2"
+    },
+    {
+      "EventId": "2c178bf0-5122-48c6-9ff4-972f2f624b55",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker2",
+      "ResourceType": "InstanceGroup",
+      "EventTime": "2026-01-23T11:16:14.514000-08:00",
+      "Description": "Instance Group worker2 scaling in Cluster k8-2 completed successfully"
+    },
+    {
+      "EventId": "a5244687-801e-4c28-ad0c-9af6c29697a5",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker1",
+      "ResourceType": "Instance",
+      "EventTime": "2026-01-23T11:16:13.039000-08:00",
+      "Description": "Successfully created Customer ENI for instance in Cluster k8-2 and InstanceGroup worker1"
+    },
+    {
+      "EventId": "fdc5639a-f41d-4b5b-95ec-1d1de538ad0d",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker2",
+      "ResourceType": "InstanceGroup",
+      "EventTime": "2026-01-23T11:16:12.928000-08:00",
+      "Description": "InstanceGroup worker2 scaling started successfully in Cluster k8-2"
+    },
+    {
+      "EventId": "5f0502e0-a4d0-4cc3-8db2-59b1e498028e",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker1",
+      "ResourceType": "Instance",
+      "EventTime": "2026-01-23T11:16:11.997000-08:00",
+      "Description": "No CapacityReservation found for Cluster k8-2 and InstanceGroup worker1"
+    },
+    {
+      "EventId": "061a61c3-203f-4ff3-ae3f-5b545377af0e",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker1",
+      "ResourceType": "Instance",
+      "EventTime": "2026-01-23T11:16:11.910000-08:00",
+      "Description": "Instance creation started successfully in Cluster k8-2 and InstanceGroup worker1"
+    },
+    {
+      "EventId": "4bd99f23-e788-4cc9-a5f6-96213735c4ce",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker1",
+      "ResourceType": "InstanceGroup",
+      "EventTime": "2026-01-23T11:16:10.555000-08:00",
+      "Description": "Instance Group worker1 scaling in Cluster k8-2 completed successfully"
+    },
+    {
+      "EventId": "596eae94-0f0d-4ea2-84ce-bc82ca022238",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker1",
+      "ResourceType": "InstanceGroup",
+      "EventTime": "2026-01-23T11:16:08.901000-08:00",
+      "Description": "InstanceGroup worker1 scaling started successfully in Cluster k8-2"
+    },
+    {
+      "EventId": "f0f6d3e5-2cb2-4b53-a5b9-b5a5eaebdacc",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker2",
+      "InstanceId": "i-03aab15c324be6edd",
+      "ResourceType": "Instance",
+      "EventTime": "2026-01-23T11:10:26.146000-08:00",
+      "Description": "Instance i-03aab15c324be6edd creation in Cluster k8-2 and InstanceGroup worker2 completed successfully"
+    },
+    {
+      "EventId": "a33d2292-6e74-425f-9eae-dd7d6742f12c",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker2",
+      "InstanceId": "i-03aab15c324be6edd",
+      "ResourceType": "Instance",
+      "EventTime": "2026-01-23T11:10:25.929000-08:00",
+      "Description": "Instance lifecycle script execution for EC2 Instance i-03aab15c324be6edd has Succeeded"
+    },
+    {
+      "EventId": "02c4f138-6541-4213-9ed7-b9a6e0ae0239",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker2",
+      "InstanceId": "i-03aab15c324be6edd",
+      "ResourceType": "Instance",
+      "EventTime": "2026-01-23T11:09:25.256000-08:00",
+      "Description": "Instance lifecycle script execution for EC2 Instance i-03aab15c324be6edd has Started"
+    },
+    {
+      "EventId": "7258eac8-c6fa-447f-9bf2-51aa843ab77e",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker1",
+      "InstanceId": "i-005a067e3d41442d1",
+      "ResourceType": "Instance",
+      "EventTime": "2026-01-23T11:09:22.141000-08:00",
+      "Description": "Instance i-005a067e3d41442d1 creation in Cluster k8-2 and InstanceGroup worker1 completed successfully"
+    },
+    {
+      "EventId": "ac914495-058b-497b-acf5-32bb0e0a16a1",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker1",
+      "InstanceId": "i-005a067e3d41442d1",
+      "ResourceType": "Instance",
+      "EventTime": "2026-01-23T11:09:21.912000-08:00",
+      "Description": "Instance lifecycle script execution for EC2 Instance i-005a067e3d41442d1 has Succeeded"
+    },
+    {
+      "EventId": "81aefb1b-1673-4ead-8dd0-762ab7fe181b",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker1",
+      "InstanceId": "i-005a067e3d41442d1",
+      "ResourceType": "Instance",
+      "EventTime": "2026-01-23T11:09:21.515000-08:00",
+      "Description": "Instance lifecycle script execution for EC2 Instance i-005a067e3d41442d1 has Started"
+    },
+    {
+      "EventId": "213a9a69-44c7-416f-af2a-c56a9cd15e8b",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker2",
+      "ResourceType": "Instance",
+      "EventTime": "2026-01-23T11:07:34.348000-08:00",
+      "Description": "EC2 Instance i-03aab15c324be6edd successfully provisioned in Cluster k8-2 and InstanceGroup worker2"
+    },
+    {
+      "EventId": "ae88a923-13ed-4eee-a695-945b6de1d4d5",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker1",
+      "ResourceType": "Instance",
+      "EventTime": "2026-01-23T11:07:33.522000-08:00",
+      "Description": "EC2 Instance i-005a067e3d41442d1 successfully provisioned in Cluster k8-2 and InstanceGroup worker1"
+    },
+    {
+      "EventId": "c7dddc3c-d081-4cbc-a6f3-b698e7148bae",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker2",
+      "ResourceType": "Instance",
+      "EventTime": "2026-01-23T11:07:29.344000-08:00",
+      "Description": "Successfully created Customer ENI for instance in Cluster k8-2 and InstanceGroup worker2"
+    },
+    {
+      "EventId": "a56fb4cb-289b-423d-af8b-4ca46eef71b1",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker2",
+      "ResourceType": "Instance",
+      "EventTime": "2026-01-23T11:07:28.394000-08:00",
+      "Description": "No CapacityReservation found for Cluster k8-2 and InstanceGroup worker2"
+    },
+    {
+      "EventId": "22a6c451-255a-4296-8355-f6af8826f86b",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker2",
+      "ResourceType": "Instance",
+      "EventTime": "2026-01-23T11:07:28.316000-08:00",
+      "Description": "Instance creation started successfully in Cluster k8-2 and InstanceGroup worker2"
+    },
+    {
+      "EventId": "f852f1ad-4603-40ab-83fd-edb2d757b0a1",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker1",
+      "ResourceType": "Instance",
+      "EventTime": "2026-01-23T11:07:28.201000-08:00",
+      "Description": "Successfully created Customer ENI for instance in Cluster k8-2 and InstanceGroup worker1"
+    },
+    {
+      "EventId": "07d4ead9-99ec-4463-9ba9-848a0dda03a5",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker2",
+      "ResourceType": "InstanceGroup",
+      "EventTime": "2026-01-23T11:07:27.619000-08:00",
+      "Description": "Instance Group worker2 scaling in Cluster k8-2 completed successfully"
+    },
+    {
+      "EventId": "70af2ffc-aa55-462f-9aff-2011be6b0a03",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker1",
+      "ResourceType": "Instance",
+      "EventTime": "2026-01-23T11:07:27.379000-08:00",
+      "Description": "No CapacityReservation found for Cluster k8-2 and InstanceGroup worker1"
+    },
+    {
+      "EventId": "d3f9a6c4-5e69-4511-8837-16a513a36e93",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker1",
+      "ResourceType": "Instance",
+      "EventTime": "2026-01-23T11:07:27.292000-08:00",
+      "Description": "Instance creation started successfully in Cluster k8-2 and InstanceGroup worker1"
+    },
+    {
+      "EventId": "03303289-477b-4fdd-b3b8-690d1dd35a64",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker2",
+      "ResourceType": "InstanceGroup",
+      "EventTime": "2026-01-23T11:07:26.045000-08:00",
+      "Description": "InstanceGroup worker2 scaling started successfully in Cluster k8-2"
+    },
+    {
+      "EventId": "422e94f0-77e8-4b4e-8597-618f1f1590d2",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker1",
+      "ResourceType": "InstanceGroup",
+      "EventTime": "2026-01-23T11:07:25.695000-08:00",
+      "Description": "Instance Group worker1 scaling in Cluster k8-2 completed successfully"
+    },
+    {
+      "EventId": "1c674550-fbdd-4d77-988e-dc6299f90373",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker1",
+      "ResourceType": "InstanceGroup",
+      "EventTime": "2026-01-23T11:07:24.049000-08:00",
+      "Description": "InstanceGroup worker1 scaling started successfully in Cluster k8-2"
+    },
+    {
+      "EventId": "1161b3fb-1b18-4ace-abaf-f64379ef0832",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker2",
+      "InstanceId": "i-08a1317f03a3b7d44",
+      "ResourceType": "Instance",
+      "EventTime": "2026-01-22T14:52:04.818000-08:00",
+      "Description": "Instance i-08a1317f03a3b7d44 deletion in Cluster k8-2 and InstanceGroup worker2 completed successfully"
+    },
+    {
+      "EventId": "3135b492-c1ab-4c12-a007-63abff9fa2da",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker2",
+      "InstanceId": "i-08a1317f03a3b7d44",
+      "ResourceType": "Instance",
+      "EventTime": "2026-01-22T14:52:04.591000-08:00",
+      "Description": "Customer ENI successfully deleted for EC2 Instance i-08a1317f03a3b7d44 in Cluster k8-2 and InstanceGroup worker2"
+    },
+    {
+      "EventId": "d3876326-3e73-4ed6-a7d5-d27a38a0a056",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker1",
+      "InstanceId": "i-06ba335bf3429826d",
+      "ResourceType": "Instance",
+      "EventTime": "2026-01-22T14:47:45.407000-08:00",
+      "Description": "Instance i-06ba335bf3429826d deletion in Cluster k8-2 and InstanceGroup worker1 completed successfully"
+    },
+    {
+      "EventId": "67474f41-f2ae-412f-9f09-aa11d1d6e9c2",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker1",
+      "InstanceId": "i-06ba335bf3429826d",
+      "ResourceType": "Instance",
+      "EventTime": "2026-01-22T14:47:45.230000-08:00",
+      "Description": "Customer ENI successfully deleted for EC2 Instance i-06ba335bf3429826d in Cluster k8-2 and InstanceGroup worker1"
+    },
+    {
+      "EventId": "b3356c3f-815e-4d2b-8377-7b31ab6a524a",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker1",
+      "InstanceId": "i-06ba335bf3429826d",
+      "ResourceType": "Instance",
+      "EventTime": "2026-01-22T14:45:43.500000-08:00",
+      "Description": "EC2 Instance i-06ba335bf3429826d successfully terminated in Cluster k8-2 and InstanceGroup worker1"
+    },
+    {
+      "EventId": "da273226-4b35-4ace-ab6f-7766fc6aeeec",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker1",
+      "InstanceId": "i-06ba335bf3429826d",
+      "ResourceType": "Instance",
+      "EventTime": "2026-01-22T14:45:42.929000-08:00",
+      "Description": "Instance deletion started successfully in Cluster k8-2 and InstanceGroup worker1"
+    },
+    {
+      "EventId": "8df82df7-59d7-4851-8585-087e7dd5a90d",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker1",
+      "ResourceType": "InstanceGroup",
+      "EventTime": "2026-01-22T14:45:42.489000-08:00",
+      "Description": "Instance Group worker1 scaling in Cluster k8-2 completed successfully"
+    },
+    {
+      "EventId": "f5cbb12a-0b0d-4861-baae-941dcda726f9",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker1",
+      "ResourceType": "InstanceGroup",
+      "EventTime": "2026-01-22T14:45:40.919000-08:00",
+      "Description": "InstanceGroup worker1 scaling started successfully in Cluster k8-2"
+    },
+    {
+      "EventId": "338c5657-2e6f-42ef-af0c-df122f0890a6",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker2",
+      "InstanceId": "i-08a1317f03a3b7d44",
+      "ResourceType": "Instance",
+      "EventTime": "2026-01-22T14:45:30.515000-08:00",
+      "Description": "EC2 Instance i-08a1317f03a3b7d44 successfully terminated in Cluster k8-2 and InstanceGroup worker2"
+    },
+    {
+      "EventId": "f4d0c603-0cb1-4c9e-a4eb-0704ddaf1300",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker2",
+      "InstanceId": "i-08a1317f03a3b7d44",
+      "ResourceType": "Instance",
+      "EventTime": "2026-01-22T14:45:29.990000-08:00",
+      "Description": "Instance deletion started successfully in Cluster k8-2 and InstanceGroup worker2"
+    },
+    {
+      "EventId": "248156cf-d6f7-4e61-83e7-a94f21bb7b3b",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker2",
+      "ResourceType": "InstanceGroup",
+      "EventTime": "2026-01-22T14:45:29.356000-08:00",
+      "Description": "Instance Group worker2 scaling in Cluster k8-2 completed successfully"
+    },
+    {
+      "EventId": "f4e32698-6869-4f94-860e-334ad0e55daa",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker2",
+      "ResourceType": "InstanceGroup",
+      "EventTime": "2026-01-22T14:45:27.910000-08:00",
+      "Description": "InstanceGroup worker2 scaling started successfully in Cluster k8-2"
+    },
+    {
+      "EventId": "8079ba08-3744-4430-8126-5861c0c96b16",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker2",
+      "InstanceId": "i-08a1317f03a3b7d44",
+      "ResourceType": "Instance",
+      "EventTime": "2026-01-22T14:17:43.920000-08:00",
+      "Description": "Instance i-08a1317f03a3b7d44 creation in Cluster k8-2 and InstanceGroup worker2 completed successfully"
+    },
+    {
+      "EventId": "368ff424-ae9b-45dd-93e0-ac271f3f7815",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker2",
+      "InstanceId": "i-08a1317f03a3b7d44",
+      "ResourceType": "Instance",
+      "EventTime": "2026-01-22T14:17:43.651000-08:00",
+      "Description": "Instance lifecycle script execution for EC2 Instance i-08a1317f03a3b7d44 has Succeeded"
+    },
+    {
+      "EventId": "c7fea9a6-0924-4fc3-bbfb-fe3a1107e42a",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker2",
+      "InstanceId": "i-08a1317f03a3b7d44",
+      "ResourceType": "Instance",
+      "EventTime": "2026-01-22T14:16:42.919000-08:00",
+      "Description": "Instance lifecycle script execution for EC2 Instance i-08a1317f03a3b7d44 has Started"
+    },
+    {
+      "EventId": "97ed98b1-7bf7-4fcf-8805-80325611afcf",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker1",
+      "InstanceId": "i-06ba335bf3429826d",
+      "ResourceType": "Instance",
+      "EventTime": "2026-01-22T14:16:34.980000-08:00",
+      "Description": "Instance i-06ba335bf3429826d creation in Cluster k8-2 and InstanceGroup worker1 completed successfully"
+    },
+    {
+      "EventId": "e6f833b5-0d82-4691-8482-926ef17447f2",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker1",
+      "InstanceId": "i-06ba335bf3429826d",
+      "ResourceType": "Instance",
+      "EventTime": "2026-01-22T14:16:34.774000-08:00",
+      "Description": "Instance lifecycle script execution for EC2 Instance i-06ba335bf3429826d has Succeeded"
+    },
+    {
+      "EventId": "c69be61a-3264-4b54-aea3-87c44d1764fd",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker1",
+      "InstanceId": "i-06ba335bf3429826d",
+      "ResourceType": "Instance",
+      "EventTime": "2026-01-22T14:16:34.272000-08:00",
+      "Description": "Instance lifecycle script execution for EC2 Instance i-06ba335bf3429826d has Started"
+    },
+    {
+      "EventId": "222f79db-92f5-47cb-8b0b-079f74768ebe",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker2",
+      "ResourceType": "Instance",
+      "EventTime": "2026-01-22T14:14:55.013000-08:00",
+      "Description": "EC2 Instance i-08a1317f03a3b7d44 successfully provisioned in Cluster k8-2 and InstanceGroup worker2"
+    },
+    {
+      "EventId": "da71af7d-48e0-467a-aa0d-5f56c806cb64",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker2",
+      "ResourceType": "Instance",
+      "EventTime": "2026-01-22T14:14:50.059000-08:00",
+      "Description": "Successfully created Customer ENI for instance in Cluster k8-2 and InstanceGroup worker2"
+    },
+    {
+      "EventId": "e64f7bd6-758c-4f54-b37d-a3ce546920e6",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker1",
+      "ResourceType": "Instance",
+      "EventTime": "2026-01-22T14:14:49.382000-08:00",
+      "Description": "EC2 Instance i-06ba335bf3429826d successfully provisioned in Cluster k8-2 and InstanceGroup worker1"
+    },
+    {
+      "EventId": "75bee32e-b4a5-4dfd-b3d8-a98083159790",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker2",
+      "ResourceType": "Instance",
+      "EventTime": "2026-01-22T14:14:49.303000-08:00",
+      "Description": "No CapacityReservation found for Cluster k8-2 and InstanceGroup worker2"
+    },
+    {
+      "EventId": "63c90a6f-cecb-40ea-b893-f9ad803ded3a",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker2",
+      "ResourceType": "Instance",
+      "EventTime": "2026-01-22T14:14:49.207000-08:00",
+      "Description": "Instance creation started successfully in Cluster k8-2 and InstanceGroup worker2"
+    },
+    {
+      "EventId": "edf8093d-6e29-40b4-b002-57afa8ebe070",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker2",
+      "ResourceType": "InstanceGroup",
+      "EventTime": "2026-01-22T14:14:48.441000-08:00",
+      "Description": "Instance Group worker2 scaling in Cluster k8-2 completed successfully"
+    },
+    {
+      "EventId": "3f497f5e-930b-494f-a44c-3b11183b9d66",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker2",
+      "ResourceType": "InstanceGroup",
+      "EventTime": "2026-01-22T14:14:46.850000-08:00",
+      "Description": "InstanceGroup worker2 scaling started successfully in Cluster k8-2"
+    },
+    {
+      "EventId": "94ba1c4c-2a92-4e4f-9aa7-e8a4c9784288",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker1",
+      "ResourceType": "Instance",
+      "EventTime": "2026-01-22T14:14:44.253000-08:00",
+      "Description": "Successfully created Customer ENI for instance in Cluster k8-2 and InstanceGroup worker1"
+    },
+    {
+      "EventId": "c0b78fb3-ec28-40f7-b98b-e3660a56c08c",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker1",
+      "ResourceType": "Instance",
+      "EventTime": "2026-01-22T14:14:43.378000-08:00",
+      "Description": "No CapacityReservation found for Cluster k8-2 and InstanceGroup worker1"
+    },
+    {
+      "EventId": "e01dd544-eeca-4585-a982-d88906f1c57c",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker1",
+      "ResourceType": "Instance",
+      "EventTime": "2026-01-22T14:14:43.277000-08:00",
+      "Description": "Instance creation started successfully in Cluster k8-2 and InstanceGroup worker1"
+    },
+    {
+      "EventId": "ff3d55cc-f6d5-4747-ba62-60422ff94dc6",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker1",
+      "ResourceType": "InstanceGroup",
+      "EventTime": "2026-01-22T14:14:42.562000-08:00",
+      "Description": "Instance Group worker1 scaling in Cluster k8-2 completed successfully"
+    },
+    {
+      "EventId": "ffdbfd4b-c940-4120-8c33-48eb74508967",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker1",
+      "ResourceType": "InstanceGroup",
+      "EventTime": "2026-01-22T14:14:40.896000-08:00",
+      "Description": "InstanceGroup worker1 scaling started successfully in Cluster k8-2"
+    },
+    {
+      "EventId": "efea9ffc-ac1d-4d5f-98b6-29418240f849",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker2",
+      "InstanceId": "i-0be84cfa5420322a0",
+      "ResourceType": "Instance",
+      "EventTime": "2026-01-22T14:08:24.494000-08:00",
+      "Description": "Instance i-0be84cfa5420322a0 deletion in Cluster k8-2 and InstanceGroup worker2 completed successfully"
+    },
+    {
+      "EventId": "9ff8a685-d4d1-4e19-b26b-51bdb75990d5",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker2",
+      "InstanceId": "i-0be84cfa5420322a0",
+      "ResourceType": "Instance",
+      "EventTime": "2026-01-22T14:08:24.195000-08:00",
+      "Description": "Customer ENI successfully deleted for EC2 Instance i-0be84cfa5420322a0 in Cluster k8-2 and InstanceGroup worker2"
+    },
+    {
+      "EventId": "117e4087-adbb-47ab-9367-72e7e63f6cf0",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker1",
+      "InstanceId": "i-00b21ceb982aa63b1",
+      "ResourceType": "Instance",
+      "EventTime": "2026-01-22T14:04:48.768000-08:00",
+      "Description": "Instance i-00b21ceb982aa63b1 deletion in Cluster k8-2 and InstanceGroup worker1 completed successfully"
+    },
+    {
+      "EventId": "38054dbc-a0c8-46aa-97a9-0ca7ec2b9a3b",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker1",
+      "InstanceId": "i-00b21ceb982aa63b1",
+      "ResourceType": "Instance",
+      "EventTime": "2026-01-22T14:04:48.565000-08:00",
+      "Description": "Customer ENI successfully deleted for EC2 Instance i-00b21ceb982aa63b1 in Cluster k8-2 and InstanceGroup worker1"
+    },
+    {
+      "EventId": "12e59d2e-b649-4035-8783-db78cc2deb31",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker2",
+      "InstanceId": "i-0be84cfa5420322a0",
+      "ResourceType": "Instance",
+      "EventTime": "2026-01-22T14:02:50.627000-08:00",
+      "Description": "EC2 Instance i-0be84cfa5420322a0 successfully terminated in Cluster k8-2 and InstanceGroup worker2"
+    },
+    {
+      "EventId": "a8e36380-d77e-4e0f-a609-e2e0af51b47f",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker2",
+      "InstanceId": "i-0be84cfa5420322a0",
+      "ResourceType": "Instance",
+      "EventTime": "2026-01-22T14:02:50.089000-08:00",
+      "Description": "Instance deletion started successfully in Cluster k8-2 and InstanceGroup worker2"
+    },
+    {
+      "EventId": "1f9fa647-fa80-464e-aebf-95c9ff042112",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker2",
+      "ResourceType": "InstanceGroup",
+      "EventTime": "2026-01-22T14:02:49.473000-08:00",
+      "Description": "Instance Group worker2 scaling in Cluster k8-2 completed successfully"
+    },
+    {
+      "EventId": "43892c84-8fde-4d5f-9833-f52f448200a0",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker2",
+      "ResourceType": "InstanceGroup",
+      "EventTime": "2026-01-22T14:02:47.877000-08:00",
+      "Description": "InstanceGroup worker2 scaling started successfully in Cluster k8-2"
+    },
+    {
+      "EventId": "81c62d62-2c94-4fb1-b013-4b9109d378e3",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker1",
+      "InstanceId": "i-00b21ceb982aa63b1",
+      "ResourceType": "Instance",
+      "EventTime": "2026-01-22T14:02:46.629000-08:00",
+      "Description": "EC2 Instance i-00b21ceb982aa63b1 successfully terminated in Cluster k8-2 and InstanceGroup worker1"
+    },
+    {
+      "EventId": "64bb5db1-d5be-46a9-baad-3fda8378b8d5",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker1",
+      "InstanceId": "i-00b21ceb982aa63b1",
+      "ResourceType": "Instance",
+      "EventTime": "2026-01-22T14:02:46.048000-08:00",
+      "Description": "Instance deletion started successfully in Cluster k8-2 and InstanceGroup worker1"
+    },
+    {
+      "EventId": "3da6b996-ddbf-4070-8eeb-89ae6e86ee81",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker1",
+      "ResourceType": "InstanceGroup",
+      "EventTime": "2026-01-22T14:02:45.469000-08:00",
+      "Description": "Instance Group worker1 scaling in Cluster k8-2 completed successfully"
+    },
+    {
+      "EventId": "3bf82a68-73bd-43fa-a413-6c279b10034e",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker1",
+      "ResourceType": "InstanceGroup",
+      "EventTime": "2026-01-22T14:02:43.899000-08:00",
+      "Description": "InstanceGroup worker1 scaling started successfully in Cluster k8-2"
+    },
+    {
+      "EventId": "6c8be0a4-70a7-4e8f-ad7e-01a79ecdb0e9",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker2",
+      "InstanceId": "i-0be84cfa5420322a0",
+      "ResourceType": "Instance",
+      "EventTime": "2026-01-21T11:10:37.043000-08:00",
+      "Description": "Instance i-0be84cfa5420322a0 creation in Cluster k8-2 and InstanceGroup worker2 completed successfully"
+    },
+    {
+      "EventId": "c2d81e2f-daeb-4bad-9ff7-1ed6fda5af51",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker2",
+      "InstanceId": "i-0be84cfa5420322a0",
+      "ResourceType": "Instance",
+      "EventTime": "2026-01-21T11:10:36.835000-08:00",
+      "Description": "Instance lifecycle script execution for EC2 Instance i-0be84cfa5420322a0 has Succeeded"
+    },
+    {
+      "EventId": "3f540ded-1c25-42dc-a9a7-b842440f9342",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker2",
+      "InstanceId": "i-0be84cfa5420322a0",
+      "ResourceType": "Instance",
+      "EventTime": "2026-01-21T11:09:36.120000-08:00",
+      "Description": "Instance lifecycle script execution for EC2 Instance i-0be84cfa5420322a0 has Started"
+    },
+    {
+      "EventId": "84e73125-198b-45d7-90c8-9f8e968adb12",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker2",
+      "ResourceType": "Instance",
+      "EventTime": "2026-01-21T11:07:45.174000-08:00",
+      "Description": "EC2 Instance i-0be84cfa5420322a0 successfully provisioned in Cluster k8-2 and InstanceGroup worker2"
+    },
+    {
+      "EventId": "a0b0a51b-1be2-4822-996b-402917550269",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker2",
+      "ResourceType": "Instance",
+      "EventTime": "2026-01-21T11:07:40.087000-08:00",
+      "Description": "Successfully created Customer ENI for instance in Cluster k8-2 and InstanceGroup worker2"
+    },
+    {
+      "EventId": "398c03e9-2c60-4ae3-a896-bfaa7011bbb3",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker2",
+      "ResourceType": "Instance",
+      "EventTime": "2026-01-21T11:07:39.963000-08:00",
+      "Description": "No CapacityReservation found for Cluster k8-2 and InstanceGroup worker2"
+    },
+    {
+      "EventId": "334f8cfc-ae93-4f0a-b9ea-c7217a39c450",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker2",
+      "ResourceType": "Instance",
+      "EventTime": "2026-01-21T11:07:39.875000-08:00",
+      "Description": "Instance creation started successfully in Cluster k8-2 and InstanceGroup worker2"
+    },
+    {
+      "EventId": "c2fca535-b597-4967-bcb4-6def5062e14c",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker2",
+      "ResourceType": "Instance",
+      "EventTime": "2026-01-21T10:57:37.795000-08:00",
+      "Description": "Instance deletion in Cluster k8-2 and InstanceGroup worker2 completed successfully"
+    },
+    {
+      "EventId": "20bf086a-3311-478e-b0d7-30c8bd25bfc1",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker2",
+      "ResourceType": "Instance",
+      "EventTime": "2026-01-21T10:57:37.249000-08:00",
+      "Description": "EC2 Instance  successfully terminated in Cluster k8-2 and InstanceGroup worker2"
+    },
+    {
+      "EventId": "62856247-936e-4a78-b35f-e2b82f8a2403",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker2",
+      "ResourceType": "Instance",
+      "EventTime": "2026-01-21T10:57:37.037000-08:00",
+      "Description": "Instance deletion started successfully in Cluster k8-2 and InstanceGroup worker2"
+    },
+    {
+      "EventId": "5eeae9d6-2237-4136-9808-3afac272306c",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker2",
+      "ResourceType": "Instance",
+      "EventTime": "2026-01-21T10:47:34.696000-08:00",
+      "Description": "Instance creation in Cluster k8-2 and InstanceGroup worker2 failed"
+    },
+    {
+      "EventId": "9cbde02a-dc4f-4475-bc42-098caf4646a2",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker2",
+      "ResourceType": "Instance",
+      "EventTime": "2026-01-21T10:47:34.425000-08:00",
+      "Description": "Failed to provision EC2 Instance in Cluster k8-2 and InstanceGroup worker2"
+    },
+    {
+      "EventId": "5339304f-3941-45d6-82c3-ef903b060e2b",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker2",
+      "ResourceType": "Instance",
+      "EventTime": "2026-01-21T10:47:30.228000-08:00",
+      "Description": "Successfully created Customer ENI for instance in Cluster k8-2 and InstanceGroup worker2"
+    },
+    {
+      "EventId": "62a9df30-6056-4965-833b-a2d007595702",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker2",
+      "ResourceType": "Instance",
+      "EventTime": "2026-01-21T10:47:30.078000-08:00",
+      "Description": "No CapacityReservation found for Cluster k8-2 and InstanceGroup worker2"
+    },
+    {
+      "EventId": "cc4b4da6-35d8-467a-b365-89bdec316855",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker2",
+      "ResourceType": "Instance",
+      "EventTime": "2026-01-21T10:47:29.966000-08:00",
+      "Description": "Instance creation started successfully in Cluster k8-2 and InstanceGroup worker2"
+    },
+    {
+      "EventId": "390caf9e-9af3-40f4-bf4f-caa13558fa79",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker1",
+      "InstanceId": "i-00b21ceb982aa63b1",
+      "ResourceType": "Instance",
+      "EventTime": "2026-01-21T10:47:08.749000-08:00",
+      "Description": "Instance i-00b21ceb982aa63b1 creation in Cluster k8-2 and InstanceGroup worker1 completed successfully"
+    },
+    {
+      "EventId": "02a2eb61-092e-4caf-aa7a-b7dc2421563b",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker1",
+      "InstanceId": "i-00b21ceb982aa63b1",
+      "ResourceType": "Instance",
+      "EventTime": "2026-01-21T10:47:08.545000-08:00",
+      "Description": "Instance lifecycle script execution for EC2 Instance i-00b21ceb982aa63b1 has Succeeded"
+    },
+    {
+      "EventId": "2cbf261e-1be2-4b78-a779-09030924d068",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker1",
+      "InstanceId": "i-00b21ceb982aa63b1",
+      "ResourceType": "Instance",
+      "EventTime": "2026-01-21T10:47:08.117000-08:00",
+      "Description": "Instance lifecycle script execution for EC2 Instance i-00b21ceb982aa63b1 has Started"
+    },
+    {
+      "EventId": "daa3f99b-3caa-4723-835c-537c71aa911a",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker2",
+      "ResourceType": "Instance",
+      "EventTime": "2026-01-21T10:46:28.832000-08:00",
+      "Description": "Instance deletion in Cluster k8-2 and InstanceGroup worker2 completed successfully"
+    },
+    {
+      "EventId": "87ab12a5-5728-435d-9abf-894e3955a11c",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker2",
+      "ResourceType": "Instance",
+      "EventTime": "2026-01-21T10:46:28.273000-08:00",
+      "Description": "EC2 Instance  successfully terminated in Cluster k8-2 and InstanceGroup worker2"
+    },
+    {
+      "EventId": "df06a802-0cc4-457a-a4c1-0d8067d2686e",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker2",
+      "ResourceType": "Instance",
+      "EventTime": "2026-01-21T10:46:28.052000-08:00",
+      "Description": "Instance deletion started successfully in Cluster k8-2 and InstanceGroup worker2"
+    },
+    {
+      "EventId": "50e05e06-03ef-43c6-b433-1bb735bda16f",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker2",
+      "ResourceType": "Instance",
+      "EventTime": "2026-01-21T10:45:26.686000-08:00",
+      "Description": "Instance creation in Cluster k8-2 and InstanceGroup worker2 failed"
+    },
+    {
+      "EventId": "ddb91ad4-a4fb-4ef2-b4a1-5c842e8f9f96",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker2",
+      "ResourceType": "Instance",
+      "EventTime": "2026-01-21T10:45:26.455000-08:00",
+      "Description": "Failed to provision EC2 Instance in Cluster k8-2 and InstanceGroup worker2"
+    },
+    {
+      "EventId": "2aef56e8-e974-45ac-84ed-e7a9e8c7a94a",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker1",
+      "ResourceType": "Instance",
+      "EventTime": "2026-01-21T10:45:23.094000-08:00",
+      "Description": "EC2 Instance i-00b21ceb982aa63b1 successfully provisioned in Cluster k8-2 and InstanceGroup worker1"
+    },
+    {
+      "EventId": "e74a4a68-0d48-4095-abe5-40164ddb2aff",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker2",
+      "ResourceType": "Instance",
+      "EventTime": "2026-01-21T10:45:22.002000-08:00",
+      "Description": "Successfully created Customer ENI for instance in Cluster k8-2 and InstanceGroup worker2"
+    },
+    {
+      "EventId": "b296944f-2d13-41f3-a10b-27b009641520",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker2",
+      "ResourceType": "Instance",
+      "EventTime": "2026-01-21T10:45:21.027000-08:00",
+      "Description": "No CapacityReservation found for Cluster k8-2 and InstanceGroup worker2"
+    },
+    {
+      "EventId": "b203e57c-2fad-425d-87c5-d1c2ab4c2232",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker2",
+      "ResourceType": "Instance",
+      "EventTime": "2026-01-21T10:45:20.942000-08:00",
+      "Description": "Instance creation started successfully in Cluster k8-2 and InstanceGroup worker2"
+    },
+    {
+      "EventId": "bf53680f-1fe4-4c21-a7e8-2b5fb9488eb8",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker2",
+      "ResourceType": "InstanceGroup",
+      "EventTime": "2026-01-21T10:45:20.661000-08:00",
+      "Description": "Instance Group worker2 scaling in Cluster k8-2 completed successfully"
+    },
+    {
+      "EventId": "05e599ff-3790-4057-99b3-520186a55bfa",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker2",
+      "ResourceType": "InstanceGroup",
+      "EventTime": "2026-01-21T10:45:19.031000-08:00",
+      "Description": "InstanceGroup worker2 scaling started successfully in Cluster k8-2"
+    },
+    {
+      "EventId": "ec501824-b2f5-4f5a-9652-9bc68973df58",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker1",
+      "ResourceType": "Instance",
+      "EventTime": "2026-01-21T10:45:17.880000-08:00",
+      "Description": "Successfully created Customer ENI for instance in Cluster k8-2 and InstanceGroup worker1"
+    },
+    {
+      "EventId": "96197927-e78b-4fd9-984f-7d942e341fa6",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker1",
+      "ResourceType": "Instance",
+      "EventTime": "2026-01-21T10:45:17.008000-08:00",
+      "Description": "No CapacityReservation found for Cluster k8-2 and InstanceGroup worker1"
+    },
+    {
+      "EventId": "1e007b36-0982-4230-bf30-186421aad1ab",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker1",
+      "ResourceType": "Instance",
+      "EventTime": "2026-01-21T10:45:16.928000-08:00",
+      "Description": "Instance creation started successfully in Cluster k8-2 and InstanceGroup worker1"
+    },
+    {
+      "EventId": "93920e9d-c2e7-4b8a-902d-74ed6bfc6ff3",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker1",
+      "ResourceType": "InstanceGroup",
+      "EventTime": "2026-01-21T10:45:16.705000-08:00",
+      "Description": "Instance Group worker1 scaling in Cluster k8-2 completed successfully"
+    },
+    {
+      "EventId": "55d9468d-8674-4966-8979-001ce72c5c6c",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker1",
+      "ResourceType": "InstanceGroup",
+      "EventTime": "2026-01-21T10:45:15.016000-08:00",
+      "Description": "InstanceGroup worker1 scaling started successfully in Cluster k8-2"
+    },
+    {
+      "EventId": "1cddd9dc-dee7-430b-a9ec-10a51173211a",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker2",
+      "InstanceId": "i-0d29a017a99ceb10a",
+      "ResourceType": "Instance",
+      "EventTime": "2026-01-15T16:30:22.909000-08:00",
+      "Description": "Instance i-0d29a017a99ceb10a deletion in Cluster k8-2 and InstanceGroup worker2 completed successfully"
+    },
+    {
+      "EventId": "65661fae-2233-46a7-9e1f-e00362e5695d",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker2",
+      "InstanceId": "i-0d29a017a99ceb10a",
+      "ResourceType": "Instance",
+      "EventTime": "2026-01-15T16:30:22.670000-08:00",
+      "Description": "Customer ENI successfully deleted for EC2 Instance i-0d29a017a99ceb10a in Cluster k8-2 and InstanceGroup worker2"
+    },
+    {
+      "EventId": "da4a91e5-22ad-4fb5-9619-3ac0c55e5ca9",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker2",
+      "InstanceId": "i-09eba38651e74b24c",
+      "ResourceType": "Instance",
+      "EventTime": "2026-01-15T16:29:22.294000-08:00",
+      "Description": "Instance i-09eba38651e74b24c deletion in Cluster k8-2 and InstanceGroup worker2 completed successfully"
+    },
+    {
+      "EventId": "1ccedeb2-cabe-46d3-ad5a-36b3582b2f61",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker2",
+      "InstanceId": "i-09eba38651e74b24c",
+      "ResourceType": "Instance",
+      "EventTime": "2026-01-15T16:29:22.015000-08:00",
+      "Description": "Customer ENI successfully deleted for EC2 Instance i-09eba38651e74b24c in Cluster k8-2 and InstanceGroup worker2"
+    },
+    {
+      "EventId": "58504192-ea5c-465c-9c75-d1ff4d7ecbde",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker1",
+      "InstanceId": "i-06c30da7487b08a38",
+      "ResourceType": "Instance",
+      "EventTime": "2026-01-15T16:26:12.538000-08:00",
+      "Description": "Instance i-06c30da7487b08a38 deletion in Cluster k8-2 and InstanceGroup worker1 completed successfully"
+    },
+    {
+      "EventId": "32d55446-3328-42bc-86b5-5f3381cac7c7",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker1",
+      "InstanceId": "i-06c30da7487b08a38",
+      "ResourceType": "Instance",
+      "EventTime": "2026-01-15T16:26:12.315000-08:00",
+      "Description": "Customer ENI successfully deleted for EC2 Instance i-06c30da7487b08a38 in Cluster k8-2 and InstanceGroup worker1"
+    },
+    {
+      "EventId": "ffd50fae-6eee-4c5f-bdb5-f696d791848e",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker1",
+      "InstanceId": "i-09d2c5538054dbdf8",
+      "ResourceType": "Instance",
+      "EventTime": "2026-01-15T16:25:42.408000-08:00",
+      "Description": "Instance i-09d2c5538054dbdf8 deletion in Cluster k8-2 and InstanceGroup worker1 completed successfully"
+    },
+    {
+      "EventId": "8c670483-fa09-4b25-b9e2-cfbc1daec80f",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker1",
+      "InstanceId": "i-09d2c5538054dbdf8",
+      "ResourceType": "Instance",
+      "EventTime": "2026-01-15T16:25:42.166000-08:00",
+      "Description": "Customer ENI successfully deleted for EC2 Instance i-09d2c5538054dbdf8 in Cluster k8-2 and InstanceGroup worker1"
+    },
+    {
+      "EventId": "2d2f7fc1-0ea8-48ca-bc0d-f2a2342ac09a",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker1",
+      "InstanceId": "i-09d2c5538054dbdf8",
+      "ResourceType": "Instance",
+      "EventTime": "2026-01-15T16:24:40.675000-08:00",
+      "Description": "EC2 Instance i-09d2c5538054dbdf8 successfully terminated in Cluster k8-2 and InstanceGroup worker1"
+    },
+    {
+      "EventId": "aedb014c-216d-4074-83b4-c0074049279c",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker1",
+      "InstanceId": "i-06c30da7487b08a38",
+      "ResourceType": "Instance",
+      "EventTime": "2026-01-15T16:24:40.561000-08:00",
+      "Description": "EC2 Instance i-06c30da7487b08a38 successfully terminated in Cluster k8-2 and InstanceGroup worker1"
+    },
+    {
+      "EventId": "dc0fd11b-8ed4-49fe-93ef-0a120076af79",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker1",
+      "InstanceId": "i-09d2c5538054dbdf8",
+      "ResourceType": "Instance",
+      "EventTime": "2026-01-15T16:24:40.025000-08:00",
+      "Description": "Instance deletion started successfully in Cluster k8-2 and InstanceGroup worker1"
+    },
+    {
+      "EventId": "e6b31bd3-fe3a-4f15-bf4d-8e29d7b09b0b",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker1",
+      "InstanceId": "i-06c30da7487b08a38",
+      "ResourceType": "Instance",
+      "EventTime": "2026-01-15T16:24:40.012000-08:00",
+      "Description": "Instance deletion started successfully in Cluster k8-2 and InstanceGroup worker1"
+    },
+    {
+      "EventId": "05834f15-6443-4235-90b4-0c6f0f425554",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker1",
+      "ResourceType": "InstanceGroup",
+      "EventTime": "2026-01-15T16:24:39.451000-08:00",
+      "Description": "Instance Group worker1 scaling in Cluster k8-2 completed successfully"
+    },
+    {
+      "EventId": "9e695212-27e1-4191-a733-aa2a66aee2cf",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker1",
+      "ResourceType": "InstanceGroup",
+      "EventTime": "2026-01-15T16:24:37.893000-08:00",
+      "Description": "InstanceGroup worker1 scaling started successfully in Cluster k8-2"
+    },
+    {
+      "EventId": "24b0f420-c7f8-4df4-af12-9b36fa96a9eb",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker2",
+      "InstanceId": "i-0d29a017a99ceb10a",
+      "ResourceType": "Instance",
+      "EventTime": "2026-01-15T16:24:18.734000-08:00",
+      "Description": "EC2 Instance i-0d29a017a99ceb10a successfully terminated in Cluster k8-2 and InstanceGroup worker2"
+    },
+    {
+      "EventId": "7c617cd9-4288-4f4e-ba85-55d2247577d7",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker2",
+      "InstanceId": "i-09eba38651e74b24c",
+      "ResourceType": "Instance",
+      "EventTime": "2026-01-15T16:24:18.607000-08:00",
+      "Description": "EC2 Instance i-09eba38651e74b24c successfully terminated in Cluster k8-2 and InstanceGroup worker2"
+    },
+    {
+      "EventId": "d87c6961-7236-4e7f-a966-44c4aec96355",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker2",
+      "InstanceId": "i-09eba38651e74b24c",
+      "ResourceType": "Instance",
+      "EventTime": "2026-01-15T16:24:18.024000-08:00",
+      "Description": "Instance deletion started successfully in Cluster k8-2 and InstanceGroup worker2"
+    },
+    {
+      "EventId": "27610095-be08-4da6-9384-7e8182916c2f",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker2",
+      "InstanceId": "i-0d29a017a99ceb10a",
+      "ResourceType": "Instance",
+      "EventTime": "2026-01-15T16:24:18.015000-08:00",
+      "Description": "Instance deletion started successfully in Cluster k8-2 and InstanceGroup worker2"
+    },
+    {
+      "EventId": "61c4d80a-a010-46ff-bd46-8e8ab0de012b",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker2",
+      "ResourceType": "InstanceGroup",
+      "EventTime": "2026-01-15T16:24:17.526000-08:00",
+      "Description": "Instance Group worker2 scaling in Cluster k8-2 completed successfully"
+    },
+    {
+      "EventId": "5d55fb1a-5983-4d3e-a940-98f266ea5877",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker2",
+      "ResourceType": "InstanceGroup",
+      "EventTime": "2026-01-15T16:24:15.966000-08:00",
+      "Description": "InstanceGroup worker2 scaling started successfully in Cluster k8-2"
+    },
+    {
+      "EventId": "d5dd08ac-f27d-44e0-b006-fb2724abd445",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker2",
+      "InstanceId": "i-0d29a017a99ceb10a",
+      "ResourceType": "Instance",
+      "EventTime": "2026-01-15T15:40:23.465000-08:00",
+      "Description": "Instance i-0d29a017a99ceb10a creation in Cluster k8-2 and InstanceGroup worker2 completed successfully"
+    },
+    {
+      "EventId": "2a4d31c5-7477-4c0c-b705-a9ef926c156f",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker2",
+      "InstanceId": "i-0d29a017a99ceb10a",
+      "ResourceType": "Instance",
+      "EventTime": "2026-01-15T15:40:23.265000-08:00",
+      "Description": "Instance lifecycle script execution for EC2 Instance i-0d29a017a99ceb10a has Succeeded"
+    },
+    {
+      "EventId": "665c1b36-de7c-418c-81c4-915102e1db3d",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker2",
+      "InstanceId": "i-09eba38651e74b24c",
+      "ResourceType": "Instance",
+      "EventTime": "2026-01-15T15:40:20.726000-08:00",
+      "Description": "Instance i-09eba38651e74b24c creation in Cluster k8-2 and InstanceGroup worker2 completed successfully"
+    },
+    {
+      "EventId": "f4053506-d671-4bab-ad57-76689e17f66d",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker2",
+      "InstanceId": "i-09eba38651e74b24c",
+      "ResourceType": "Instance",
+      "EventTime": "2026-01-15T15:40:20.492000-08:00",
+      "Description": "Instance lifecycle script execution for EC2 Instance i-09eba38651e74b24c has Succeeded"
+    },
+    {
+      "EventId": "76346043-81a3-4241-90e3-6c3b1b073937",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker2",
+      "InstanceId": "i-0d29a017a99ceb10a",
+      "ResourceType": "Instance",
+      "EventTime": "2026-01-15T15:39:52.717000-08:00",
+      "Description": "Instance lifecycle script execution for EC2 Instance i-0d29a017a99ceb10a has Started"
+    },
+    {
+      "EventId": "8d05607f-a524-4231-9e64-f0cc719b4e60",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker2",
+      "InstanceId": "i-09eba38651e74b24c",
+      "ResourceType": "Instance",
+      "EventTime": "2026-01-15T15:39:49.929000-08:00",
+      "Description": "Instance lifecycle script execution for EC2 Instance i-09eba38651e74b24c has Started"
+    },
+    {
+      "EventId": "92d49acf-cd20-44f3-870e-caeb3ffae6ac",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker1",
+      "InstanceId": "i-09d2c5538054dbdf8",
+      "ResourceType": "Instance",
+      "EventTime": "2026-01-15T15:39:47.671000-08:00",
+      "Description": "Instance i-09d2c5538054dbdf8 creation in Cluster k8-2 and InstanceGroup worker1 completed successfully"
+    },
+    {
+      "EventId": "1600a864-de63-482d-bd80-2144e5fe9a6d",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker1",
+      "InstanceId": "i-09d2c5538054dbdf8",
+      "ResourceType": "Instance",
+      "EventTime": "2026-01-15T15:39:47.443000-08:00",
+      "Description": "Instance lifecycle script execution for EC2 Instance i-09d2c5538054dbdf8 has Succeeded"
+    },
+    {
+      "EventId": "a2ad2ae2-2253-4660-aaab-1b4c2d1079af",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker1",
+      "InstanceId": "i-09d2c5538054dbdf8",
+      "ResourceType": "Instance",
+      "EventTime": "2026-01-15T15:39:47.009000-08:00",
+      "Description": "Instance lifecycle script execution for EC2 Instance i-09d2c5538054dbdf8 has Started"
+    },
+    {
+      "EventId": "9a5545fe-3abc-4c2d-8f37-18c32503e91e",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker1",
+      "InstanceId": "i-06c30da7487b08a38",
+      "ResourceType": "Instance",
+      "EventTime": "2026-01-15T15:39:44.996000-08:00",
+      "Description": "Instance i-06c30da7487b08a38 creation in Cluster k8-2 and InstanceGroup worker1 completed successfully"
+    },
+    {
+      "EventId": "3cc5078f-9500-4570-9701-633e7a1edff4",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker1",
+      "InstanceId": "i-06c30da7487b08a38",
+      "ResourceType": "Instance",
+      "EventTime": "2026-01-15T15:39:44.741000-08:00",
+      "Description": "Instance lifecycle script execution for EC2 Instance i-06c30da7487b08a38 has Succeeded"
+    },
+    {
+      "EventId": "94730262-34c4-4a17-883f-d9a4cad80cdc",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker1",
+      "InstanceId": "i-06c30da7487b08a38",
+      "ResourceType": "Instance",
+      "EventTime": "2026-01-15T15:39:44.114000-08:00",
+      "Description": "Instance lifecycle script execution for EC2 Instance i-06c30da7487b08a38 has Started"
+    },
+    {
+      "EventId": "28587a5c-72c2-4211-bca9-28fb0a374ff8",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "ResourceType": "Cluster",
+      "EventTime": "2026-01-15T15:39:03.534000-08:00",
+      "Description": "AutoScaling enablement completed successfully in Cluster k8-2"
+    },
+    {
+      "EventId": "04300aec-4f1d-4829-bdd9-edcc6fd079f0",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker1",
+      "ResourceType": "Instance",
+      "EventTime": "2026-01-15T15:38:02.087000-08:00",
+      "Description": "EC2 Instance i-09d2c5538054dbdf8 successfully provisioned in Cluster k8-2 and InstanceGroup worker1"
+    },
+    {
+      "EventId": "7e13f154-06ab-44c3-8b07-c30daca5c3fa",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker1",
+      "ResourceType": "Instance",
+      "EventTime": "2026-01-15T15:38:01.908000-08:00",
+      "Description": "EC2 Instance i-06c30da7487b08a38 successfully provisioned in Cluster k8-2 and InstanceGroup worker1"
+    },
+    {
+      "EventId": "f81366fd-1593-46e9-91f5-196ff1dcb5d5",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker2",
+      "ResourceType": "Instance",
+      "EventTime": "2026-01-15T15:38:01.810000-08:00",
+      "Description": "EC2 Instance i-09eba38651e74b24c successfully provisioned in Cluster k8-2 and InstanceGroup worker2"
+    },
+    {
+      "EventId": "0f35e77c-0968-4beb-9d70-46a79f52a96a",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker2",
+      "ResourceType": "Instance",
+      "EventTime": "2026-01-15T15:38:01.789000-08:00",
+      "Description": "EC2 Instance i-0d29a017a99ceb10a successfully provisioned in Cluster k8-2 and InstanceGroup worker2"
+    },
+    {
+      "EventId": "d91d914b-b4f3-4e1c-a3dc-a608cbc31cc7",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "ResourceType": "Cluster",
+      "EventTime": "2026-01-15T15:37:57.984000-08:00",
+      "Description": "CustomResourceDefinition installation completed successfully in EKS Cluster k8-2"
+    },
+    {
+      "EventId": "3354ad89-fab2-4843-9518-6a1aab83c111",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker1",
+      "ResourceType": "Instance",
+      "EventTime": "2026-01-15T15:37:56.969000-08:00",
+      "Description": "Successfully created Customer ENI for instance in Cluster k8-2 and InstanceGroup worker1"
+    },
+    {
+      "EventId": "8fb9c206-9dde-4438-b3b9-4685e51eb51b",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker1",
+      "ResourceType": "Instance",
+      "EventTime": "2026-01-15T15:37:56.918000-08:00",
+      "Description": "Successfully created Customer ENI for instance in Cluster k8-2 and InstanceGroup worker1"
+    },
+    {
+      "EventId": "1c726f22-9a62-49cd-94cd-db2c3a7a559a",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker2",
+      "ResourceType": "Instance",
+      "EventTime": "2026-01-15T15:37:56.892000-08:00",
+      "Description": "Successfully created Customer ENI for instance in Cluster k8-2 and InstanceGroup worker2"
+    },
+    {
+      "EventId": "04fccd30-3d1c-459c-8e29-5ee090ecc20e",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker2",
+      "ResourceType": "Instance",
+      "EventTime": "2026-01-15T15:37:56.875000-08:00",
+      "Description": "Successfully created Customer ENI for instance in Cluster k8-2 and InstanceGroup worker2"
+    },
+    {
+      "EventId": "337634a8-0fe2-44f6-b5bb-e0b76389f88c",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker1",
+      "ResourceType": "Instance",
+      "EventTime": "2026-01-15T15:37:56.039000-08:00",
+      "Description": "No CapacityReservation found for Cluster k8-2 and InstanceGroup worker1"
+    },
+    {
+      "EventId": "27d4c105-12bd-43d1-aae9-6b4411185f52",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker1",
+      "ResourceType": "Instance",
+      "EventTime": "2026-01-15T15:37:56.035000-08:00",
+      "Description": "No CapacityReservation found for Cluster k8-2 and InstanceGroup worker1"
+    },
+    {
+      "EventId": "bb6310f9-f7f2-4c3b-9942-44831828f929",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker2",
+      "ResourceType": "Instance",
+      "EventTime": "2026-01-15T15:37:55.972000-08:00",
+      "Description": "No CapacityReservation found for Cluster k8-2 and InstanceGroup worker2"
+    },
+    {
+      "EventId": "0cfa3d96-7b00-4fbe-9db0-6bbbf5466943",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker2",
+      "ResourceType": "Instance",
+      "EventTime": "2026-01-15T15:37:55.962000-08:00",
+      "Description": "No CapacityReservation found for Cluster k8-2 and InstanceGroup worker2"
+    },
+    {
+      "EventId": "8bd37f07-fe4d-4f97-99f3-26fe69e9e9ce",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker1",
+      "ResourceType": "Instance",
+      "EventTime": "2026-01-15T15:37:55.941000-08:00",
+      "Description": "Instance creation started successfully in Cluster k8-2 and InstanceGroup worker1"
+    },
+    {
+      "EventId": "48ffbe73-9b15-4d39-a140-19f6e4a016a4",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker1",
+      "ResourceType": "Instance",
+      "EventTime": "2026-01-15T15:37:55.908000-08:00",
+      "Description": "Instance creation started successfully in Cluster k8-2 and InstanceGroup worker1"
+    },
+    {
+      "EventId": "cb46274b-f074-4fe3-a9c2-a8f4558cc8ef",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker2",
+      "ResourceType": "Instance",
+      "EventTime": "2026-01-15T15:37:55.889000-08:00",
+      "Description": "Instance creation started successfully in Cluster k8-2 and InstanceGroup worker2"
+    },
+    {
+      "EventId": "67092e8c-e512-4fae-93c7-ece6f7a08fcf",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker2",
+      "ResourceType": "Instance",
+      "EventTime": "2026-01-15T15:37:55.877000-08:00",
+      "Description": "Instance creation started successfully in Cluster k8-2 and InstanceGroup worker2"
+    },
+    {
+      "EventId": "f59b07e5-242f-4652-a438-315729b5357c",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker2",
+      "ResourceType": "InstanceGroup",
+      "EventTime": "2026-01-15T15:37:55.633000-08:00",
+      "Description": "Instance Group worker2 scaling in Cluster k8-2 completed successfully"
+    },
+    {
+      "EventId": "19ad7f7b-efee-4b5d-bae6-9b555a14e059",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker1",
+      "ResourceType": "InstanceGroup",
+      "EventTime": "2026-01-15T15:37:55.492000-08:00",
+      "Description": "Instance Group worker1 scaling in Cluster k8-2 completed successfully"
+    },
+    {
+      "EventId": "f74df461-9785-48db-ad5d-08b25358aeb1",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker2",
+      "ResourceType": "InstanceGroup",
+      "EventTime": "2026-01-15T15:37:53.959000-08:00",
+      "Description": "InstanceGroup worker2 scaling started successfully in Cluster k8-2"
+    },
+    {
+      "EventId": "26b7b58f-7707-4e3c-89ed-62d115e94268",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker1",
+      "ResourceType": "InstanceGroup",
+      "EventTime": "2026-01-15T15:37:53.840000-08:00",
+      "Description": "InstanceGroup worker1 scaling started successfully in Cluster k8-2"
+    },
+    {
+      "EventId": "18a1a5f7-7454-4106-b1ed-ea228486fb03",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "ResourceType": "Cluster",
+      "EventTime": "2026-01-15T15:37:51.108000-08:00",
+      "Description": "Attached access policies with AmazonSageMakerHyperPodServiceRole access entry in EKS cluster sagemaker-k8-2-e60e30f6-eks successfully"
+    },
+    {
+      "EventId": "98efdf3c-c6e2-4fd1-bd68-50fa22ef7d42",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker2",
+      "ResourceType": "InstanceGroup",
+      "EventTime": "2026-01-15T15:37:49.785000-08:00",
+      "Description": "Instance Group worker2 creation in Cluster k8-2 completed successfully"
+    },
+    {
+      "EventId": "19486276-d584-4166-932e-e8b89de1d682",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker1",
+      "ResourceType": "InstanceGroup",
+      "EventTime": "2026-01-15T15:37:49.714000-08:00",
+      "Description": "Instance Group worker1 creation in Cluster k8-2 completed successfully"
+    },
+    {
+      "EventId": "85c020db-a873-4fd2-a8ec-8d49b2048684",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "ResourceType": "Cluster",
+      "EventTime": "2026-01-15T15:37:49.135000-08:00",
+      "Description": "AutoScaling enablement started successfully in Cluster k8-2"
+    },
+    {
+      "EventId": "524d2e33-7197-4504-bf06-fa61c73c1df3",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "ResourceType": "Cluster",
+      "EventTime": "2026-01-15T15:37:48.970000-08:00",
+      "Description": "Cluster k8-2 operation started successfully"
+    },
+    {
+      "EventId": "97b8fe06-d67f-4567-adb0-5619eab35ada",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker2",
+      "ResourceType": "InstanceGroup",
+      "EventTime": "2026-01-15T15:37:48.343000-08:00",
+      "Description": "No custom AMI override found for InstanceGroup worker2 in Cluster k8-2"
+    },
+    {
+      "EventId": "ff6d695f-1588-4b85-a27c-9275992803e3",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker1",
+      "ResourceType": "InstanceGroup",
+      "EventTime": "2026-01-15T15:37:48.308000-08:00",
+      "Description": "No custom AMI override found for InstanceGroup worker1 in Cluster k8-2"
+    },
+    {
+      "EventId": "5387243e-41ae-4424-a9a5-726371b98528",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker2",
+      "ResourceType": "InstanceGroup",
+      "EventTime": "2026-01-15T15:37:48.167000-08:00",
+      "Description": "Found Subnet subnet-0e5150770c983e669 in Availability Zone usw2-az1 with SecurityGroupIds sg-01cf458f09c50ff9e for InstanceGroup worker2 in Cluster k8-2"
+    },
+    {
+      "EventId": "24b5ead0-ca2d-42a1-974c-3a1631f980ef",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker1",
+      "ResourceType": "InstanceGroup",
+      "EventTime": "2026-01-15T15:37:48.156000-08:00",
+      "Description": "Found Subnet subnet-0e5150770c983e669 in Availability Zone usw2-az1 with SecurityGroupIds sg-01cf458f09c50ff9e for InstanceGroup worker1 in Cluster k8-2"
+    },
+    {
+      "EventId": "f13f071e-1510-4712-a275-fe735aab9aa1",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker2",
+      "ResourceType": "InstanceGroup",
+      "EventTime": "2026-01-15T15:37:46.958000-08:00",
+      "Description": "InstanceGroup worker2 creation started successfully in Cluster k8-2"
+    },
+    {
+      "EventId": "0e0d66dc-bf32-4594-a028-ddd884b3406f",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "InstanceGroupName": "worker1",
+      "ResourceType": "InstanceGroup",
+      "EventTime": "2026-01-15T15:37:46.897000-08:00",
+      "Description": "InstanceGroup worker1 creation started successfully in Cluster k8-2"
+    },
+    {
+      "EventId": "b4330557-e2c2-4464-bf9a-20847ace945d",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "ResourceType": "Cluster",
+      "EventTime": "2026-01-15T15:37:45.406000-08:00",
+      "Description": "Cluster k8-2 creation completed successfully"
+    },
+    {
+      "EventId": "1ac96469-dff1-4345-ac35-a7a081685887",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "ResourceType": "Cluster",
+      "EventTime": "2026-01-15T15:36:49.173000-08:00",
+      "Description": "EKS Access Entries creation successful for Cluster k8-2"
+    },
+    {
+      "EventId": "6d039002-25e6-447b-a318-c7fa48314be7",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "ResourceType": "Cluster",
+      "EventTime": "2026-01-15T15:36:48.813000-08:00",
+      "Description": "SLR Access Entry creation successful for Cluster k8-2"
+    },
+    {
+      "EventId": "24face6e-1ed3-4406-a172-51f164741f05",
+      "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/gepjlpqvo6r5",
+      "ClusterName": "k8-2",
+      "ResourceType": "Cluster",
+      "EventTime": "2026-01-15T15:36:44.979000-08:00",
+      "Description": "Cluster k8-2 creation started successfully"
+    }
+  ]
+}

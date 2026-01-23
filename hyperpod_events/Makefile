@@ -10,6 +10,18 @@ local-test2:
 	--receiver shimomut+receiver@amazon.com \
 	--test-event-file test_events/node_health_event.json
 
+dump-events:
+	@if [ -z "$(CLUSTER_NAME)" ]; then \
+		echo "Error: CLUSTER_NAME is required"; \
+		echo "Usage: make dump-events CLUSTER_NAME=my-cluster [REGION=us-west-2] [OUTPUT=events.json]"; \
+		exit 1; \
+	fi
+	python3 dump_cluster_events.py \
+		--cluster-name $(CLUSTER_NAME) \
+		--region $(or $(REGION),us-west-2) \
+		$(if $(OUTPUT),--output $(OUTPUT),) \
+		--pretty
+
 local-test3:
 	python3 local_test.py \
 	--sender shimomut+sender@amazon.com \
