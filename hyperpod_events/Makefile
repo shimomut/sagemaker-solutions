@@ -14,7 +14,11 @@ embed:
 	@echo "Embedding Lambda function into CloudFormation template..."
 	@awk '/# LAMBDA_CODE_PLACEHOLDER/ { \
 		while ((getline line < "lambda_function.py") > 0) { \
-			print "          " line; \
+			if (line == "") { \
+				print ""; \
+			} else { \
+				print "          " line; \
+			} \
 		} \
 		close("lambda_function.py"); \
 		next; \
