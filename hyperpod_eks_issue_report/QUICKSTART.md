@@ -67,6 +67,20 @@ s3://my-bucket/hyperpod-issue-reports/my-cluster/20260126_143022/
     └── ...
 ```
 
+### Quick Check with Helper Script
+
+```bash
+./check_results.sh my-bucket my-cluster 20260126_143022
+```
+
+This will show you:
+- If the report exists
+- Summary statistics
+- Number of result files
+- Troubleshooting tips if results are missing
+
+### Manual Download and Extract
+
 Download and extract:
 ```bash
 # Download all results
@@ -110,6 +124,24 @@ python hyperpod_eks_issue_report.py \
 ```
 
 ## Troubleshooting
+
+### No results in S3?
+
+Check the summary.json:
+```bash
+aws s3 cp s3://my-bucket/hyperpod-issue-reports/my-cluster/20260126_143022/summary.json -
+```
+
+If `"Success": false`, look at the `"Error"` field. Common issues:
+- Node IAM role missing S3 write permissions
+- SSM command execution failures
+- Script errors on nodes
+
+Get detailed SSM output:
+```bash
+# Use CommandId from summary.json
+aws ssm get-command-invocation --command-id <command-id> --instance-id <ssm-target>
+```
 
 ### SSM Connection Issues
 If nodes fail to respond, check:

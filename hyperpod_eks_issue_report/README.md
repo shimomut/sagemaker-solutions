@@ -17,7 +17,7 @@ A utility to collect diagnostic logs and configurations from multiple HyperPod E
 - AWS CLI configured with appropriate permissions
 - SSM permissions for HyperPod cluster nodes
 - S3 bucket for storing collection scripts and results
-- Python 3.x with boto3
+- Python 3.x with boto3 and pexpect
 - IAM permissions:
   - `sagemaker:DescribeCluster`
   - `sagemaker:ListClusterNodes`
@@ -101,7 +101,9 @@ python hyperpod_eks_issue_report.py \
 1. **Cluster Discovery**: Queries SageMaker API to get all nodes in the cluster
 2. **Script Generation**: Creates a bash script that will run the specified commands
 3. **Script Upload**: Uploads the collection script to S3
-4. **Parallel Execution**: Uses SSM to execute the script on all nodes concurrently
+4. **Parallel Execution**: Uses SSM interactive sessions with `pexpect` to execute the script on all nodes concurrently
+   - **Important**: Uses HyperPod SSM target format: `sagemaker-cluster:{cluster-id}_{instance-group}-{instance-id}`
+   - Interactive session approach (like `hyperpod_run_on_multi_nodes`) is required for HyperPod nodes
 5. **Result Collection**: Each node:
    - Downloads the script from S3
    - Executes all specified commands
@@ -206,6 +208,41 @@ python hyperpod_eks_issue_report.py \
 
 ## Troubleshooting
 
+### No Results in S3 Results Folder
+
+If you see `collector_script.sh` and `summary.json` but no files in the `results/` folder:
+
+1. **Check the summary.json** to see command execution status:
+```bash
+aws s3 cp s3://your-bucket/hyperpod-issue-reports/cluster/timestamp/summary.json -
+```
+
+Look for:
+- `"Success": false` indicates the command failed
+- Error messages in the `"Error"` field
+- `"CommandId"` can be used to get detailed SSM logs
+
+2. **Get detailed SSM command output**:
+```bash
+# Using CommandId from summary.json
+aws ssm get-command-invocation \
+  --command-id <command-id> \
+  --instance-id <ssm-target-from-summary>
+```
+
+3. **Common causes**:
+   - Node IAM role missing S3 write permissions
+   - Script execution errors (check StandardErrorContent in SSM)
+   - Network connectivity issues to S3
+   - Insufficient disk space on nodes
+
+4. **Verify node IAM role** has required permissions:
+```bash
+# Check if role has S3 permissions
+aws iam get-role --role-name YourHyperPodNodeRole
+aws iam list-attached-role-policies --role-name YourHyperPodNodeRole
+```
+
 ### SSM Connectivity Issues
 
 If nodes fail to respond:
@@ -213,6 +250,7 @@ If nodes fail to respond:
 2. Check IAM role has `AmazonSSMManagedInstanceCore` policy
 3. Verify security groups allow SSM traffic
 4. Check AWS credentials have SSM permissions
+5. Ensure correct SSM target format: `sagemaker-cluster:{cluster-id}_{instance-group}-{instance-id}`
 
 ### S3 Upload Failures
 
@@ -228,6 +266,7 @@ If commands fail on nodes:
 1. Test commands manually via SSM session
 2. Check command syntax and availability
 3. Verify required tools are installed on nodes
+4. Use `--debug` flag for detailed error messages
 4. Use `--debug` flag for detailed error messages
 
 ## IAM Policy Requirements

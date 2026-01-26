@@ -11,6 +11,8 @@ import argparse
 import boto3
 import json
 import os
+import pexpect
+import signal
 import sys
 import tempfile
 import time
@@ -190,7 +192,7 @@ class HyperPodEKSIssueReportCollector:
         return f"sagemaker-cluster:{self.cluster_id}_{instance_group_name}-{instance_id}"
     
     def execute_collection_on_node(self, node: Dict, script_s3_uri: str) -> Dict:
-        """Execute the collection script on a single node via SSM."""
+        """Execute the collection script on a single node via SSM using pexpect."""
         instance_id = node['InstanceId']
         instance_group = node.get('NodeGroup', 'unknown')
         
@@ -215,56 +217,132 @@ class HyperPodEKSIssueReportCollector:
         
         print(f"Executing collection on {instance_id} ({instance_group})...")
         
-        # Use AWS CLI to execute via SSM
+        child = None
+        custom_prompt = "PEXPECT_READY# "
+        
         try:
-            import subprocess
-            
-            ssm_command = [
-                "aws", "ssm", "start-session",
-                "--target", ssm_target,
-                "--document-name", "AWS-StartNonInteractiveCommand",
-                "--parameters", json.dumps({"command": [full_command]})
-            ]
+            ssm_command = f"aws ssm start-session --target {ssm_target}"
             
             if self.debug:
-                print(f"[DEBUG] SSM command: {' '.join(ssm_command)}")
+                print(f"[DEBUG] {instance_id}: SSM command: {ssm_command}")
+                print(f"[DEBUG] {instance_id}: Full command: {full_command}")
             
-            result = subprocess.run(
-                ssm_command,
-                capture_output=True,
-                text=True,
-                timeout=300  # 5 minute timeout
-            )
+            # Use pexpect to handle the interactive session
+            child = pexpect.spawn(ssm_command, timeout=300, encoding='utf-8')
+            child.logfile_read = None
             
-            if result.returncode == 0:
-                return {
-                    'InstanceId': instance_id,
-                    'NodeGroup': instance_group,
-                    'Success': True,
-                    'Output': result.stdout
-                }
-            else:
-                return {
-                    'InstanceId': instance_id,
-                    'NodeGroup': instance_group,
-                    'Success': False,
-                    'Error': result.stderr
-                }
+            # Wait for initial prompt
+            initial_prompt_patterns = [
+                r'[\$#]\s+',            # Standard shell prompt
+                r'sh-\d+\.\d+[\$#]\s*', # sh prompt
+                pexpect.TIMEOUT
+            ]
+            
+            prompt_index = child.expect(initial_prompt_patterns, timeout=30)
+            
+            if prompt_index == len(initial_prompt_patterns) - 1:  # TIMEOUT
+                child.sendline('')
+                try:
+                    child.expect(initial_prompt_patterns[:-1], timeout=10)
+                except pexpect.TIMEOUT:
+                    return {
+                        'InstanceId': instance_id,
+                        'NodeGroup': instance_group,
+                        'Success': False,
+                        'Error': 'Failed to establish shell session - no prompt detected'
+                    }
+            
+            # Set custom prompt
+            child.sendline(f'export PS1="{custom_prompt}"')
+            child.sendline('echo "PROMPT_SET_MARKER"')
+            child.expect('PROMPT_SET_MARKER', timeout=10)
+            child.expect(custom_prompt, timeout=10)
+            
+            if self.debug:
+                print(f"[DEBUG] {instance_id}: Custom prompt set")
+            
+            # Execute the command
+            child.sendline(full_command)
+            
+            # Wait for command completion (up to 5 minutes)
+            child.expect(custom_prompt, timeout=300)
+            
+            # Extract output
+            output = child.before
+            if output:
+                lines = output.split('\n')
+                cleaned_lines = []
+                command_echo_removed = False
                 
-        except subprocess.TimeoutExpired:
+                for line in lines:
+                    line = line.strip()
+                    if not command_echo_removed and line == full_command:
+                        command_echo_removed = True
+                        continue
+                    if line:
+                        cleaned_lines.append(line)
+                
+                output = '\n'.join(cleaned_lines)
+            else:
+                output = ""
+            
+            # Close session
+            try:
+                child.sendline('exit')
+                child.expect(pexpect.EOF, timeout=5)
+            except:
+                try:
+                    child.kill(signal.SIGINT)
+                except:
+                    pass
+            
+            return {
+                'InstanceId': instance_id,
+                'NodeGroup': instance_group,
+                'Success': True,
+                'Output': output
+            }
+            
+        except pexpect.TIMEOUT:
+            error_msg = f"Command timed out after 5 minutes"
+            if child and hasattr(child, 'before') and child.before:
+                error_msg += f"\nPartial output: {child.before[:500]}..."
             return {
                 'InstanceId': instance_id,
                 'NodeGroup': instance_group,
                 'Success': False,
-                'Error': 'Command timed out after 5 minutes'
+                'Error': error_msg
             }
+            
+        except pexpect.EOF:
+            error_msg = "SSM session ended unexpectedly"
+            if child and hasattr(child, 'before') and child.before:
+                error_msg += f"\nLast output: {child.before[:500]}..."
+            return {
+                'InstanceId': instance_id,
+                'NodeGroup': instance_group,
+                'Success': False,
+                'Error': error_msg
+            }
+            
         except Exception as e:
+            error_msg = f"Error executing command: {str(e)}"
+            if self.debug:
+                import traceback
+                error_msg += f"\nTraceback: {traceback.format_exc()}"
             return {
                 'InstanceId': instance_id,
                 'NodeGroup': instance_group,
                 'Success': False,
-                'Error': str(e)
+                'Error': error_msg
             }
+            
+        finally:
+            if child and child.isalive():
+                try:
+                    child.terminate(force=True)
+                except:
+                    pass
     
     def collect_reports(self, commands: List[str], instance_group: Optional[str] = None, max_workers: int = 10):
         """Collect reports from all nodes or specific instance group."""
