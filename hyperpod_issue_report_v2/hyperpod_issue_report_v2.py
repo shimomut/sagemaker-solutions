@@ -31,10 +31,13 @@ class HyperPodIssueReportCollector:
         
         self.sagemaker_client = boto3.client('sagemaker')
         self.s3_client = boto3.client('s3')
+        self.eks_client = boto3.client('eks')
         
         self.cluster_arn = None
         self.cluster_id = None
         self.cluster_type = None  # 'eks' or 'slurm'
+        self.eks_cluster_arn = None
+        self.eks_cluster_name = None
         self.nodes = []
         
         # Generate unique report ID using UTC time
@@ -89,6 +92,16 @@ class HyperPodIssueReportCollector:
             if 'Eks' in orchestrator:
                 self.cluster_type = 'eks'
                 print(f"Detected cluster type: EKS")
+                # Extract EKS cluster ARN
+                eks_config = orchestrator.get('Eks', {})
+                self.eks_cluster_arn = eks_config.get('ClusterArn')
+                if self.eks_cluster_arn:
+                    # Extract cluster name from ARN: arn:aws:eks:region:account:cluster/cluster-name
+                    self.eks_cluster_name = self.eks_cluster_arn.split('/')[-1]
+                    print(f"EKS Cluster ARN: {self.eks_cluster_arn}")
+                    print(f"EKS Cluster Name: {self.eks_cluster_name}")
+                else:
+                    print("Warning: Could not extract EKS cluster ARN from orchestrator config")
             elif 'Slurm' in orchestrator:
                 self.cluster_type = 'slurm'
                 print(f"Detected cluster type: Slurm")
@@ -213,6 +226,12 @@ class HyperPodIssueReportCollector:
         if self.cluster_type == 'eks':
             script_lines.extend([
                 "# EKS-specific collections",
+                "echo \"Collecting containerd service status...\"",
+                "systemctl status containerd > \"${OUTPUT_DIR}/containerd_status.txt\" 2>&1 || echo \"containerd service not found or not running\"",
+                "",
+                "echo \"Collecting kubelet service status...\"",
+                "systemctl status kubelet > \"${OUTPUT_DIR}/kubelet_status.txt\" 2>&1 || echo \"kubelet service not found or not running\"",
+                "",
                 "echo \"Running EKS log collector...\"",
                 "EKS_LOG_COLLECTOR_URL=\"https://raw.githubusercontent.com/awslabs/amazon-eks-ami/main/log-collector-script/linux/eks-log-collector.sh\"",
                 "curl -o /tmp/eks-log-collector.sh \"${EKS_LOG_COLLECTOR_URL}\"",
@@ -299,7 +318,7 @@ class HyperPodIssueReportCollector:
         script_lines.extend([
             "# Upload results to S3",
             f"S3_BUCKET=\"{self.s3_bucket}\"",
-            f"S3_PREFIX=\"{self.report_s3_key}/results\"",
+            f"S3_PREFIX=\"{self.report_s3_key}/instances\"",
             "",
             "echo \"Creating tarball...\"",
             "TARBALL=\"/tmp/${INSTANCE_GROUP}_${INSTANCE_ID}.tar.gz\"",
@@ -512,14 +531,18 @@ class HyperPodIssueReportCollector:
                 except:
                     pass
     
-    def collect_reports(self, commands: List[str], instance_group: Optional[str] = None, instance_ids: Optional[List[str]] = None, max_workers: int = 10):
-        """Collect reports from all nodes, specific instance group, or specific instance IDs."""
+    def collect_reports(self, commands: List[str], instance_groups: Optional[List[str]] = None, instance_ids: Optional[List[str]] = None, max_workers: int = 10):
+        """Collect reports from all nodes, specific instance groups, or specific instance IDs."""
         # Get cluster nodes
         self.nodes = self.get_cluster_nodes()
         
         if not self.nodes:
             print("No nodes found in cluster")
             return
+        
+        # Collect kubectl information first (for EKS clusters)
+        if self.cluster_type == 'eks':
+            self.collect_kubectl_node_info()
         
         # Filter by specific instance IDs if specified
         if instance_ids:
@@ -532,12 +555,15 @@ class HyperPodIssueReportCollector:
             missing_ids = set(instance_ids) - found_ids
             if missing_ids:
                 print(f"Warning: Instance IDs not found in cluster: {', '.join(missing_ids)}")
-        # Filter by instance group if specified (only if instance_ids not specified)
-        elif instance_group:
-            self.nodes = [n for n in self.nodes if n.get('NodeGroup', '').lower() == instance_group.lower()]
+        # Filter by instance groups if specified (only if instance_ids not specified)
+        elif instance_groups:
+            # Convert instance groups to lowercase for case-insensitive matching
+            instance_groups_lower = [ig.lower() for ig in instance_groups]
+            self.nodes = [n for n in self.nodes if n.get('NodeGroup', '').lower() in instance_groups_lower]
             if not self.nodes:
-                print(f"No nodes found in instance group: {instance_group}")
+                print(f"No nodes found in instance groups: {', '.join(instance_groups)}")
                 return
+            print(f"Filtering to instance groups: {', '.join(instance_groups)}")
         
         print(f"\nCollecting reports from {len(self.nodes)} nodes")
         print(f"Cluster type: {self.cluster_type.upper()}")
@@ -546,7 +572,7 @@ class HyperPodIssueReportCollector:
         
         # Show what will be collected based on cluster type
         if self.cluster_type == 'eks':
-            print(f"Default collections: nvidia-smi, EKS log collector, resource config, cluster logs, systemd services, disk usage")
+            print(f"Default collections: nvidia-smi, containerd status, kubelet status, EKS log collector, resource config, cluster logs, systemd services, disk usage")
         elif self.cluster_type == 'slurm':
             print(f"Default collections: nvidia-smi, nvidia-bug-report, sinfo, Slurm services, Slurm config, Slurm logs, system logs")
         
@@ -611,7 +637,7 @@ class HyperPodIssueReportCollector:
         
         print("-" * 60)
         print(f"\nReport collection completed!")
-        print(f"Results uploaded to: s3://{self.s3_bucket}/{self.report_s3_key}/results/")
+        print(f"Instance reports uploaded to: s3://{self.s3_bucket}/{self.report_s3_key}/instances/")
         print(f"Summary: s3://{self.s3_bucket}/{self.report_s3_key}/summary.json")
         
         # Print statistics
@@ -647,6 +673,281 @@ class HyperPodIssueReportCollector:
             print(f"Summary saved to: s3://{self.s3_bucket}/{summary_key}")
         except Exception as e:
             print(f"Error saving summary: {e}")
+    
+    def verify_kubectl_config(self) -> bool:
+        """Verify kubectl is configured for the EKS cluster."""
+        if not self.eks_cluster_name:
+            print("Warning: EKS cluster name not available, skipping kubectl verification")
+            return False
+        
+        try:
+            import subprocess
+            
+            # Check if kubectl is installed
+            result = subprocess.run(['kubectl', 'version', '--client'], 
+                                  capture_output=True, text=True, timeout=10)
+            if result.returncode != 0:
+                print("\n" + "!" * 60)
+                print("ERROR: kubectl is not installed or not in PATH")
+                print("!" * 60)
+                print("\nkubectl is required for EKS cluster diagnostics.")
+                print("\nTo install kubectl:")
+                print("  macOS:  brew install kubectl")
+                print("  Linux:  https://kubernetes.io/docs/tasks/tools/install-kubectl-linux/")
+                return False
+            
+            # Extract just the version line
+            version_line = result.stdout.strip().split('\n')[0] if result.stdout else "kubectl installed"
+            print(f"kubectl version: {version_line}")
+            
+            # Check current context
+            result = subprocess.run(['kubectl', 'config', 'current-context'], 
+                                  capture_output=True, text=True, timeout=10)
+            if result.returncode == 0:
+                current_context = result.stdout.strip()
+                print(f"Current kubectl context: {current_context}")
+                
+                # Check if context matches EKS cluster
+                if self.eks_cluster_name in current_context:
+                    print(f"✓ kubectl is configured for EKS cluster: {self.eks_cluster_name}")
+                    return True
+                else:
+                    # Extract region from EKS cluster ARN
+                    region = self.eks_cluster_arn.split(':')[3] if self.eks_cluster_arn else 'REGION'
+                    
+                    print("\n" + "!" * 60)
+                    print(f"ERROR: kubectl context does not match EKS cluster")
+                    print(f"Current context: {current_context}")
+                    print(f"Expected cluster: {self.eks_cluster_name}")
+                    print("!" * 60)
+                    print("\nTo configure kubectl for this EKS cluster, run:")
+                    print(f"  aws eks update-kubeconfig --name {self.eks_cluster_name} --region {region}")
+                    return False
+            else:
+                # Extract region from EKS cluster ARN
+                region = self.eks_cluster_arn.split(':')[3] if self.eks_cluster_arn else 'REGION'
+                
+                print("\n" + "!" * 60)
+                print("ERROR: No kubectl context configured")
+                print("!" * 60)
+                print("\nTo configure kubectl for this EKS cluster, run:")
+                print(f"  aws eks update-kubeconfig --name {self.eks_cluster_name} --region {region}")
+                return False
+                
+        except subprocess.TimeoutExpired:
+            print("Warning: kubectl command timed out")
+            return False
+        except FileNotFoundError:
+            print("\n" + "!" * 60)
+            print("ERROR: kubectl not found in PATH")
+            print("!" * 60)
+            print("\nkubectl is required for EKS cluster diagnostics.")
+            print("\nTo install kubectl:")
+            print("  macOS:  brew install kubectl")
+            print("  Linux:  https://kubernetes.io/docs/tasks/tools/install-kubectl-linux/")
+            return False
+        except Exception as e:
+            print(f"Warning: Error verifying kubectl config: {e}")
+            return False
+    
+    def collect_kubectl_node_info(self):
+        """Collect kubectl describe node information for all nodes."""
+        if self.cluster_type != 'eks':
+            print("Skipping kubectl collection - not an EKS cluster")
+            return
+        
+        if not self.eks_cluster_name:
+            print("Skipping kubectl collection - EKS cluster name not available")
+            return
+        
+        print("\n" + "=" * 60)
+        print("Collecting kubectl node information...")
+        print("=" * 60)
+        
+        # Verify kubectl configuration - exit if not configured
+        if not self.verify_kubectl_config():
+            print("\n" + "!" * 60)
+            print("ERROR: kubectl must be configured for EKS clusters")
+            print("!" * 60)
+            print("\nPlease configure kubectl and re-run the tool.\n")
+            sys.exit(1)
+        
+        try:
+            import subprocess
+            
+            # Create output directory
+            kubectl_output_dir = tempfile.mkdtemp(prefix='kubectl_output_')
+            
+            # Define resources to collect
+            collections = [
+                # High Priority - Essential for troubleshooting
+                {
+                    'name': 'nodes_describe',
+                    'command': ['kubectl', 'describe', 'nodes'],
+                    'description': 'Node descriptions (capacity, conditions, pods)'
+                },
+                {
+                    'name': 'pods_all_namespaces',
+                    'command': ['kubectl', 'get', 'pods', '-A', '-o', 'wide'],
+                    'description': 'All pods across namespaces (wide output)'
+                },
+                {
+                    'name': 'pods_describe_all_namespaces',
+                    'command': ['kubectl', 'describe', 'pods', '-A'],
+                    'description': 'Detailed pod descriptions (all namespaces)'
+                },
+                {
+                    'name': 'events_all_namespaces',
+                    'command': ['kubectl', 'get', 'events', '-A', '--sort-by=.lastTimestamp'],
+                    'description': 'Cluster events sorted by timestamp'
+                },
+                {
+                    'name': 'pvcs_all_namespaces',
+                    'command': ['kubectl', 'get', 'pvc', '-A', '-o', 'wide'],
+                    'description': 'PersistentVolumeClaims (storage)'
+                },
+                {
+                    'name': 'pvcs_describe_all_namespaces',
+                    'command': ['kubectl', 'describe', 'pvc', '-A'],
+                    'description': 'Detailed PVC descriptions'
+                },
+                {
+                    'name': 'services_all_namespaces',
+                    'command': ['kubectl', 'get', 'svc', '-A', '-o', 'wide'],
+                    'description': 'Services (network endpoints)'
+                },
+                {
+                    'name': 'services_describe_all_namespaces',
+                    'command': ['kubectl', 'describe', 'svc', '-A'],
+                    'description': 'Detailed service descriptions'
+                },
+                
+                # Medium Priority - Very useful
+                {
+                    'name': 'deployments_all_namespaces',
+                    'command': ['kubectl', 'get', 'deployments', '-A', '-o', 'wide'],
+                    'description': 'Deployments'
+                },
+                {
+                    'name': 'statefulsets_all_namespaces',
+                    'command': ['kubectl', 'get', 'statefulsets', '-A', '-o', 'wide'],
+                    'description': 'StatefulSets'
+                },
+                {
+                    'name': 'daemonsets_all_namespaces',
+                    'command': ['kubectl', 'get', 'daemonsets', '-A', '-o', 'wide'],
+                    'description': 'DaemonSets'
+                },
+                {
+                    'name': 'configmaps_all_namespaces',
+                    'command': ['kubectl', 'get', 'configmaps', '-A'],
+                    'description': 'ConfigMaps (metadata only)'
+                },
+                {
+                    'name': 'secrets_all_namespaces',
+                    'command': ['kubectl', 'get', 'secrets', '-A'],
+                    'description': 'Secrets (metadata only, no content)'
+                },
+                {
+                    'name': 'resourcequotas_all_namespaces',
+                    'command': ['kubectl', 'get', 'resourcequota', '-A'],
+                    'description': 'Resource quotas'
+                },
+                {
+                    'name': 'networkpolicies_all_namespaces',
+                    'command': ['kubectl', 'get', 'networkpolicies', '-A'],
+                    'description': 'Network policies'
+                },
+            ]
+            
+            print(f"Collecting {len(collections)} Kubernetes resource types...")
+            successful = 0
+            failed = 0
+            
+            for collection in collections:
+                name = collection['name']
+                command = collection['command']
+                description = collection['description']
+                
+                print(f"  Collecting: {description}...", end=' ')
+                
+                try:
+                    result = subprocess.run(
+                        command,
+                        capture_output=True,
+                        text=True,
+                        timeout=60
+                    )
+                    
+                    output_file = os.path.join(kubectl_output_dir, f'{name}.txt')
+                    
+                    if result.returncode == 0:
+                        if result.stdout.strip():
+                            with open(output_file, 'w') as f:
+                                f.write(result.stdout)
+                            print(f"✓")
+                            successful += 1
+                        else:
+                            # Empty output (no resources of this type)
+                            with open(output_file, 'w') as f:
+                                f.write("No resources found\n")
+                            print(f"✓ (empty)")
+                            successful += 1
+                    else:
+                        # Command failed
+                        with open(output_file, 'w') as f:
+                            f.write(f"Error: {result.stderr}\n")
+                        print(f"✗ ({result.stderr.strip()[:50]})")
+                        failed += 1
+                        
+                except subprocess.TimeoutExpired:
+                    output_file = os.path.join(kubectl_output_dir, f'{name}.txt')
+                    with open(output_file, 'w') as f:
+                        f.write("Error: Command timed out\n")
+                    print(f"✗ (timeout)")
+                    failed += 1
+                    
+                except Exception as e:
+                    output_file = os.path.join(kubectl_output_dir, f'{name}.txt')
+                    with open(output_file, 'w') as f:
+                        f.write(f"Error: {str(e)}\n")
+                    print(f"✗ ({str(e)[:50]})")
+                    failed += 1
+            
+            print(f"\nCollection summary: {successful} successful, {failed} failed")
+            
+            # Create tarball with files at root level (no wrapper directory)
+            print("\nCreating kubectl output tarball...")
+            tarball_path = os.path.join(tempfile.gettempdir(), 'kubectl_resources.tar.gz')
+            
+            import tarfile
+            with tarfile.open(tarball_path, 'w:gz') as tar:
+                # Add each file directly to the tarball root (no parent directory)
+                for filename in os.listdir(kubectl_output_dir):
+                    file_path = os.path.join(kubectl_output_dir, filename)
+                    tar.add(file_path, arcname=filename)
+            
+            print(f"Created tarball: {tarball_path}")
+            
+            # Upload to S3
+            s3_key = f"{self.report_s3_key}/kubectl_resources.tar.gz"
+            print(f"Uploading to S3: s3://{self.s3_bucket}/{s3_key}")
+            
+            self.s3_client.upload_file(tarball_path, self.s3_bucket, s3_key)
+            
+            print(f"✓ Successfully uploaded kubectl resource information to S3")
+            print(f"  Location: s3://{self.s3_bucket}/{s3_key}")
+            
+            # Cleanup
+            import shutil
+            shutil.rmtree(kubectl_output_dir, ignore_errors=True)
+            os.remove(tarball_path)
+            
+        except Exception as e:
+            print(f"Error collecting kubectl information: {e}")
+            if self.debug:
+                import traceback
+                traceback.print_exc()
 
 
 def main():
@@ -658,7 +959,7 @@ Examples:
   # Basic usage - auto-detects cluster type and collects appropriate diagnostics
   python hyperpod_eks_issue_report.py --cluster my-cluster --s3-path s3://my-bucket
   
-  # EKS cluster - collects nvidia-smi, EKS logs, resource config, cluster logs, systemd services, disk usage
+  # EKS cluster - collects nvidia-smi, containerd status, kubelet status, EKS logs, resource config, cluster logs, systemd services, disk usage
   python hyperpod_eks_issue_report.py --cluster my-eks-cluster --s3-path s3://my-bucket
   
   # Slurm cluster - collects nvidia-smi, nvidia-bug-report, sinfo, Slurm services/config/logs, system logs
@@ -672,9 +973,9 @@ Examples:
     --command "df -h" \\
     --command "free -h"
   
-  # Target specific instance group
+  # Target specific instance groups
   python hyperpod_eks_issue_report.py --cluster my-cluster --s3-path s3://my-bucket \\
-    --instance-group worker-group
+    --instance-groups worker-group-1 worker-group-2
   
   # Target specific instance IDs
   python hyperpod_eks_issue_report.py --cluster my-cluster --s3-path s3://my-bucket \\
@@ -685,7 +986,7 @@ Examples:
     parser.add_argument('--cluster', '-c', required=True, help='HyperPod cluster name (EKS or Slurm)')
     parser.add_argument('--s3-path', '-s', required=True, help='S3 path for storing reports (e.g., s3://bucket-name/prefix or s3://bucket-name)')
     parser.add_argument('--command', '-cmd', action='append', help='Additional command to execute on nodes (can be specified multiple times)')
-    parser.add_argument('--instance-group', '-g', help='Target specific instance group only')
+    parser.add_argument('--instance-groups', '-g', nargs='+', help='Target specific instance groups (e.g., --instance-groups worker1 worker2)')
     parser.add_argument('--nodes', '-n', nargs='+', help='Target specific instance IDs (e.g., --nodes i-abc123 i-def456)')
     parser.add_argument('--max-workers', '-w', type=int, default=10, help='Maximum concurrent workers (default: 10)')
     parser.add_argument('--debug', '-d', action='store_true', help='Enable debug mode')
@@ -693,8 +994,8 @@ Examples:
     args = parser.parse_args()
     
     # Validate mutually exclusive options
-    if args.instance_group and args.nodes:
-        print("Error: --instance-group and --nodes cannot be used together")
+    if args.instance_groups and args.nodes:
+        print("Error: --instance-groups and --nodes cannot be used together")
         sys.exit(1)
     
     try:
@@ -713,7 +1014,7 @@ Examples:
         
         collector.collect_reports(
             commands=commands,
-            instance_group=args.instance_group,
+            instance_groups=args.instance_groups,
             instance_ids=args.nodes,
             max_workers=args.max_workers
         )
