@@ -916,18 +916,21 @@ class HyperPodIssueReportCollector:
             
             print(f"\nCollection summary: {successful} successful, {failed} failed")
             
-            # Create tarball
+            # Create tarball with files at root level (no wrapper directory)
             print("\nCreating kubectl output tarball...")
-            tarball_path = os.path.join(tempfile.gettempdir(), f'kubectl_resources_{self.report_id}.tar.gz')
+            tarball_path = os.path.join(tempfile.gettempdir(), 'kubectl_resources.tar.gz')
             
             import tarfile
             with tarfile.open(tarball_path, 'w:gz') as tar:
-                tar.add(kubectl_output_dir, arcname=os.path.basename(kubectl_output_dir))
+                # Add each file directly to the tarball root (no parent directory)
+                for filename in os.listdir(kubectl_output_dir):
+                    file_path = os.path.join(kubectl_output_dir, filename)
+                    tar.add(file_path, arcname=filename)
             
             print(f"Created tarball: {tarball_path}")
             
             # Upload to S3
-            s3_key = f"{self.report_s3_key}/kubectl_resources_{self.report_id}.tar.gz"
+            s3_key = f"{self.report_s3_key}/kubectl_resources.tar.gz"
             print(f"Uploading to S3: s3://{self.s3_bucket}/{s3_key}")
             
             self.s3_client.upload_file(tarball_path, self.s3_bucket, s3_key)

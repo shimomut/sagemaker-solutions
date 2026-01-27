@@ -207,7 +207,7 @@ The tool automatically detects cluster type and collects appropriate diagnostics
     - ResourceQuotas: Resource limits and usage
     - NetworkPolicies: Network isolation rules
   - Single efficient collection with 15 resource types
-  - Uploaded as separate tarball: `kubectl_resources_{timestamp}.tar.gz`
+  - Uploaded as separate tarball: `kubectl_resources.tar.gz`
 - **Containerd service status**: `systemctl status containerd` output
 - **Kubelet service status**: `systemctl status kubelet` output
 - **EKS log collector**: Comprehensive diagnostics including:
@@ -366,7 +366,7 @@ Results are stored in S3 with the following structure:
 s3://my-bucket/hyperpod-issue-reports/my-cluster/20260126_143022/
 ├── collector_script.sh              # Single script (uses env vars)
 ├── summary.json                     # Summary of collection status
-├── kubectl_resources_20260126_143022.tar.gz  # kubectl resources (EKS only)
+├── kubectl_resources.tar.gz         # kubectl resources (EKS only)
 └── results/
     ├── worker1_i-0123456789abcdef0.tar.gz
     ├── worker1_i-0123456789abcdef1.tar.gz
@@ -433,14 +433,16 @@ hyperpod_report_worker1_i-0123456789abcdef0_20260126_143025/
 aws s3 sync s3://my-bucket/hyperpod-issue-reports/my-cluster/20260126_143022/ ./reports/
 
 # Extract kubectl resource information (EKS only)
-tar -xzf reports/kubectl_resources_20260126_143022.tar.gz
-ls kubectl_output_*/
+tar -xzf reports/kubectl_resources.tar.gz
+
+# Files are at the root level (no wrapper directory)
+ls *.txt
 
 # View specific resources
-cat kubectl_output_*/nodes_describe.txt
-cat kubectl_output_*/pods_all_namespaces.txt
-cat kubectl_output_*/events_all_namespaces.txt
-cat kubectl_output_*/pvcs_describe_all_namespaces.txt
+cat nodes_describe.txt
+cat pods_all_namespaces.txt
+cat events_all_namespaces.txt
+cat pvcs_describe_all_namespaces.txt
 
 # Extract a specific node report
 tar -xzf reports/results/worker1_i-0123456789abcdef0.tar.gz

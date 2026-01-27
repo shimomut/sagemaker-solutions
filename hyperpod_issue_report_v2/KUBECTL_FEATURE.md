@@ -17,21 +17,29 @@ Added kubectl integration to the HyperPod Issue Report Collector v2 to capture K
 - Displays clear instructions if kubectl is not configured
 - Does NOT automatically configure kubectl (user maintains control)
 
-### 3. Node Information Collection
-- Executes `kubectl describe nodes` (all nodes in one command)
-- Captures comprehensive node information including:
-  - Node conditions (Ready, MemoryPressure, DiskPressure, etc.)
-  - Capacity and allocatable resources (CPU, memory, pods, GPUs)
-  - System information (OS, kernel, container runtime)
-  - Pod information and resource usage
-  - Node events and conditions
-- Saves output as a single file with all nodes
-- Creates a tarball and uploads to S3
+### 3. Comprehensive Kubernetes Resource Collection
+- Collects 15 different Kubernetes resource types in a single efficient operation
+- **High Priority Resources** (essential for troubleshooting):
+  - Nodes: Detailed descriptions with capacity, conditions, and running pods
+  - Pods: All pods across namespaces with detailed descriptions
+  - Events: Cluster events sorted by timestamp
+  - PVCs: PersistentVolumeClaims and detailed descriptions (storage issues)
+  - Services: Network endpoints and detailed descriptions
+- **Medium Priority Resources** (very useful):
+  - Deployments, StatefulSets, DaemonSets: Workload configurations
+  - ConfigMaps, Secrets: Configuration metadata (no sensitive content)
+  - ResourceQuotas: Resource limits and usage
+  - NetworkPolicies: Network isolation rules
+- Each resource type saved as a separate file
+- Creates a tarball with all resources at root level (no wrapper directory)
+- Uploads to S3 as `kubectl_resources.tar.gz`
 
-### 4. Graceful Degradation
-- If kubectl is not available, the tool continues with SSM-based collection
-- If kubectl configuration fails, a warning is shown with manual configuration instructions
-- Collection from nodes via SSM is not affected by kubectl issues
+### 4. Fail-Fast for EKS Clusters
+- **IMPORTANT**: For EKS clusters, kubectl is REQUIRED
+- Tool exits with error if kubectl is not configured for EKS clusters
+- Displays exact commands needed to configure kubectl
+- Users must configure kubectl before running the tool
+- This ensures complete diagnostic data is collected for EKS clusters
 
 ## Implementation Details
 
@@ -68,7 +76,7 @@ Added kubectl integration to the HyperPod Issue Report Collector v2 to capture K
 ### S3 Layout
 ```
 s3://bucket/prefix/cluster-name/timestamp/
-├── kubectl_nodes_timestamp.tar.gz    # NEW: kubectl output
+├── kubectl_resources.tar.gz    # NEW: kubectl resources (15 types)
 ├── collector_script.sh
 ├── summary.json
 └── results/
@@ -77,46 +85,69 @@ s3://bucket/prefix/cluster-name/timestamp/
 ```
 
 ### Kubectl Tarball Contents
+Files are at root level (no wrapper directory):
 ```
-kubectl_output_timestamp/
-└── all_nodes_describe.txt    # All nodes in one file
+nodes_describe.txt                      # Node descriptions
+pods_all_namespaces.txt                 # All pods (wide output)
+pods_describe_all_namespaces.txt        # Detailed pod descriptions
+events_all_namespaces.txt               # Cluster events
+pvcs_all_namespaces.txt                 # PersistentVolumeClaims
+pvcs_describe_all_namespaces.txt        # Detailed PVC descriptions
+services_all_namespaces.txt             # Services
+services_describe_all_namespaces.txt    # Detailed service descriptions
+deployments_all_namespaces.txt          # Deployments
+statefulsets_all_namespaces.txt         # StatefulSets
+daemonsets_all_namespaces.txt           # DaemonSets
+configmaps_all_namespaces.txt           # ConfigMaps
+secrets_all_namespaces.txt              # Secrets (metadata only)
+resourcequotas_all_namespaces.txt       # Resource quotas
+networkpolicies_all_namespaces.txt      # Network policies
 ```
 
 ## Usage
 
-No changes to command-line interface. The feature works automatically for EKS clusters:
+**IMPORTANT**: For EKS clusters, kubectl MUST be configured before running the tool.
 
 ```bash
-# Step 1: Configure kubectl (one-time setup)
+# Step 1: Configure kubectl (REQUIRED for EKS clusters)
 aws eks update-kubeconfig --name <eks-cluster-name> --region <region>
 
-# Step 2: Run the tool (works the same as before)
+# Verify configuration
+kubectl get nodes
+
+# Step 2: Run the tool
 python hyperpod_issue_report_v2.py \
   --cluster my-eks-cluster \
   --s3-path s3://my-bucket
 
-# kubectl collection happens automatically if:
-# 1. Cluster is EKS type
-# 2. kubectl is installed
-# 3. kubectl is configured for the correct EKS cluster
+# kubectl collection happens automatically for EKS clusters
+# Tool will exit with error if kubectl is not configured
 ```
 
-If kubectl is not configured, the tool will display:
+If kubectl is not configured, the tool will display an error and exit:
 ```
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-kubectl context 'arn:aws:eks:...:other-cluster' does not match EKS cluster
+ERROR: kubectl must be configured for EKS clusters
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+Please configure kubectl and re-run the tool.
+```
+
+If kubectl is configured for the wrong cluster:
+```
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+ERROR: kubectl context does not match EKS cluster
+Current context: arn:aws:eks:...:other-cluster
 Expected cluster: my-eks-cluster
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
 To configure kubectl for this EKS cluster, run:
   aws eks update-kubeconfig --name my-eks-cluster --region us-west-2
-
-Skipping kubectl collection. SSM-based collection will continue.
 ```
 
 ## Prerequisites
 
-### For kubectl Collection (Optional)
+### For EKS Clusters (REQUIRED)
 
 1. **kubectl installed**:
    ```bash
@@ -129,7 +160,13 @@ Skipping kubectl collection. SSM-based collection will continue.
    sudo mv kubectl /usr/local/bin/
    ```
 
-2. **AWS credentials with EKS permissions**:
+2. **kubectl configured for the EKS cluster**:
+   ```bash
+   aws eks update-kubeconfig --name <eks-cluster-name> --region <region>
+   kubectl get nodes  # Verify configuration
+   ```
+
+3. **AWS credentials with EKS permissions**:
    ```json
    {
      "Effect": "Allow",
@@ -141,60 +178,59 @@ Skipping kubectl collection. SSM-based collection will continue.
 ## Benefits
 
 1. **Comprehensive View**: Combines node-level diagnostics (via SSM) with cluster-level Kubernetes information
-2. **Troubleshooting**: kubectl output helps diagnose pod scheduling issues, resource constraints, and node conditions
-3. **User Control**: Users configure kubectl themselves, maintaining control over their environment
-4. **Clear Feedback**: Displays exact commands needed when kubectl is not configured
-5. **Non-blocking**: SSM collection continues even if kubectl is not configured
-6. **Centralized**: All diagnostics stored in one S3 location
+2. **15 Resource Types**: Collects essential and useful Kubernetes resources in one operation
+3. **Troubleshooting**: kubectl output helps diagnose pod scheduling issues, resource constraints, node conditions, storage issues, and networking problems
+4. **User Control**: Users configure kubectl themselves, maintaining control over their environment
+5. **Clear Feedback**: Displays exact commands needed when kubectl is not configured
+6. **Fail-Fast**: Ensures complete diagnostic data by requiring kubectl for EKS clusters
+7. **Centralized**: All diagnostics stored in one S3 location
+8. **Clean Structure**: Tarball files at root level for easy extraction and viewing
 
 ## Troubleshooting
 
 ### kubectl not found
 ```
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-kubectl not found in PATH
+ERROR: kubectl is not installed or not in PATH
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
-To collect kubectl node information, install kubectl:
+kubectl is required for EKS cluster diagnostics.
+
+To install kubectl:
   macOS:  brew install kubectl
   Linux:  https://kubernetes.io/docs/tasks/tools/install-kubectl-linux/
-
-Skipping kubectl collection. SSM-based collection will continue.
 ```
 
-**Solution**: Install kubectl and re-run the tool
+**Solution**: Install kubectl and re-run the tool. Tool exits with error for EKS clusters.
 
 ### kubectl not configured
 ```
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-No kubectl context configured
+ERROR: No kubectl context configured
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
 To configure kubectl for this EKS cluster, run:
   aws eks update-kubeconfig --name my-eks-cluster --region us-west-2
-
-Skipping kubectl collection. SSM-based collection will continue.
 ```
 
-**Solution**: Run the displayed command and re-run the tool
+**Solution**: Run the displayed command and re-run the tool. Tool exits with error for EKS clusters.
 
 ### Wrong cluster configured
 ```
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-kubectl context 'arn:aws:eks:...:other-cluster' does not match EKS cluster
+ERROR: kubectl context does not match EKS cluster
+Current context: arn:aws:eks:...:other-cluster
 Expected cluster: my-eks-cluster
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
 To configure kubectl for this EKS cluster, run:
   aws eks update-kubeconfig --name my-eks-cluster --region us-west-2
-
-Skipping kubectl collection. SSM-based collection will continue.
 ```
 
-**Solution**: Run the displayed command to switch to the correct cluster
+**Solution**: Run the displayed command to switch to the correct cluster. Tool exits with error for EKS clusters.
 
-### Collection continues
-In all cases, SSM-based collection from nodes continues normally. You can always re-run the tool after configuring kubectl to collect the kubectl information.
+### Tool exits for EKS clusters
+For EKS clusters, the tool will exit with an error if kubectl is not properly configured. This ensures complete diagnostic data is collected. Configure kubectl and re-run the tool.
 
 ## Testing
 
@@ -214,11 +250,11 @@ To test the feature:
    - "Collecting kubectl node information..."
    - "✓ Successfully uploaded kubectl node information to S3"
 
-2. **Without kubectl**:
+2. **Without kubectl (EKS cluster)**:
    - Uninstall or remove kubectl from PATH
    - Run the tool
-   - Should see: "Warning: kubectl is not installed or not in PATH"
-   - SSM collection should continue normally
+   - Should see: "ERROR: kubectl is not installed or not in PATH"
+   - Tool should exit with error code 1
 
 3. **With Slurm cluster**:
    ```bash
@@ -234,7 +270,8 @@ To test the feature:
 ## Future Enhancements
 
 Potential improvements:
-- Add `kubectl get pods --all-namespaces` output
-- Collect pod logs for failed pods
-- Add `kubectl top nodes` for resource usage
+- Add `kubectl top nodes` and `kubectl top pods` for real-time resource usage
+- Collect pod logs for failed/pending pods automatically
+- Add low-priority resources (ingresses, jobs, cronjobs, etc.)
 - Support for custom kubectl commands via CLI flags
+- Add namespace filtering option
