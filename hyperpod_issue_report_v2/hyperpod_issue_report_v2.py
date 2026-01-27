@@ -772,45 +772,31 @@ class HyperPodIssueReportCollector:
         try:
             import subprocess
             
-            # Get all nodes
-            print("Fetching node list from Kubernetes...")
+            # Get all nodes in one command
+            print("Fetching all nodes from Kubernetes...")
             result = subprocess.run(
-                ['kubectl', 'get', 'nodes', '-o', 'json'],
-                capture_output=True, text=True, timeout=30
+                ['kubectl', 'describe', 'nodes'],
+                capture_output=True, text=True, timeout=60
             )
             
             if result.returncode != 0:
-                print(f"Error getting nodes: {result.stderr}")
+                print(f"Error describing nodes: {result.stderr}")
                 return
             
-            nodes_data = json.loads(result.stdout)
-            nodes = nodes_data.get('items', [])
-            
-            if not nodes:
-                print("No nodes found in Kubernetes cluster")
+            if not result.stdout:
+                print("No output from kubectl describe nodes")
                 return
             
-            print(f"Found {len(nodes)} nodes in Kubernetes cluster")
+            print(f"✓ Successfully collected node descriptions")
             
-            # Collect describe output for each node
+            # Create output directory
             kubectl_output_dir = tempfile.mkdtemp(prefix='kubectl_output_')
             
-            for node in nodes:
-                node_name = node.get('metadata', {}).get('name', 'unknown')
-                print(f"Collecting kubectl describe for node: {node_name}")
-                
-                result = subprocess.run(
-                    ['kubectl', 'describe', 'node', node_name],
-                    capture_output=True, text=True, timeout=30
-                )
-                
-                if result.returncode == 0:
-                    output_file = os.path.join(kubectl_output_dir, f"{node_name}_describe.txt")
-                    with open(output_file, 'w') as f:
-                        f.write(result.stdout)
-                    print(f"  ✓ Saved to {output_file}")
-                else:
-                    print(f"  ✗ Error: {result.stderr}")
+            # Save the combined output
+            output_file = os.path.join(kubectl_output_dir, 'all_nodes_describe.txt')
+            with open(output_file, 'w') as f:
+                f.write(result.stdout)
+            print(f"Saved all node descriptions to {output_file}")
             
             # Create tarball
             print("\nCreating kubectl output tarball...")
@@ -838,8 +824,6 @@ class HyperPodIssueReportCollector:
             
         except subprocess.TimeoutExpired:
             print("Error: kubectl command timed out")
-        except json.JSONDecodeError as e:
-            print(f"Error parsing kubectl output: {e}")
         except Exception as e:
             print(f"Error collecting kubectl information: {e}")
             if self.debug:

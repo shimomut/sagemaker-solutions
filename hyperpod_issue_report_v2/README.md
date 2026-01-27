@@ -178,8 +178,9 @@ The tool automatically detects cluster type and collects appropriate diagnostics
 
 ### EKS-Specific Collections
 
-- **Kubectl node information**: `kubectl describe node` output for all Kubernetes nodes
+- **Kubectl node information**: `kubectl describe nodes` output for all Kubernetes nodes
   - Collected from local machine (not from nodes)
+  - Single command captures all nodes efficiently
   - Includes node conditions, capacity, allocatable resources, system info
   - Includes pod information and resource usage
   - Uploaded as separate tarball: `kubectl_nodes_{timestamp}.tar.gz`
@@ -410,7 +411,7 @@ aws s3 sync s3://my-bucket/hyperpod-issue-reports/my-cluster/20260126_143022/ ./
 # Extract kubectl node information (EKS only)
 tar -xzf reports/kubectl_nodes_20260126_143022.tar.gz
 ls kubectl_output_*/
-cat kubectl_output_*/ip-10-0-1-100.ec2.internal_describe.txt
+cat kubectl_output_*/all_nodes_describe.txt
 
 # Extract a specific node report
 tar -xzf reports/results/worker1_i-0123456789abcdef0.tar.gz

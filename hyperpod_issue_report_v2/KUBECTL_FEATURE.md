@@ -18,14 +18,14 @@ Added kubectl integration to the HyperPod Issue Report Collector v2 to capture K
 - Does NOT automatically configure kubectl (user maintains control)
 
 ### 3. Node Information Collection
-- Executes `kubectl describe node` for all Kubernetes nodes
-- Collects comprehensive node information including:
+- Executes `kubectl describe nodes` (all nodes in one command)
+- Captures comprehensive node information including:
   - Node conditions (Ready, MemoryPressure, DiskPressure, etc.)
   - Capacity and allocatable resources (CPU, memory, pods, GPUs)
   - System information (OS, kernel, container runtime)
   - Pod information and resource usage
   - Node events and conditions
-- Saves output as individual text files per node
+- Saves output as a single file with all nodes
 - Creates a tarball and uploads to S3
 
 ### 4. Graceful Degradation
@@ -43,9 +43,9 @@ Added kubectl integration to the HyperPod Issue Report Collector v2 to capture K
    - Displays helpful error messages with exact commands to run
    - Returns success/failure status
    - Main collection method
-   - Gets all Kubernetes nodes using `kubectl get nodes -o json`
-   - Runs `kubectl describe node` for each node
-   - Creates tarball with all outputs
+   - Runs `kubectl describe nodes` (all nodes in one command)
+   - Saves combined output to single file
+   - Creates tarball with output
    - Uploads to S3
 
 ### Modified Methods
@@ -79,9 +79,7 @@ s3://bucket/prefix/cluster-name/timestamp/
 ### Kubectl Tarball Contents
 ```
 kubectl_output_timestamp/
-├── ip-10-0-1-100.ec2.internal_describe.txt
-├── ip-10-0-1-101.ec2.internal_describe.txt
-└── ip-10-0-1-102.ec2.internal_describe.txt
+└── all_nodes_describe.txt    # All nodes in one file
 ```
 
 ## Usage
