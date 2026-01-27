@@ -416,8 +416,9 @@ class HyperPodEKSIssueReportCollector:
         print(f"\nCollecting reports from {len(self.nodes)} nodes")
         print(f"Report ID: {self.report_id}")
         print(f"S3 Location: s3://{self.s3_bucket}/{self.report_s3_key}/")
-        if run_eks_log_collector:
-            print("EKS log collector: ENABLED")
+        print(f"Default collections: nvidia-smi, EKS log collector")
+        if len(commands) > 1:
+            print(f"Additional commands: {', '.join(commands[1:])}")
         print("-" * 60)
         
         # Generate and upload the collector script once
@@ -521,30 +522,30 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  # Collect nvidia-smi from all nodes
-  python hyperpod_eks_issue_report.py --cluster my-cluster --s3-bucket my-bucket --command "nvidia-smi"
+  # Basic usage - collects nvidia-smi and EKS logs from all nodes
+  python hyperpod_eks_issue_report.py --cluster my-cluster --s3-bucket my-bucket
   
-  # Collect multiple commands from specific instance group
+  # Add additional commands
   python hyperpod_eks_issue_report.py --cluster my-cluster --s3-bucket my-bucket \\
-    --instance-group worker-group \\
-    --command "nvidia-smi" \\
     --command "df -h" \\
     --command "free -h"
   
+  # Target specific instance group
+  python hyperpod_eks_issue_report.py --cluster my-cluster --s3-bucket my-bucket \\
+    --instance-group worker-group
+  
   # Use custom S3 prefix
   python hyperpod_eks_issue_report.py --cluster my-cluster --s3-bucket my-bucket \\
-    --s3-prefix diagnostics \\
-    --command "nvidia-smi"
+    --s3-prefix diagnostics
         """
     )
     
     parser.add_argument('--cluster', '-c', required=True, help='HyperPod cluster name')
     parser.add_argument('--s3-bucket', '-b', required=True, help='S3 bucket for storing reports')
     parser.add_argument('--s3-prefix', '-p', default='hyperpod-issue-reports', help='S3 prefix for reports (default: hyperpod-issue-reports)')
-    parser.add_argument('--command', '-cmd', action='append', required=True, help='Command to execute on nodes (can be specified multiple times)')
+    parser.add_argument('--command', '-cmd', action='append', help='Additional command to execute on nodes (can be specified multiple times)')
     parser.add_argument('--instance-group', '-g', help='Target specific instance group only')
     parser.add_argument('--max-workers', '-w', type=int, default=10, help='Maximum concurrent workers (default: 10)')
-    parser.add_argument('--run-eks-log-collector', action='store_true', help='Run AWS EKS log collector script on each node')
     parser.add_argument('--debug', '-d', action='store_true', help='Enable debug mode')
     
     args = parser.parse_args()
@@ -557,11 +558,18 @@ Examples:
             debug=args.debug
         )
         
+        # Default commands: nvidia-smi is always included
+        commands = ['nvidia-smi']
+        
+        # Add any additional user-specified commands
+        if args.command:
+            commands.extend(args.command)
+        
         collector.collect_reports(
-            commands=args.command,
+            commands=commands,
             instance_group=args.instance_group,
             max_workers=args.max_workers,
-            run_eks_log_collector=args.run_eks_log_collector
+            run_eks_log_collector=True  # Always run EKS log collector
         )
         
     except KeyboardInterrupt:
