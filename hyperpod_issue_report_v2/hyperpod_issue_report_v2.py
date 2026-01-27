@@ -775,35 +775,150 @@ class HyperPodIssueReportCollector:
         try:
             import subprocess
             
-            # Get all nodes in one command
-            print("Fetching all nodes from Kubernetes...")
-            result = subprocess.run(
-                ['kubectl', 'describe', 'nodes'],
-                capture_output=True, text=True, timeout=60
-            )
-            
-            if result.returncode != 0:
-                print(f"Error describing nodes: {result.stderr}")
-                return
-            
-            if not result.stdout:
-                print("No output from kubectl describe nodes")
-                return
-            
-            print(f"✓ Successfully collected node descriptions")
-            
             # Create output directory
             kubectl_output_dir = tempfile.mkdtemp(prefix='kubectl_output_')
             
-            # Save the combined output
-            output_file = os.path.join(kubectl_output_dir, 'all_nodes_describe.txt')
-            with open(output_file, 'w') as f:
-                f.write(result.stdout)
-            print(f"Saved all node descriptions to {output_file}")
+            # Define resources to collect
+            collections = [
+                # High Priority - Essential for troubleshooting
+                {
+                    'name': 'nodes_describe',
+                    'command': ['kubectl', 'describe', 'nodes'],
+                    'description': 'Node descriptions (capacity, conditions, pods)'
+                },
+                {
+                    'name': 'pods_all_namespaces',
+                    'command': ['kubectl', 'get', 'pods', '-A', '-o', 'wide'],
+                    'description': 'All pods across namespaces (wide output)'
+                },
+                {
+                    'name': 'pods_describe_all_namespaces',
+                    'command': ['kubectl', 'describe', 'pods', '-A'],
+                    'description': 'Detailed pod descriptions (all namespaces)'
+                },
+                {
+                    'name': 'events_all_namespaces',
+                    'command': ['kubectl', 'get', 'events', '-A', '--sort-by=.lastTimestamp'],
+                    'description': 'Cluster events sorted by timestamp'
+                },
+                {
+                    'name': 'pvcs_all_namespaces',
+                    'command': ['kubectl', 'get', 'pvc', '-A', '-o', 'wide'],
+                    'description': 'PersistentVolumeClaims (storage)'
+                },
+                {
+                    'name': 'pvcs_describe_all_namespaces',
+                    'command': ['kubectl', 'describe', 'pvc', '-A'],
+                    'description': 'Detailed PVC descriptions'
+                },
+                {
+                    'name': 'services_all_namespaces',
+                    'command': ['kubectl', 'get', 'svc', '-A', '-o', 'wide'],
+                    'description': 'Services (network endpoints)'
+                },
+                {
+                    'name': 'services_describe_all_namespaces',
+                    'command': ['kubectl', 'describe', 'svc', '-A'],
+                    'description': 'Detailed service descriptions'
+                },
+                
+                # Medium Priority - Very useful
+                {
+                    'name': 'deployments_all_namespaces',
+                    'command': ['kubectl', 'get', 'deployments', '-A', '-o', 'wide'],
+                    'description': 'Deployments'
+                },
+                {
+                    'name': 'statefulsets_all_namespaces',
+                    'command': ['kubectl', 'get', 'statefulsets', '-A', '-o', 'wide'],
+                    'description': 'StatefulSets'
+                },
+                {
+                    'name': 'daemonsets_all_namespaces',
+                    'command': ['kubectl', 'get', 'daemonsets', '-A', '-o', 'wide'],
+                    'description': 'DaemonSets'
+                },
+                {
+                    'name': 'configmaps_all_namespaces',
+                    'command': ['kubectl', 'get', 'configmaps', '-A'],
+                    'description': 'ConfigMaps (metadata only)'
+                },
+                {
+                    'name': 'secrets_all_namespaces',
+                    'command': ['kubectl', 'get', 'secrets', '-A'],
+                    'description': 'Secrets (metadata only, no content)'
+                },
+                {
+                    'name': 'resourcequotas_all_namespaces',
+                    'command': ['kubectl', 'get', 'resourcequota', '-A'],
+                    'description': 'Resource quotas'
+                },
+                {
+                    'name': 'networkpolicies_all_namespaces',
+                    'command': ['kubectl', 'get', 'networkpolicies', '-A'],
+                    'description': 'Network policies'
+                },
+            ]
+            
+            print(f"Collecting {len(collections)} Kubernetes resource types...")
+            successful = 0
+            failed = 0
+            
+            for collection in collections:
+                name = collection['name']
+                command = collection['command']
+                description = collection['description']
+                
+                print(f"  Collecting: {description}...", end=' ')
+                
+                try:
+                    result = subprocess.run(
+                        command,
+                        capture_output=True,
+                        text=True,
+                        timeout=60
+                    )
+                    
+                    output_file = os.path.join(kubectl_output_dir, f'{name}.txt')
+                    
+                    if result.returncode == 0:
+                        if result.stdout.strip():
+                            with open(output_file, 'w') as f:
+                                f.write(result.stdout)
+                            print(f"✓")
+                            successful += 1
+                        else:
+                            # Empty output (no resources of this type)
+                            with open(output_file, 'w') as f:
+                                f.write("No resources found\n")
+                            print(f"✓ (empty)")
+                            successful += 1
+                    else:
+                        # Command failed
+                        with open(output_file, 'w') as f:
+                            f.write(f"Error: {result.stderr}\n")
+                        print(f"✗ ({result.stderr.strip()[:50]})")
+                        failed += 1
+                        
+                except subprocess.TimeoutExpired:
+                    output_file = os.path.join(kubectl_output_dir, f'{name}.txt')
+                    with open(output_file, 'w') as f:
+                        f.write("Error: Command timed out\n")
+                    print(f"✗ (timeout)")
+                    failed += 1
+                    
+                except Exception as e:
+                    output_file = os.path.join(kubectl_output_dir, f'{name}.txt')
+                    with open(output_file, 'w') as f:
+                        f.write(f"Error: {str(e)}\n")
+                    print(f"✗ ({str(e)[:50]})")
+                    failed += 1
+            
+            print(f"\nCollection summary: {successful} successful, {failed} failed")
             
             # Create tarball
             print("\nCreating kubectl output tarball...")
-            tarball_path = os.path.join(tempfile.gettempdir(), f'kubectl_nodes_{self.report_id}.tar.gz')
+            tarball_path = os.path.join(tempfile.gettempdir(), f'kubectl_resources_{self.report_id}.tar.gz')
             
             import tarfile
             with tarfile.open(tarball_path, 'w:gz') as tar:
@@ -812,12 +927,12 @@ class HyperPodIssueReportCollector:
             print(f"Created tarball: {tarball_path}")
             
             # Upload to S3
-            s3_key = f"{self.report_s3_key}/kubectl_nodes_{self.report_id}.tar.gz"
+            s3_key = f"{self.report_s3_key}/kubectl_resources_{self.report_id}.tar.gz"
             print(f"Uploading to S3: s3://{self.s3_bucket}/{s3_key}")
             
             self.s3_client.upload_file(tarball_path, self.s3_bucket, s3_key)
             
-            print(f"✓ Successfully uploaded kubectl node information to S3")
+            print(f"✓ Successfully uploaded kubectl resource information to S3")
             print(f"  Location: s3://{self.s3_bucket}/{s3_key}")
             
             # Cleanup
@@ -825,8 +940,6 @@ class HyperPodIssueReportCollector:
             shutil.rmtree(kubectl_output_dir, ignore_errors=True)
             os.remove(tarball_path)
             
-        except subprocess.TimeoutExpired:
-            print("Error: kubectl command timed out")
         except Exception as e:
             print(f"Error collecting kubectl information: {e}")
             if self.debug:

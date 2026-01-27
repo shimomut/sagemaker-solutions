@@ -92,9 +92,10 @@ make run CLUSTER=my-cluster S3_PATH=s3://my-bucket
 
 1. Script queries SageMaker API to get cluster information and detect cluster type (EKS or Slurm)
 2. Script queries SageMaker API to get all nodes in your cluster
-3. **For EKS clusters**: Collects kubectl describe node information for all Kubernetes nodes
+3. **For EKS clusters**: Collects kubectl resource information for comprehensive cluster state
    - Verifies kubectl is installed and configured for the EKS cluster
    - If not configured, displays instructions and skips kubectl collection
+   - Collects 15 resource types including nodes, pods, events, PVCs, services, deployments, etc.
    - Uploads kubectl output to S3 if successful
 4. Generates a bash script that will:
    - **For EKS**: Run nvidia-smi, AWS EKS log collector, collect resource config, cluster logs, systemd services, disk usage
@@ -192,12 +193,21 @@ The tool automatically detects cluster type and collects appropriate diagnostics
 
 ### EKS-Specific Collections
 
-- **Kubectl node information**: `kubectl describe nodes` output for all Kubernetes nodes
+- **Kubectl resource information**: Comprehensive Kubernetes cluster state
   - Collected from local machine (not from nodes)
-  - Single command captures all nodes efficiently
-  - Includes node conditions, capacity, allocatable resources, system info
-  - Includes pod information and resource usage
-  - Uploaded as separate tarball: `kubectl_nodes_{timestamp}.tar.gz`
+  - **High Priority Resources** (essential for troubleshooting):
+    - Nodes: Detailed descriptions with capacity, conditions, and running pods
+    - Pods: All pods across namespaces with detailed descriptions
+    - Events: Cluster events sorted by timestamp
+    - PVCs: PersistentVolumeClaims and detailed descriptions (storage issues)
+    - Services: Network endpoints and detailed descriptions
+  - **Medium Priority Resources** (very useful):
+    - Deployments, StatefulSets, DaemonSets: Workload configurations
+    - ConfigMaps, Secrets: Configuration metadata (no sensitive content)
+    - ResourceQuotas: Resource limits and usage
+    - NetworkPolicies: Network isolation rules
+  - Single efficient collection with 15 resource types
+  - Uploaded as separate tarball: `kubectl_resources_{timestamp}.tar.gz`
 - **Containerd service status**: `systemctl status containerd` output
 - **Kubelet service status**: `systemctl status kubelet` output
 - **EKS log collector**: Comprehensive diagnostics including:
@@ -356,7 +366,7 @@ Results are stored in S3 with the following structure:
 s3://my-bucket/hyperpod-issue-reports/my-cluster/20260126_143022/
 ├── collector_script.sh              # Single script (uses env vars)
 ├── summary.json                     # Summary of collection status
-├── kubectl_nodes_20260126_143022.tar.gz  # kubectl describe node output (EKS only)
+├── kubectl_resources_20260126_143022.tar.gz  # kubectl resources (EKS only)
 └── results/
     ├── worker1_i-0123456789abcdef0.tar.gz
     ├── worker1_i-0123456789abcdef1.tar.gz
@@ -422,10 +432,15 @@ hyperpod_report_worker1_i-0123456789abcdef0_20260126_143025/
 # Download all results
 aws s3 sync s3://my-bucket/hyperpod-issue-reports/my-cluster/20260126_143022/ ./reports/
 
-# Extract kubectl node information (EKS only)
-tar -xzf reports/kubectl_nodes_20260126_143022.tar.gz
+# Extract kubectl resource information (EKS only)
+tar -xzf reports/kubectl_resources_20260126_143022.tar.gz
 ls kubectl_output_*/
-cat kubectl_output_*/all_nodes_describe.txt
+
+# View specific resources
+cat kubectl_output_*/nodes_describe.txt
+cat kubectl_output_*/pods_all_namespaces.txt
+cat kubectl_output_*/events_all_namespaces.txt
+cat kubectl_output_*/pvcs_describe_all_namespaces.txt
 
 # Extract a specific node report
 tar -xzf reports/results/worker1_i-0123456789abcdef0.tar.gz
