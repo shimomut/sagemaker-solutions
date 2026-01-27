@@ -213,6 +213,12 @@ class HyperPodIssueReportCollector:
         if self.cluster_type == 'eks':
             script_lines.extend([
                 "# EKS-specific collections",
+                "echo \"Collecting containerd service status...\"",
+                "systemctl status containerd > \"${OUTPUT_DIR}/containerd_status.txt\" 2>&1 || echo \"containerd service not found or not running\"",
+                "",
+                "echo \"Collecting kubelet service status...\"",
+                "systemctl status kubelet > \"${OUTPUT_DIR}/kubelet_status.txt\" 2>&1 || echo \"kubelet service not found or not running\"",
+                "",
                 "echo \"Running EKS log collector...\"",
                 "EKS_LOG_COLLECTOR_URL=\"https://raw.githubusercontent.com/awslabs/amazon-eks-ami/main/log-collector-script/linux/eks-log-collector.sh\"",
                 "curl -o /tmp/eks-log-collector.sh \"${EKS_LOG_COLLECTOR_URL}\"",
@@ -546,7 +552,7 @@ class HyperPodIssueReportCollector:
         
         # Show what will be collected based on cluster type
         if self.cluster_type == 'eks':
-            print(f"Default collections: nvidia-smi, EKS log collector, resource config, cluster logs, systemd services, disk usage")
+            print(f"Default collections: nvidia-smi, containerd status, kubelet status, EKS log collector, resource config, cluster logs, systemd services, disk usage")
         elif self.cluster_type == 'slurm':
             print(f"Default collections: nvidia-smi, nvidia-bug-report, sinfo, Slurm services, Slurm config, Slurm logs, system logs")
         
@@ -658,7 +664,7 @@ Examples:
   # Basic usage - auto-detects cluster type and collects appropriate diagnostics
   python hyperpod_eks_issue_report.py --cluster my-cluster --s3-path s3://my-bucket
   
-  # EKS cluster - collects nvidia-smi, EKS logs, resource config, cluster logs, systemd services, disk usage
+  # EKS cluster - collects nvidia-smi, containerd status, kubelet status, EKS logs, resource config, cluster logs, systemd services, disk usage
   python hyperpod_eks_issue_report.py --cluster my-eks-cluster --s3-path s3://my-bucket
   
   # Slurm cluster - collects nvidia-smi, nvidia-bug-report, sinfo, Slurm services/config/logs, system logs
