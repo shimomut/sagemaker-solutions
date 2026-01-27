@@ -453,16 +453,6 @@ class HyperPodEKSIssueReportCollector:
         print(f"  Total nodes: {len(results)}")
         print(f"  Successful: {successful}")
         print(f"  Failed: {failed}")
-        print(f"Results uploaded to: s3://{self.s3_bucket}/{self.report_s3_key}/results/")
-        print(f"Summary: s3://{self.s3_bucket}/{self.report_s3_key}/summary.json")
-        
-        # Print statistics
-        successful = sum(1 for r in results if r['Success'])
-        failed = len(results) - successful
-        print(f"\nStatistics:")
-        print(f"  Total nodes: {len(results)}")
-        print(f"  Successful: {successful}")
-        print(f"  Failed: {failed}")
     
     def save_summary(self, results: List[Dict]):
         """Save collection summary to S3."""
