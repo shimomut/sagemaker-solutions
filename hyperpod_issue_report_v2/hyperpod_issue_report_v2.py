@@ -50,14 +50,19 @@ class HyperPodIssueReportCollector:
         Accepts formats:
         - s3://bucket-name/prefix/path
         - s3://bucket-name
-        - bucket-name/prefix/path
-        - bucket-name
         """
         s3_path = s3_path.strip()
         
-        # Remove s3:// prefix if present
-        if s3_path.startswith('s3://'):
-            s3_path = s3_path[5:]
+        # Require s3:// prefix
+        if not s3_path.startswith('s3://'):
+            raise ValueError(
+                f"S3 path must start with 's3://' prefix.\n"
+                f"Received: {s3_path}\n"
+                f"Expected format: s3://bucket-name or s3://bucket-name/custom-prefix"
+            )
+        
+        # Remove s3:// prefix
+        s3_path = s3_path[5:]
         
         # Split into bucket and prefix
         parts = s3_path.split('/', 1)

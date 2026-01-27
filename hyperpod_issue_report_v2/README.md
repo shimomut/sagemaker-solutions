@@ -33,21 +33,14 @@ pip install -r requirements.txt
 aws configure
 ```
 
-3. **For EKS clusters**: Ensure kubectl is installed and configured (REQUIRED):
+3. **Ensure HyperPod instance execution roles have S3 permissions**:
+   - The IAM roles attached to your HyperPod instance groups must have `s3:GetObject` and `s3:PutObject` permissions for your diagnostics bucket
+   - See [IAM Policy Requirements](#iam-policy-requirements) section for details
+   - You can add these permissions to existing IAM roles at any time
+
+4. **For EKS clusters**: Ensure kubectl is installed and configured (REQUIRED):
 ```bash
-# Install kubectl
-# macOS
-brew install kubectl
-
-# Linux
-curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
-chmod +x kubectl
-sudo mv kubectl /usr/local/bin/
-
-# Verify installation
-kubectl version --client
-
-# Configure kubectl for your EKS cluster (REQUIRED)
+# Configure kubectl for your EKS cluster
 # Get the EKS cluster name from: aws sagemaker describe-cluster --cluster-name <hyperpod-cluster>
 aws eks update-kubeconfig --name <eks-cluster-name> --region <region>
 
@@ -57,7 +50,7 @@ kubectl get nodes
 
 **Note**: For EKS clusters, kubectl MUST be configured before running the tool. The tool will exit with an error if kubectl is not properly configured.
 
-4. Create an S3 bucket for reports (if you don't have one):
+5. Create an S3 bucket for reports (if you don't have one):
 ```bash
 aws s3 mb s3://my-diagnostics-bucket
 ```
@@ -257,7 +250,6 @@ You can add additional commands using `--command` flags.
 - `--s3-path, -s`: S3 path for storing reports (required). Accepts formats:
   - `s3://bucket-name` (uses default prefix: hyperpod-issue-reports)
   - `s3://bucket-name/custom-prefix`
-  - `bucket-name/custom-prefix` (s3:// prefix optional)
 - `--command, -cmd`: Additional command to execute on nodes (can be specified multiple times)
 - `--instance-groups, -g`: Target specific instance groups (e.g., `--instance-groups worker1 worker2`)
 - `--nodes, -n`: Target specific instance IDs (e.g., `--nodes i-abc123 i-def456`)
@@ -478,43 +470,6 @@ my-cluster_20260127_143022/
     └── worker2_i-0123456789abcdef2.tar.gz
 ```
 
-#### Manual Download and Extract
-
-```bash
-# Download all results
-aws s3 sync s3://my-bucket/hyperpod-issue-reports/my-cluster/20260126_143022/ ./reports/
-
-# Extract kubectl resource information (EKS only)
-tar -xzf reports/kubectl_resources.tar.gz
-
-# Files are at the root level (no wrapper directory)
-ls *.txt
-
-# View specific resources
-cat nodes_describe.txt
-cat pods_all_namespaces.txt
-cat events_all_namespaces.txt
-cat pvcs_describe_all_namespaces.txt
-
-# Extract a specific node report
-tar -xzf reports/instances/worker1_i-0123456789abcdef0.tar.gz
-
-# View nvidia-smi output
-cat hyperpod_report_worker1_i-0123456789abcdef0_20260126_143025/nvidia_smi.txt
-
-# View containerd and kubelet status (EKS)
-cat hyperpod_report_worker1_i-0123456789abcdef0_20260126_143025/containerd_status.txt
-cat hyperpod_report_worker1_i-0123456789abcdef0_20260126_143025/kubelet_status.txt
-
-# View EKS logs
-ls hyperpod_report_worker1_i-0123456789abcdef0_20260126_143025/eks-logs/
-
-# View specific EKS log categories
-cat hyperpod_report_worker1_i-0123456789abcdef0_20260126_143025/eks-logs/kubelet/*
-cat hyperpod_report_worker1_i-0123456789abcdef0_20260126_143025/eks-logs/containerd/*
-cat hyperpod_report_worker1_i-0123456789abcdef0_20260126_143025/eks-logs/system/*
-```
-
 ## Summary JSON Format
 
 ```json
@@ -563,7 +518,9 @@ cat hyperpod_report_worker1_i-0123456789abcdef0_20260126_143025/eks-logs/system/
 
 **Note**: For EKS clusters, kubectl MUST be configured before running the tool. The tool will exit with an error and display the exact command needed if kubectl is not properly configured.
 
-### For the HyperPod Node IAM Role
+### For HyperPod Instance Group IAM Roles
+
+These permissions must be attached to the IAM roles associated with your HyperPod instance groups (configured during cluster creation).
 
 ```json
 {
@@ -576,18 +533,16 @@ cat hyperpod_report_worker1_i-0123456789abcdef0_20260126_143025/eks-logs/system/
         "s3:PutObject"
       ],
       "Resource": "arn:aws:s3:::my-diagnostics-bucket/*"
-    },
-    {
-      "Effect": "Allow",
-      "Action": [
-        "ssm:UpdateInstanceInformation",
-        "ssmmessages:CreateControlChannel",
-        "ssmmessages:CreateDataChannel",
-        "ssmmessages:OpenControlChannel",
-        "ssmmessages:OpenDataChannel"
-      ],
-      "Resource": "*"
     }
+  ]
+}
+```
+
+**Important Notes**:
+- Replace `my-diagnostics-bucket` with your actual S3 bucket name
+- S3 permissions are required to download collection scripts and upload diagnostic results
+- The IAM role must be attached to instance groups when creating the HyperPod cluster
+- Without these permissions, nodes cannot download scripts or upload results
   ]
 }
 ```
@@ -672,16 +627,7 @@ If EKS log collector fails:
 
 If you see an error message, follow the instructions displayed:
 
-1. **kubectl not installed**:
-   ```bash
-   # macOS
-   brew install kubectl
-   
-   # Linux
-   curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
-   chmod +x kubectl
-   sudo mv kubectl /usr/local/bin/
-   ```
+1. **kubectl not installed**: Install kubectl and re-run the tool
 
 2. **kubectl not configured**:
    ```bash
