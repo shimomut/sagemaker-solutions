@@ -59,13 +59,15 @@ make run-k8s CLUSTER=my-cluster S3_BUCKET=my-bucket
 Results are stored in S3:
 ```
 s3://my-bucket/hyperpod-issue-reports/my-cluster/20260126_143022/
-├── collector_script.sh
+├── collector_script.sh              # Single script (uses env vars)
 ├── summary.json
 └── results/
-    ├── hyperpod_report_ip-10-0-1-100_20260126_143025.tar.gz
-    ├── hyperpod_report_ip-10-0-1-101_20260126_143026.tar.gz
+    ├── worker1_i-0123456789abcdef0.tar.gz
+    ├── worker1_i-0123456789abcdef1.tar.gz
     └── ...
 ```
+
+**Note**: Result files use the format `{instance-group}_{instance-id}.tar.gz` (e.g., `worker1_i-0123456789abcdef0.tar.gz`). The collector script uses environment variables for instance identification.
 
 ### Quick Check with Helper Script
 

@@ -99,17 +99,18 @@ python hyperpod_eks_issue_report.py \
 ## How It Works
 
 1. **Cluster Discovery**: Queries SageMaker API to get all nodes in the cluster
-2. **Script Generation**: Creates a bash script that will run the specified commands
-3. **Script Upload**: Uploads the collection script to S3
+2. **Script Generation**: Creates a single bash script that will run the specified commands
+3. **Script Upload**: Uploads the collection script to S3 once
 4. **Parallel Execution**: Uses SSM interactive sessions with `pexpect` to execute the script on all nodes concurrently
    - **Important**: Uses HyperPod SSM target format: `sagemaker-cluster:{cluster-id}_{instance-group}-{instance-id}`
    - Interactive session approach (like `hyperpod_run_on_multi_nodes`) is required for HyperPod nodes
+   - Passes `INSTANCE_GROUP` and `INSTANCE_ID` as environment variables to the script
 5. **Result Collection**: Each node:
    - Downloads the script from S3
    - Executes all specified commands
    - Captures output to individual files
    - Creates a tarball of all results
-   - Uploads the tarball to S3
+   - Uploads the tarball to S3 with format `{instance-group}_{instance-id}.tar.gz`
 6. **Summary Generation**: Creates a JSON summary with collection status
 
 ## Output Structure
@@ -118,24 +119,33 @@ Results are stored in S3 with the following structure:
 
 ```
 s3://my-bucket/hyperpod-issue-reports/my-cluster/20260126_143022/
-├── collector_script.sh              # The collection script
+├── scripts/                         # Per-node collection scripts
+│   ├── worker1_i-0123456789abcdef0_collector.sh
+│   ├── worker1_i-0123456789abcdef1_collector.sh
+│   └── worker2_i-0123456789abcdef2_collector.sh
 ├── summary.json                     # Summary of collection status
 └── results/
-    ├── hyperpod_report_ip-10-0-1-100_20260126_143025.tar.gz
-    ├── hyperpod_report_ip-10-0-1-101_20260126_143026.tar.gz
-    └── hyperpod_report_ip-10-0-1-102_20260126_143027.tar.gz
+    ├── worker1_i-0123456789abcdef0.tar.gz
+    ├── worker1_i-0123456789abcdef1.tar.gz
+    └── worker2_i-0123456789abcdef2.tar.gz
 ```
 
 Each tarball contains:
 
 ```
-hyperpod_report_ip-10-0-1-100_20260126_143025/
-├── hostname.txt
-├── timestamp.txt
+hyperpod_report_worker1_i-0123456789abcdef0_20260126_143025/
+├── instance_group.txt               # Instance group name
+├── instance_id.txt                  # EC2 instance ID
+├── hostname.txt                     # Node hostname
+├── timestamp.txt                    # Collection timestamp (UTC)
 ├── command_01_nvidia-smi.txt
 ├── command_02_df_-h.txt
 └── command_03_free_-h.txt
 ```
+
+**Filename Format**: Result tarballs use the format `{instance-group}_{instance-id}.tar.gz` where:
+- `instance-group`: The HyperPod instance group name (e.g., `worker1`, `worker2`)
+- `instance-id`: The EC2 instance ID (e.g., `i-0123456789abcdef0`)
 
 ## Summary JSON Format
 

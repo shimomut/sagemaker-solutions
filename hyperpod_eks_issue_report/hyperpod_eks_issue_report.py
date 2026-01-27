@@ -16,7 +16,7 @@ import signal
 import sys
 import tempfile
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Dict, Optional
 
 
@@ -34,8 +34,8 @@ class HyperPodEKSIssueReportCollector:
         self.cluster_id = None
         self.nodes = []
         
-        # Generate unique report ID
-        self.report_id = datetime.now().strftime("%Y%m%d_%H%M%S")
+        # Generate unique report ID using UTC time
+        self.report_id = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
         self.report_s3_key = f"{s3_prefix}/{cluster_name}/{self.report_id}"
     
     def extract_cluster_id_from_arn(self, cluster_arn: str) -> str:
@@ -105,45 +105,36 @@ class HyperPodEKSIssueReportCollector:
             print(f"Error getting cluster nodes: {e}")
             return []
     
-    def upload_collector_script(self, script_content: str) -> str:
-        """Upload the collector script to S3 and return the S3 URI."""
-        script_key = f"{self.report_s3_key}/collector_script.sh"
-        
-        try:
-            self.s3_client.put_object(
-                Bucket=self.s3_bucket,
-                Key=script_key,
-                Body=script_content.encode('utf-8'),
-                ContentType='text/x-shellscript'
-            )
-            s3_uri = f"s3://{self.s3_bucket}/{script_key}"
-            print(f"Uploaded collector script to: {s3_uri}")
-            return s3_uri
-        except Exception as e:
-            print(f"Error uploading collector script: {e}")
-            raise
-    
     def generate_collector_script(self, commands: List[str]) -> str:
-        """Generate the bash script that will run on each node."""
+        """Generate the bash script that will run on each node.
+        Instance group and ID are passed as environment variables."""
         script_lines = [
             "#!/bin/bash",
             "# HyperPod EKS Issue Report Collector Script",
             "# Auto-generated script to collect diagnostic information",
+            "# Expects INSTANCE_GROUP and INSTANCE_ID environment variables",
             "",
             "set -e",
             "",
-            "# Get hostname for unique identification",
-            "HOSTNAME=$(hostname)",
-            "TIMESTAMP=$(date +%Y%m%d_%H%M%S)",
-            "OUTPUT_DIR=\"/tmp/hyperpod_report_${HOSTNAME}_${TIMESTAMP}\"",
+            "# Validate required environment variables",
+            "if [ -z \"${INSTANCE_GROUP}\" ] || [ -z \"${INSTANCE_ID}\" ]; then",
+            "    echo \"Error: INSTANCE_GROUP and INSTANCE_ID environment variables are required\"",
+            "    exit 1",
+            "fi",
+            "",
+            "# Instance identification",
+            "TIMESTAMP=$(date -u +%Y%m%d_%H%M%S)",
+            "OUTPUT_DIR=\"/tmp/hyperpod_report_${INSTANCE_GROUP}_${INSTANCE_ID}_${TIMESTAMP}\"",
             "",
             "echo \"Creating output directory: ${OUTPUT_DIR}\"",
             "mkdir -p \"${OUTPUT_DIR}\"",
             "",
             "# Collect system information",
             "echo \"Collecting system information...\"",
-            "echo \"${HOSTNAME}\" > \"${OUTPUT_DIR}/hostname.txt\"",
-            "date > \"${OUTPUT_DIR}/timestamp.txt\"",
+            "echo \"${INSTANCE_GROUP}\" > \"${OUTPUT_DIR}/instance_group.txt\"",
+            "echo \"${INSTANCE_ID}\" > \"${OUTPUT_DIR}/instance_id.txt\"",
+            "hostname > \"${OUTPUT_DIR}/hostname.txt\"",
+            "date -u > \"${OUTPUT_DIR}/timestamp.txt\"",
             "",
         ]
         
@@ -152,21 +143,24 @@ class HyperPodEKSIssueReportCollector:
             safe_name = cmd.replace(' ', '_').replace('/', '_')[:50]
             output_file = f"command_{i:02d}_{safe_name}.txt"
             
+            # Use regular string (not f-string) to avoid any escaping issues with bash variables
+            cmd_line = f"{cmd} > \"${{OUTPUT_DIR}}/{output_file}\" 2>&1 || echo \"Command failed with exit code $?\" >> \"${{OUTPUT_DIR}}/{output_file}\""
+            
             script_lines.extend([
                 f"# Command {i}: {cmd}",
                 f"echo \"Running: {cmd}\"",
-                f"{cmd} > \"${{OUTPUT_DIR}}/{output_file}\" 2>&1 || echo \"Command failed with exit code $?\" >> \"${{OUTPUT_DIR}}/{output_file}\"",
+                cmd_line,
                 "",
             ])
         
-        # Add S3 upload logic
+        # Add S3 upload logic with new filename format
         script_lines.extend([
             "# Upload results to S3",
             f"S3_BUCKET=\"{self.s3_bucket}\"",
             f"S3_PREFIX=\"{self.report_s3_key}/results\"",
             "",
             "echo \"Creating tarball...\"",
-            "TARBALL=\"/tmp/hyperpod_report_${HOSTNAME}_${TIMESTAMP}.tar.gz\"",
+            "TARBALL=\"/tmp/${INSTANCE_GROUP}_${INSTANCE_ID}.tar.gz\"",
             "tar -czf \"${TARBALL}\" -C /tmp \"$(basename ${OUTPUT_DIR})\"",
             "",
             "echo \"Uploading to S3...\"",
@@ -180,7 +174,7 @@ class HyperPodEKSIssueReportCollector:
             "    exit 1",
             "fi",
             "",
-            "echo \"Report collection completed for ${HOSTNAME}\"",
+            "echo \"Report collection completed for ${INSTANCE_GROUP}/${INSTANCE_ID}\"",
         ])
         
         return '\n'.join(script_lines)
@@ -191,7 +185,7 @@ class HyperPodEKSIssueReportCollector:
             raise ValueError("Cluster ID is required for HyperPod SSM targets")
         return f"sagemaker-cluster:{self.cluster_id}_{instance_group_name}-{instance_id}"
     
-    def execute_collection_on_node(self, node: Dict, script_s3_uri: str) -> Dict:
+    def execute_collection_on_node(self, node: Dict, commands: List[str], script_s3_uri: str) -> Dict:
         """Execute the collection script on a single node via SSM using pexpect."""
         instance_id = node['InstanceId']
         instance_group = node.get('NodeGroup', 'unknown')
@@ -206,14 +200,14 @@ class HyperPodEKSIssueReportCollector:
                 'Error': str(e)
             }
         
-        # Build the command to download and execute the script
-        commands = [
+        # Build the command to download and execute the script with environment variables
+        commands_to_run = [
             f"aws s3 cp {script_s3_uri} /tmp/collector_script.sh",
             "chmod +x /tmp/collector_script.sh",
-            "/tmp/collector_script.sh"
+            f"INSTANCE_GROUP={instance_group} INSTANCE_ID={instance_id} /tmp/collector_script.sh"
         ]
         
-        full_command = " && ".join(commands)
+        full_command = " && ".join(commands_to_run)
         
         print(f"Executing collection on {instance_id} ({instance_group})...")
         
@@ -261,7 +255,7 @@ class HyperPodEKSIssueReportCollector:
             if self.debug:
                 print(f"[DEBUG] {instance_id}: Custom prompt set")
             
-            # Execute the command
+            # Execute the command and capture exit code
             child.sendline(full_command)
             
             # Wait for command completion (up to 5 minutes)
@@ -286,6 +280,21 @@ class HyperPodEKSIssueReportCollector:
             else:
                 output = ""
             
+            # Check exit code of the command
+            child.sendline('echo "EXIT_CODE:$?"')
+            child.expect(custom_prompt, timeout=10)
+            exit_code_output = child.before
+            
+            exit_code = 1  # Default to failure
+            if exit_code_output:
+                for line in exit_code_output.split('\n'):
+                    if line.startswith('EXIT_CODE:'):
+                        try:
+                            exit_code = int(line.split(':')[1].strip())
+                        except:
+                            pass
+                        break
+            
             # Close session
             try:
                 child.sendline('exit')
@@ -296,12 +305,52 @@ class HyperPodEKSIssueReportCollector:
                 except:
                     pass
             
-            return {
-                'InstanceId': instance_id,
-                'NodeGroup': instance_group,
-                'Success': True,
-                'Output': output
-            }
+            # Determine success based on exit code and output
+            success = (exit_code == 0)
+            
+            # Check for common error patterns in output
+            error_indicators = [
+                'Failed to upload to S3',
+                'Error:',
+                'command not found',
+                'No such file or directory',
+                'Permission denied',
+                'fatal:',
+                'cannot',
+                'Unable to'
+            ]
+            
+            has_error = any(indicator.lower() in output.lower() for indicator in error_indicators)
+            
+            if success and not has_error:
+                return {
+                    'InstanceId': instance_id,
+                    'NodeGroup': instance_group,
+                    'Success': True,
+                    'Output': output
+                }
+            else:
+                # Extract error message from output - show last 10 lines which usually contain the error
+                output_lines = output.split('\n')
+                
+                # Try to find error lines
+                error_lines = [line for line in output_lines 
+                               if any(indicator.lower() in line.lower() for indicator in error_indicators)]
+                
+                if error_lines:
+                    # Show the error lines
+                    error_msg = '\n'.join(error_lines[:5])  # First 5 error lines
+                else:
+                    # Show last 10 lines of output which usually contain the error
+                    error_msg = '\n'.join(output_lines[-10:]) if len(output_lines) > 10 else output
+                
+                return {
+                    'InstanceId': instance_id,
+                    'NodeGroup': instance_group,
+                    'Success': False,
+                    'Error': f"Script execution failed (exit code: {exit_code})\n{error_msg}",
+                    'Output': output
+                }
             
         except pexpect.TIMEOUT:
             error_msg = f"Command timed out after 5 minutes"
@@ -365,9 +414,22 @@ class HyperPodEKSIssueReportCollector:
         print(f"S3 Location: s3://{self.s3_bucket}/{self.report_s3_key}/")
         print("-" * 60)
         
-        # Generate and upload collector script
+        # Generate and upload the collector script once
         script_content = self.generate_collector_script(commands)
-        script_s3_uri = self.upload_collector_script(script_content)
+        script_key = f"{self.report_s3_key}/collector_script.sh"
+        
+        try:
+            self.s3_client.put_object(
+                Bucket=self.s3_bucket,
+                Key=script_key,
+                Body=script_content.encode('utf-8'),
+                ContentType='text/x-shellscript'
+            )
+            script_s3_uri = f"s3://{self.s3_bucket}/{script_key}"
+            print(f"Uploaded collector script to: {script_s3_uri}")
+        except Exception as e:
+            print(f"Error uploading collector script: {e}")
+            return
         
         # Execute collection on all nodes using ThreadPoolExecutor
         from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -375,7 +437,7 @@ class HyperPodEKSIssueReportCollector:
         results = []
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             future_to_node = {
-                executor.submit(self.execute_collection_on_node, node, script_s3_uri): node
+                executor.submit(self.execute_collection_on_node, node, commands, script_s3_uri): node
                 for node in self.nodes
             }
             
@@ -389,7 +451,11 @@ class HyperPodEKSIssueReportCollector:
                     print(f"[{status}] {result['InstanceId']} ({result['NodeGroup']})")
                     
                     if not result['Success']:
-                        print(f"    Error: {result.get('Error', 'Unknown error')}")
+                        error_msg = result.get('Error', 'Unknown error')
+                        # Print error details with indentation for readability
+                        for line in error_msg.split('\n'):
+                            if line.strip():
+                                print(f"    {line}")
                     
                 except Exception as e:
                     print(f"[✗] {node['InstanceId']}: Exception: {e}")
@@ -415,6 +481,16 @@ class HyperPodEKSIssueReportCollector:
         print(f"  Total nodes: {len(results)}")
         print(f"  Successful: {successful}")
         print(f"  Failed: {failed}")
+        print(f"Results uploaded to: s3://{self.s3_bucket}/{self.report_s3_key}/results/")
+        print(f"Summary: s3://{self.s3_bucket}/{self.report_s3_key}/summary.json")
+        
+        # Print statistics
+        successful = sum(1 for r in results if r['Success'])
+        failed = len(results) - successful
+        print(f"\nStatistics:")
+        print(f"  Total nodes: {len(results)}")
+        print(f"  Successful: {successful}")
+        print(f"  Failed: {failed}")
     
     def save_summary(self, results: List[Dict]):
         """Save collection summary to S3."""
@@ -422,7 +498,7 @@ class HyperPodEKSIssueReportCollector:
             'cluster_name': self.cluster_name,
             'cluster_id': self.cluster_id,
             'report_id': self.report_id,
-            'timestamp': datetime.now().isoformat(),
+            'timestamp': datetime.now(timezone.utc).isoformat(),
             'total_nodes': len(results),
             'successful': sum(1 for r in results if r['Success']),
             'failed': sum(1 for r in results if not r['Success']),
