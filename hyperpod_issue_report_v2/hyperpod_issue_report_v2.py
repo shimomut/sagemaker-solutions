@@ -505,32 +505,58 @@ class HyperPodIssueReportCollector:
             child = pexpect.spawn(ssm_command, timeout=600, encoding='utf-8')
             child.logfile_read = None
             
-            # Wait for initial prompt
+            # Wait for initial prompt (increased timeout for slow connections)
             initial_prompt_patterns = [
                 r'[\$#]\s+',            # Standard shell prompt
                 r'sh-\d+\.\d+[\$#]\s*', # sh prompt
                 pexpect.TIMEOUT
             ]
             
-            prompt_index = child.expect(initial_prompt_patterns, timeout=30)
+            prompt_index = child.expect(initial_prompt_patterns, timeout=60)
             
             if prompt_index == len(initial_prompt_patterns) - 1:  # TIMEOUT
                 child.sendline('')
                 try:
-                    child.expect(initial_prompt_patterns[:-1], timeout=10)
+                    child.expect(initial_prompt_patterns[:-1], timeout=30)
                 except pexpect.TIMEOUT:
+                    # Get output for debugging
+                    output_sample = ""
+                    if child and hasattr(child, 'before') and child.before:
+                        # Show more output to help diagnose the issue
+                        output_sample = child.before.strip()
+                        if len(output_sample) > 1000:
+                            output_sample = output_sample[-1000:]  # Last 1000 chars
+                    
+                    error_msg = (
+                        f"Failed to detect shell prompt after 90 seconds.\n"
+                        f"This may indicate:\n"
+                        f"  - Custom SSM session configuration interfering with prompt detection\n"
+                        f"  - Non-standard shell prompt format\n"
+                        f"  - SSM session initialization issues\n"
+                    )
+                    
+                    if output_sample:
+                        error_msg += f"\nSession output received:\n{output_sample}\n"
+                        error_msg += (
+                            f"\nExpected prompt patterns: $ or # followed by space\n"
+                            f"If your cluster uses custom SSM session commands or non-standard prompts,\n"
+                            f"this tool may not be compatible."
+                        )
+                    else:
+                        error_msg += "\nNo output received from SSM session."
+                    
                     return {
                         'InstanceId': instance_id,
                         'NodeGroup': instance_group,
                         'Success': False,
-                        'Error': 'Failed to establish shell session - no prompt detected'
+                        'Error': error_msg
                     }
             
             # Set custom prompt
             child.sendline(f'export PS1="{custom_prompt}"')
             child.sendline('echo "PROMPT_SET_MARKER"')
-            child.expect('PROMPT_SET_MARKER', timeout=10)
-            child.expect(custom_prompt, timeout=10)
+            child.expect('PROMPT_SET_MARKER', timeout=30)
+            child.expect(custom_prompt, timeout=30)
             
             if self.debug:
                 print(f"[DEBUG] {instance_id}: Custom prompt set")
@@ -605,9 +631,26 @@ class HyperPodIssueReportCollector:
                 }
             
         except pexpect.TIMEOUT:
-            error_msg = f"Command timed out after 10 minutes"
+            # Show more context about where the timeout occurred
+            output_sample = ""
             if child and hasattr(child, 'before') and child.before:
-                error_msg += f"\nPartial output: {child.before[:500]}..."
+                output_sample = child.before.strip()
+                if len(output_sample) > 1000:
+                    output_sample = output_sample[-1000:]  # Last 1000 chars
+            
+            error_msg = (
+                f"Operation timed out during command execution.\n"
+                f"This may indicate:\n"
+                f"  - Command taking longer than expected to complete\n"
+                f"  - Custom shell configuration interfering with output detection\n"
+                f"  - Network or SSM session issues\n"
+            )
+            
+            if output_sample:
+                error_msg += f"\nLast output received:\n{output_sample}"
+            else:
+                error_msg += "\nNo output received."
+            
             return {
                 'InstanceId': instance_id,
                 'NodeGroup': instance_group,
@@ -616,9 +659,16 @@ class HyperPodIssueReportCollector:
             }
             
         except pexpect.EOF:
-            error_msg = "SSM session ended unexpectedly"
+            output_sample = ""
             if child and hasattr(child, 'before') and child.before:
-                error_msg += f"\nLast output: {child.before[:500]}..."
+                output_sample = child.before.strip()
+                if len(output_sample) > 500:
+                    output_sample = output_sample[-500:]  # Last 500 chars
+            
+            error_msg = "SSM session ended unexpectedly"
+            if output_sample:
+                error_msg += f"\nLast output:\n{output_sample}"
+            
             return {
                 'InstanceId': instance_id,
                 'NodeGroup': instance_group,
