@@ -189,20 +189,22 @@ class HyperPodIssueReportCollector:
             return []
     
     def resolve_node_identifiers(self, node_identifiers: List[str]) -> List[str]:
-        """Resolve node identifiers (instance IDs or Slurm node names) to instance IDs.
+        """Resolve node identifiers to instance IDs.
         
-        For Slurm clusters, supports both:
-        - Instance IDs: i-0123456789abcdef0
-        - Slurm node names: ip-10-1-104-161
+        Supports multiple formats:
+        - Instance IDs: i-0123456789abcdef0 (EKS and Slurm)
+        - Slurm node names: ip-10-1-104-161 (Slurm only)
+        - EKS node names: hyperpod-i-0123456789abcdef0 (EKS only)
         
         Returns list of instance IDs.
         """
         if not node_identifiers:
             return []
         
-        # Separate instance IDs from potential Slurm node names
+        # Separate different identifier types
         instance_ids = []
         slurm_node_names = []
+        eks_node_names = []
         
         for identifier in node_identifiers:
             if identifier.startswith('i-'):
@@ -211,37 +213,61 @@ class HyperPodIssueReportCollector:
             elif identifier.startswith('ip-'):
                 # This looks like a Slurm node name
                 slurm_node_names.append(identifier)
+            elif identifier.startswith('hyperpod-i-'):
+                # This looks like an EKS node name (hyperpod-i-*)
+                eks_node_names.append(identifier)
             else:
                 # Unknown format, treat as instance ID and let validation fail later
                 instance_ids.append(identifier)
         
-        # If we have Slurm node names and this is a Slurm cluster, resolve them
-        if slurm_node_names and self.cluster_type == 'slurm':
-            print(f"Resolving Slurm node names to instance IDs...")
-            
-            # Build a mapping of Slurm node name to instance ID
-            slurm_to_instance = {}
-            
-            for node in self.nodes:
-                instance_id = node.get('InstanceId')
-                if instance_id:
-                    slurm_name = self.get_node_private_ip(instance_id)
-                    if slurm_name:
-                        slurm_to_instance[slurm_name] = instance_id
-            
-            # Resolve the requested Slurm node names
-            for slurm_name in slurm_node_names:
-                if slurm_name in slurm_to_instance:
-                    resolved_id = slurm_to_instance[slurm_name]
-                    instance_ids.append(resolved_id)
-                    print(f"  {slurm_name} -> {resolved_id}")
-                else:
-                    print(f"  Warning: Slurm node name '{slurm_name}' not found in cluster")
+        # Resolve EKS node names if present
+        if eks_node_names:
+            if self.cluster_type == 'eks':
+                print(f"Resolving EKS node names to instance IDs...")
+                for eks_name in eks_node_names:
+                    # Extract instance ID from hyperpod-i-* format
+                    # Format: hyperpod-i-0123456789abcdef0
+                    if eks_name.startswith('hyperpod-'):
+                        extracted_id = eks_name[9:]  # Remove 'hyperpod-' prefix
+                        if extracted_id.startswith('i-'):
+                            instance_ids.append(extracted_id)
+                            print(f"  {eks_name} -> {extracted_id}")
+                        else:
+                            print(f"  Warning: Invalid EKS node name format '{eks_name}' (expected hyperpod-i-*)")
+                    else:
+                        print(f"  Warning: Invalid EKS node name format '{eks_name}'")
+            else:
+                print(f"Warning: EKS node names provided but cluster type is {self.cluster_type}")
+                print(f"  EKS node names (hyperpod-i-*) are only supported for EKS clusters")
+                print(f"  Ignoring: {', '.join(eks_node_names)}")
         
-        elif slurm_node_names and self.cluster_type != 'slurm':
-            print(f"Warning: Slurm node names provided but cluster type is {self.cluster_type}")
-            print(f"  Slurm node names are only supported for Slurm clusters")
-            print(f"  Ignoring: {', '.join(slurm_node_names)}")
+        # Resolve Slurm node names if present
+        if slurm_node_names:
+            if self.cluster_type == 'slurm':
+                print(f"Resolving Slurm node names to instance IDs...")
+                
+                # Build a mapping of Slurm node name to instance ID
+                slurm_to_instance = {}
+                
+                for node in self.nodes:
+                    instance_id = node.get('InstanceId')
+                    if instance_id:
+                        slurm_name = self.get_node_private_ip(instance_id)
+                        if slurm_name:
+                            slurm_to_instance[slurm_name] = instance_id
+                
+                # Resolve the requested Slurm node names
+                for slurm_name in slurm_node_names:
+                    if slurm_name in slurm_to_instance:
+                        resolved_id = slurm_to_instance[slurm_name]
+                        instance_ids.append(resolved_id)
+                        print(f"  {slurm_name} -> {resolved_id}")
+                    else:
+                        print(f"  Warning: Slurm node name '{slurm_name}' not found in cluster")
+            else:
+                print(f"Warning: Slurm node names provided but cluster type is {self.cluster_type}")
+                print(f"  Slurm node names (ip-*) are only supported for Slurm clusters")
+                print(f"  Ignoring: {', '.join(slurm_node_names)}")
         
         return instance_ids
     
@@ -1231,6 +1257,10 @@ Examples:
   python hyperpod_eks_issue_report.py --cluster my-cluster --s3-path s3://my-bucket \\
     --nodes i-abc123 i-def456
   
+  # Target specific EKS nodes (EKS clusters only)
+  python hyperpod_eks_issue_report.py --cluster my-cluster --s3-path s3://my-bucket \\
+    --nodes hyperpod-i-044bbf66a68558e87 hyperpod-i-055ccf77b79669f98
+  
   # Target specific Slurm nodes (Slurm clusters only)
   python hyperpod_eks_issue_report.py --cluster my-cluster --s3-path s3://my-bucket \\
     --nodes ip-10-1-104-161 ip-10-1-104-162
@@ -1241,7 +1271,7 @@ Examples:
     parser.add_argument('--s3-path', '-s', required=True, help='S3 path for storing reports (e.g., s3://bucket-name/prefix or s3://bucket-name)')
     parser.add_argument('--command', '-cmd', action='append', help='Additional command to execute on nodes (can be specified multiple times)')
     parser.add_argument('--instance-groups', '-g', nargs='+', help='Target specific instance groups (e.g., --instance-groups worker1 worker2)')
-    parser.add_argument('--nodes', '-n', nargs='+', help='Target specific nodes by instance ID (e.g., i-abc123) or Slurm node name (e.g., ip-10-1-104-161 for Slurm clusters)')
+    parser.add_argument('--nodes', '-n', nargs='+', help='Target specific nodes: instance IDs (i-*), EKS node names (hyperpod-i-*), or Slurm node names (ip-*)')
     parser.add_argument('--max-workers', '-w', type=int, default=64, help='Maximum concurrent workers (default: 64)')
     parser.add_argument('--debug', '-d', action='store_true', help='Enable debug mode')
     

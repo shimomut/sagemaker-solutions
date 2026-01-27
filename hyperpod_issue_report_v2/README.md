@@ -136,23 +136,23 @@ python hyperpod_issue_report_v2.py \
 
 ### Target Specific Nodes
 
-For EKS clusters, use instance IDs:
+For EKS clusters, use instance IDs or EKS node names:
 
 ```bash
-# Single instance
+# Using instance IDs
 python hyperpod_issue_report_v2.py \
   --cluster my-hyperpod-cluster \
   --s3-path s3://my-diagnostics-bucket \
-  --nodes i-abc123
+  --nodes i-abc123 i-def456
 
-# Multiple instances
+# Using EKS node names (hyperpod-i-* format)
 python hyperpod_issue_report_v2.py \
   --cluster my-hyperpod-cluster \
   --s3-path s3://my-diagnostics-bucket \
-  --nodes i-abc123 i-def456 i-ghi789
+  --nodes hyperpod-i-044bbf66a68558e87 hyperpod-i-055ccf77b79669f98
 ```
 
-For Slurm clusters, use either instance IDs or Slurm node names:
+For Slurm clusters, use instance IDs or Slurm node names:
 
 ```bash
 # Using instance IDs
@@ -166,12 +166,6 @@ python hyperpod_issue_report_v2.py \
   --cluster my-hyperpod-cluster \
   --s3-path s3://my-diagnostics-bucket \
   --nodes ip-10-1-104-161 ip-10-1-104-162
-
-# Mix of both formats (Slurm only)
-python hyperpod_issue_report_v2.py \
-  --cluster my-hyperpod-cluster \
-  --s3-path s3://my-diagnostics-bucket \
-  --nodes i-abc123 ip-10-1-104-161
 ```
 
 ### Custom S3 Prefix
@@ -278,8 +272,9 @@ You can add additional commands using `--command` flags.
 - `--instance-groups, -g`: Target specific instance groups (e.g., `--instance-groups worker1 worker2`)
 - `--nodes, -n`: Target specific nodes. Accepts:
   - Instance IDs: `i-0123456789abcdef0` (works for both EKS and Slurm)
+  - EKS node names: `hyperpod-i-0123456789abcdef0` (EKS clusters only)
   - Slurm node names: `ip-10-1-104-161` (Slurm clusters only)
-  - Example: `--nodes i-abc123 i-def456` or `--nodes ip-10-1-104-161 ip-10-1-104-162`
+  - Example: `--nodes i-abc123 i-def456` or `--nodes hyperpod-i-044bbf66a68558e87` or `--nodes ip-10-1-104-161`
 - `--max-workers, -w`: Maximum concurrent workers (default: 64)
 - `--debug, -d`: Enable debug mode
 
@@ -288,6 +283,7 @@ You can add additional commands using `--command` flags.
 - Default collections vary by cluster type (see "What Gets Collected" section)
 - `--instance-groups` and `--nodes` are mutually exclusive (cannot be used together)
 - For Slurm clusters, Slurm node names are resolved to instance IDs using the `describe_cluster_node` API
+- For EKS clusters, EKS node names (hyperpod-i-*) are converted to instance IDs by removing the prefix
 
 ## Architecture
 
