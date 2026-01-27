@@ -502,7 +502,7 @@ class HyperPodIssueReportCollector:
                 print(f"[DEBUG] {instance_id}: Full command: {full_command}")
             
             # Use pexpect to handle the interactive session
-            child = pexpect.spawn(ssm_command, timeout=300, encoding='utf-8')
+            child = pexpect.spawn(ssm_command, timeout=600, encoding='utf-8')
             child.logfile_read = None
             
             # Wait for initial prompt
@@ -538,8 +538,8 @@ class HyperPodIssueReportCollector:
             # Execute the command and capture exit code immediately
             child.sendline(f'{full_command}; EXIT_CODE=$?; echo "EXIT_CODE:$EXIT_CODE"')
             
-            # Wait for command completion (up to 5 minutes)
-            child.expect(custom_prompt, timeout=300)
+            # Wait for command completion (up to 10 minutes)
+            child.expect(custom_prompt, timeout=600)
             
             # Extract output
             output = child.before
@@ -605,7 +605,7 @@ class HyperPodIssueReportCollector:
                 }
             
         except pexpect.TIMEOUT:
-            error_msg = f"Command timed out after 5 minutes"
+            error_msg = f"Command timed out after 10 minutes"
             if child and hasattr(child, 'before') and child.before:
                 error_msg += f"\nPartial output: {child.before[:500]}..."
             return {
