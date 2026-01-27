@@ -39,14 +39,14 @@ The tool automatically collects nvidia-smi and EKS logs:
 ```bash
 python hyperpod_eks_issue_report.py \
   --cluster my-hyperpod-cluster \
-  --s3-bucket my-diagnostics-bucket
+  --s3-path s3://my-diagnostics-bucket
 ```
 
 ### Using Makefile
 
 ```bash
 # Basic collection (nvidia-smi + EKS logs)
-make run CLUSTER=my-cluster S3_BUCKET=my-bucket
+make run CLUSTER=my-cluster S3_PATH=s3://my-bucket
 ```
 
 ### What Happens
@@ -68,7 +68,7 @@ make run CLUSTER=my-cluster S3_BUCKET=my-bucket
 ```bash
 python hyperpod_eks_issue_report.py \
   --cluster my-hyperpod-cluster \
-  --s3-bucket my-diagnostics-bucket \
+  --s3-path s3://my-diagnostics-bucket \
   --command "df -h" \
   --command "free -h" \
   --command "uptime"
@@ -79,8 +79,17 @@ python hyperpod_eks_issue_report.py \
 ```bash
 python hyperpod_eks_issue_report.py \
   --cluster my-hyperpod-cluster \
-  --s3-bucket my-diagnostics-bucket \
+  --s3-path s3://my-diagnostics-bucket \
   --instance-group worker-group
+```
+
+### Target Specific Instance IDs
+
+```bash
+python hyperpod_eks_issue_report.py \
+  --cluster my-hyperpod-cluster \
+  --s3-path s3://my-diagnostics-bucket \
+  --nodes i-abc123 i-def456
 ```
 
 ### Custom S3 Prefix
@@ -88,8 +97,7 @@ python hyperpod_eks_issue_report.py \
 ```bash
 python hyperpod_eks_issue_report.py \
   --cluster my-hyperpod-cluster \
-  --s3-bucket my-diagnostics-bucket \
-  --s3-prefix diagnostics/gpu-issues
+  --s3-path s3://my-diagnostics-bucket/diagnostics/gpu-issues
 ```
 
 ### Debug Mode
@@ -97,7 +105,7 @@ python hyperpod_eks_issue_report.py \
 ```bash
 python hyperpod_eks_issue_report.py \
   --cluster my-hyperpod-cluster \
-  --s3-bucket my-diagnostics-bucket \
+  --s3-path s3://my-diagnostics-bucket \
   --debug
 ```
 
@@ -106,7 +114,7 @@ python hyperpod_eks_issue_report.py \
 ```bash
 python hyperpod_eks_issue_report.py \
   --cluster my-cluster \
-  --s3-bucket my-bucket \
+  --s3-path s3://my-bucket \
   --command "uptime" \
   --command "free -h" \
   --command "df -h"
@@ -131,14 +139,19 @@ You can add additional commands using `--command` flags.
 ## Command Line Options
 
 - `--cluster, -c`: HyperPod cluster name (required)
-- `--s3-bucket, -b`: S3 bucket for storing reports (required)
-- `--s3-prefix, -p`: S3 prefix for reports (default: hyperpod-issue-reports)
+- `--s3-path, -s`: S3 path for storing reports (required). Accepts formats:
+  - `s3://bucket-name` (uses default prefix: hyperpod-issue-reports)
+  - `s3://bucket-name/custom-prefix`
+  - `bucket-name/custom-prefix` (s3:// prefix optional)
 - `--command, -cmd`: Additional command to execute on nodes (can be specified multiple times)
 - `--instance-group, -g`: Target specific instance group only
+- `--nodes, -n`: Target specific instance IDs (e.g., `--nodes i-abc123 i-def456`)
 - `--max-workers, -w`: Maximum concurrent workers (default: 10)
 - `--debug, -d`: Enable debug mode
 
-**Note**: nvidia-smi and EKS log collector are always run by default.
+**Note**: 
+- nvidia-smi and EKS log collector are always run by default
+- `--instance-group` and `--nodes` are mutually exclusive (cannot be used together)
 
 ## Architecture
 

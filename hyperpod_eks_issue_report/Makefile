@@ -4,8 +4,7 @@
 
 # Configuration
 CLUSTER ?= my-hyperpod-cluster
-S3_BUCKET ?= my-diagnostics-bucket
-S3_PREFIX ?= hyperpod-issue-reports
+S3_PATH ?= s3://my-diagnostics-bucket
 INSTANCE_GROUP ?=
 MAX_WORKERS ?= 10
 
@@ -13,7 +12,7 @@ MAX_WORKERS ?= 10
 help:
 	@echo "Available targets:"
 	@echo "  install           - Install Python dependencies"
-	@echo "  run               - Run issue report collector (requires CLUSTER and S3_BUCKET)"
+	@echo "  run               - Run issue report collector (requires CLUSTER and S3_PATH)"
 	@echo "  run-nvidia        - Collect nvidia-smi from all nodes"
 	@echo "  run-system        - Collect system health information"
 	@echo "  run-k8s           - Collect Kubernetes status"
@@ -24,42 +23,52 @@ help:
 	@echo ""
 	@echo "Configuration variables:"
 	@echo "  CLUSTER           - HyperPod cluster name (required)"
-	@echo "  S3_BUCKET         - S3 bucket for reports (required)"
-	@echo "  S3_PREFIX         - S3 prefix (default: hyperpod-issue-reports)"
+	@echo "  S3_PATH           - S3 path for reports (required, e.g., s3://bucket/prefix)"
 	@echo "  INSTANCE_GROUP    - Target specific instance group (optional)"
 	@echo "  MAX_WORKERS       - Max concurrent workers (default: 10)"
 	@echo ""
 	@echo "Examples:"
-	@echo "  make run-nvidia CLUSTER=my-cluster S3_BUCKET=my-bucket"
-	@echo "  make run-system CLUSTER=my-cluster S3_BUCKET=my-bucket INSTANCE_GROUP=worker-group"
+	@echo "  make run CLUSTER=my-cluster S3_PATH=s3://my-bucket"
+	@echo "  make run-system CLUSTER=my-cluster S3_PATH=s3://my-bucket/diagnostics"
+	@echo "  make run CLUSTER=my-cluster S3_PATH=s3://my-bucket INSTANCE_GROUP=worker-group"
 
 # Install dependencies
 install:
 	@echo "Installing Python dependencies..."
 	pip install -r requirements.txt
 
-# Run with nvidia-smi
+# Generic run target - runs with default nvidia-smi and EKS log collector
+run:
+	@if [ -z "$(CLUSTER)" ]; then echo "Error: CLUSTER not set"; exit 1; fi
+	@if [ -z "$(S3_PATH)" ]; then echo "Error: S3_PATH not set"; exit 1; fi
+	@echo "Collecting reports from cluster: $(CLUSTER)"
+	python hyperpod_eks_issue_report.py \
+		--cluster $(CLUSTER) \
+		--s3-path $(S3_PATH) \
+		$(if $(INSTANCE_GROUP),--instance-group $(INSTANCE_GROUP),) \
+		--max-workers $(MAX_WORKERS)
+
+# Run with nvidia-smi (already included by default, but can add more GPU commands)
 run-nvidia:
 	@if [ -z "$(CLUSTER)" ]; then echo "Error: CLUSTER not set"; exit 1; fi
-	@if [ -z "$(S3_BUCKET)" ]; then echo "Error: S3_BUCKET not set"; exit 1; fi
+	@if [ -z "$(S3_PATH)" ]; then echo "Error: S3_PATH not set"; exit 1; fi
 	@echo "Collecting nvidia-smi from cluster: $(CLUSTER)"
 	python hyperpod_eks_issue_report.py \
 		--cluster $(CLUSTER) \
-		--s3-bucket $(S3_BUCKET) \
-		--s3-prefix $(S3_PREFIX) \
-		--command "nvidia-smi" \
+		--s3-path $(S3_PATH) \
+		--command "nvidia-smi -q" \
+		--command "nvidia-smi topo -m" \
 		$(if $(INSTANCE_GROUP),--instance-group $(INSTANCE_GROUP),) \
 		--max-workers $(MAX_WORKERS)
 
 # Run with system health commands
 run-system:
 	@if [ -z "$(CLUSTER)" ]; then echo "Error: CLUSTER not set"; exit 1; fi
-	@if [ -z "$(S3_BUCKET)" ]; then echo "Error: S3_BUCKET not set"; exit 1; fi
+	@if [ -z "$(S3_PATH)" ]; then echo "Error: S3_PATH not set"; exit 1; fi
 	@echo "Collecting system health from cluster: $(CLUSTER)"
 	python hyperpod_eks_issue_report.py \
 		--cluster $(CLUSTER) \
-		--s3-bucket $(S3_BUCKET) \
-		--s3-prefix $(S3_PREFIX) \
+		--s3-path $(S3_PATH) \
 		--command "uptime" \
 		--command "free -h" \
 		--command "df -h" \
@@ -70,12 +79,11 @@ run-system:
 # Run with Kubernetes commands
 run-k8s:
 	@if [ -z "$(CLUSTER)" ]; then echo "Error: CLUSTER not set"; exit 1; fi
-	@if [ -z "$(S3_BUCKET)" ]; then echo "Error: S3_BUCKET not set"; exit 1; fi
+	@if [ -z "$(S3_PATH)" ]; then echo "Error: S3_PATH not set"; exit 1; fi
 	@echo "Collecting Kubernetes status from cluster: $(CLUSTER)"
 	python hyperpod_eks_issue_report.py \
 		--cluster $(CLUSTER) \
-		--s3-bucket $(S3_BUCKET) \
-		--s3-prefix $(S3_PREFIX) \
+		--s3-path $(S3_PATH) \
 		--command "kubectl get nodes" \
 		--command "kubectl get pods --all-namespaces" \
 		--command "kubectl top nodes" \
@@ -85,12 +93,11 @@ run-k8s:
 # Run with network diagnostics
 run-network:
 	@if [ -z "$(CLUSTER)" ]; then echo "Error: CLUSTER not set"; exit 1; fi
-	@if [ -z "$(S3_BUCKET)" ]; then echo "Error: S3_BUCKET not set"; exit 1; fi
+	@if [ -z "$(S3_PATH)" ]; then echo "Error: S3_PATH not set"; exit 1; fi
 	@echo "Collecting network diagnostics from cluster: $(CLUSTER)"
 	python hyperpod_eks_issue_report.py \
 		--cluster $(CLUSTER) \
-		--s3-bucket $(S3_BUCKET) \
-		--s3-prefix $(S3_PREFIX) \
+		--s3-path $(S3_PATH) \
 		--command "ip addr show" \
 		--command "ip route show" \
 		--command "ss -tulpn" \
@@ -100,28 +107,20 @@ run-network:
 # Run with custom commands
 run-custom:
 	@if [ -z "$(CLUSTER)" ]; then echo "Error: CLUSTER not set"; exit 1; fi
-	@if [ -z "$(S3_BUCKET)" ]; then echo "Error: S3_BUCKET not set"; exit 1; fi
-	@if [ -z "$(COMMANDS)" ]; then echo "Error: COMMANDS not set. Example: COMMANDS='nvidia-smi,df -h'"; exit 1; fi
+	@if [ -z "$(S3_PATH)" ]; then echo "Error: S3_PATH not set"; exit 1; fi
+	@if [ -z "$(COMMANDS)" ]; then echo "Error: COMMANDS not set. Example: COMMANDS='df -h,free -h'"; exit 1; fi
 	@echo "Running custom commands on cluster: $(CLUSTER)"
 	@CMD_ARGS=""; \
 	IFS=',' read -ra CMDS <<< "$(COMMANDS)"; \
 	for cmd in "$${CMDS[@]}"; do \
 		CMD_ARGS="$$CMD_ARGS --command \"$$cmd\""; \
 	done; \
-	python hyperpod_eks_issue_report.py \
+	eval python hyperpod_eks_issue_report.py \
 		--cluster $(CLUSTER) \
-		--s3-bucket $(S3_BUCKET) \
-		--s3-prefix $(S3_PREFIX) \
+		--s3-path $(S3_PATH) \
 		$$CMD_ARGS \
 		$(if $(INSTANCE_GROUP),--instance-group $(INSTANCE_GROUP),) \
 		--max-workers $(MAX_WORKERS)
-
-# Generic run target
-run:
-	@if [ -z "$(CLUSTER)" ]; then echo "Error: CLUSTER not set"; exit 1; fi
-	@if [ -z "$(S3_BUCKET)" ]; then echo "Error: S3_BUCKET not set"; exit 1; fi
-	@echo "Usage: Use specific targets like run-nvidia, run-system, etc."
-	@echo "Or use run-custom with COMMANDS='cmd1,cmd2'"
 
 # Clean up
 clean:
@@ -143,8 +142,9 @@ check-aws:
 	aws sts get-caller-identity
 	@echo "AWS credentials OK!"
 
-# Check S3 bucket access
+# Check S3 path access
 check-s3:
-	@if [ -z "$(S3_BUCKET)" ]; then echo "Error: S3_BUCKET not set"; exit 1; fi
-	@echo "Checking S3 bucket access: $(S3_BUCKET)"
-	aws s3 ls s3://$(S3_BUCKET)/ || echo "Warning: Cannot access bucket"
+	@if [ -z "$(S3_PATH)" ]; then echo "Error: S3_PATH not set"; exit 1; fi
+	@echo "Checking S3 path access: $(S3_PATH)"
+	@BUCKET=$$(echo $(S3_PATH) | sed 's|s3://||' | cut -d'/' -f1); \
+	aws s3 ls s3://$$BUCKET/ || echo "Warning: Cannot access bucket"

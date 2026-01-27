@@ -21,11 +21,12 @@ from typing import List, Dict, Optional
 
 
 class HyperPodEKSIssueReportCollector:
-    def __init__(self, cluster_name: str, s3_bucket: str, s3_prefix: str = "hyperpod-issue-reports", debug: bool = False):
+    def __init__(self, cluster_name: str, s3_path: str, debug: bool = False):
         self.cluster_name = cluster_name
-        self.s3_bucket = s3_bucket
-        self.s3_prefix = s3_prefix
         self.debug = debug
+        
+        # Parse S3 path
+        self.s3_bucket, self.s3_prefix = self.parse_s3_path(s3_path)
         
         self.sagemaker_client = boto3.client('sagemaker')
         self.s3_client = boto3.client('s3')
@@ -36,7 +37,29 @@ class HyperPodEKSIssueReportCollector:
         
         # Generate unique report ID using UTC time
         self.report_id = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-        self.report_s3_key = f"{s3_prefix}/{cluster_name}/{self.report_id}"
+        self.report_s3_key = f"{self.s3_prefix}/{cluster_name}/{self.report_id}"
+    
+    def parse_s3_path(self, s3_path: str) -> tuple:
+        """Parse S3 path into bucket and prefix.
+        
+        Accepts formats:
+        - s3://bucket-name/prefix/path
+        - s3://bucket-name
+        - bucket-name/prefix/path
+        - bucket-name
+        """
+        s3_path = s3_path.strip()
+        
+        # Remove s3:// prefix if present
+        if s3_path.startswith('s3://'):
+            s3_path = s3_path[5:]
+        
+        # Split into bucket and prefix
+        parts = s3_path.split('/', 1)
+        bucket = parts[0]
+        prefix = parts[1].rstrip('/') if len(parts) > 1 else 'hyperpod-issue-reports'
+        
+        return bucket, prefix
     
     def extract_cluster_id_from_arn(self, cluster_arn: str) -> str:
         """Extract cluster ID from cluster ARN."""
@@ -397,8 +420,8 @@ class HyperPodEKSIssueReportCollector:
                 except:
                     pass
     
-    def collect_reports(self, commands: List[str], instance_group: Optional[str] = None, max_workers: int = 10, run_eks_log_collector: bool = False):
-        """Collect reports from all nodes or specific instance group."""
+    def collect_reports(self, commands: List[str], instance_group: Optional[str] = None, instance_ids: Optional[List[str]] = None, max_workers: int = 10, run_eks_log_collector: bool = False):
+        """Collect reports from all nodes, specific instance group, or specific instance IDs."""
         # Get cluster nodes
         self.nodes = self.get_cluster_nodes()
         
@@ -406,8 +429,19 @@ class HyperPodEKSIssueReportCollector:
             print("No nodes found in cluster")
             return
         
-        # Filter by instance group if specified
-        if instance_group:
+        # Filter by specific instance IDs if specified
+        if instance_ids:
+            self.nodes = [n for n in self.nodes if n.get('InstanceId') in instance_ids]
+            if not self.nodes:
+                print(f"No nodes found with specified instance IDs: {', '.join(instance_ids)}")
+                return
+            # Show which requested IDs were not found
+            found_ids = {n.get('InstanceId') for n in self.nodes}
+            missing_ids = set(instance_ids) - found_ids
+            if missing_ids:
+                print(f"Warning: Instance IDs not found in cluster: {', '.join(missing_ids)}")
+        # Filter by instance group if specified (only if instance_ids not specified)
+        elif instance_group:
             self.nodes = [n for n in self.nodes if n.get('NodeGroup', '').lower() == instance_group.lower()]
             if not self.nodes:
                 print(f"No nodes found in instance group: {instance_group}")
@@ -523,38 +557,48 @@ def main():
         epilog="""
 Examples:
   # Basic usage - collects nvidia-smi and EKS logs from all nodes
-  python hyperpod_eks_issue_report.py --cluster my-cluster --s3-bucket my-bucket
+  python hyperpod_eks_issue_report.py --cluster my-cluster --s3-path s3://my-bucket
+  
+  # With custom prefix
+  python hyperpod_eks_issue_report.py --cluster my-cluster --s3-path s3://my-bucket/diagnostics
   
   # Add additional commands
-  python hyperpod_eks_issue_report.py --cluster my-cluster --s3-bucket my-bucket \\
+  python hyperpod_eks_issue_report.py --cluster my-cluster --s3-path s3://my-bucket \\
     --command "df -h" \\
     --command "free -h"
   
   # Target specific instance group
-  python hyperpod_eks_issue_report.py --cluster my-cluster --s3-bucket my-bucket \\
+  python hyperpod_eks_issue_report.py --cluster my-cluster --s3-path s3://my-bucket \\
     --instance-group worker-group
   
+  # Target specific instance IDs
+  python hyperpod_eks_issue_report.py --cluster my-cluster --s3-path s3://my-bucket \\
+    --nodes i-abc123 i-def456
+  
   # Use custom S3 prefix
-  python hyperpod_eks_issue_report.py --cluster my-cluster --s3-bucket my-bucket \\
-    --s3-prefix diagnostics
+  python hyperpod_eks_issue_report.py --cluster my-cluster --s3-path s3://my-bucket/diagnostics
         """
     )
     
     parser.add_argument('--cluster', '-c', required=True, help='HyperPod cluster name')
-    parser.add_argument('--s3-bucket', '-b', required=True, help='S3 bucket for storing reports')
-    parser.add_argument('--s3-prefix', '-p', default='hyperpod-issue-reports', help='S3 prefix for reports (default: hyperpod-issue-reports)')
+    parser.add_argument('--s3-path', '-s', required=True, help='S3 path for storing reports (e.g., s3://bucket-name/prefix or s3://bucket-name)')
     parser.add_argument('--command', '-cmd', action='append', help='Additional command to execute on nodes (can be specified multiple times)')
     parser.add_argument('--instance-group', '-g', help='Target specific instance group only')
+    parser.add_argument('--nodes', '-n', nargs='+', help='Target specific instance IDs (e.g., --nodes i-abc123 i-def456)')
     parser.add_argument('--max-workers', '-w', type=int, default=10, help='Maximum concurrent workers (default: 10)')
     parser.add_argument('--debug', '-d', action='store_true', help='Enable debug mode')
     
     args = parser.parse_args()
     
+    # Validate mutually exclusive options
+    if args.instance_group and args.nodes:
+        print("Error: --instance-group and --nodes cannot be used together")
+        sys.exit(1)
+    
     try:
         collector = HyperPodEKSIssueReportCollector(
             cluster_name=args.cluster,
-            s3_bucket=args.s3_bucket,
-            s3_prefix=args.s3_prefix,
+            s3_path=args.s3_path,
             debug=args.debug
         )
         
@@ -568,6 +612,7 @@ Examples:
         collector.collect_reports(
             commands=commands,
             instance_group=args.instance_group,
+            instance_ids=args.nodes,
             max_workers=args.max_workers,
             run_eks_log_collector=True  # Always run EKS log collector
         )
