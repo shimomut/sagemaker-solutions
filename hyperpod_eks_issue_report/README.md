@@ -86,6 +86,27 @@ python hyperpod_eks_issue_report.py \
   --debug
 ```
 
+### Run EKS Log Collector
+
+Optionally run the AWS EKS log collector script on each node to gather comprehensive EKS diagnostics:
+
+```bash
+python hyperpod_eks_issue_report.py \
+  --cluster my-hyperpod-cluster \
+  --s3-bucket my-diagnostics-bucket \
+  --command "nvidia-smi" \
+  --run-eks-log-collector
+```
+
+The EKS log collector gathers:
+- Kubelet logs
+- Container runtime logs
+- Network configuration
+- System logs
+- EKS-specific diagnostics
+
+Results are included in the `eks-logs/` subdirectory of each node's tarball.
+
 ## Command Line Options
 
 - `--cluster, -c`: HyperPod cluster name (required)
@@ -94,6 +115,7 @@ python hyperpod_eks_issue_report.py \
 - `--command, -cmd`: Command to execute on nodes (can be specified multiple times, required)
 - `--instance-group, -g`: Target specific instance group only
 - `--max-workers, -w`: Maximum concurrent workers (default: 10)
+- `--run-eks-log-collector`: Run AWS EKS log collector script on each node
 - `--debug, -d`: Enable debug mode
 
 ## How It Works
@@ -138,6 +160,12 @@ hyperpod_report_worker1_i-0123456789abcdef0_20260126_143025/
 ├── instance_id.txt                  # EC2 instance ID
 ├── hostname.txt                     # Node hostname
 ├── timestamp.txt                    # Collection timestamp (UTC)
+├── eks-logs/                        # EKS log collector output (if --run-eks-log-collector used)
+│   ├── kubelet/
+│   ├── docker/
+│   ├── var_log/
+│   └── ...
+├── eks-log-collector-output.txt    # EKS log collector execution log (if used)
 ├── command_01_nvidia-smi.txt
 ├── command_02_df_-h.txt
 └── command_03_free_-h.txt

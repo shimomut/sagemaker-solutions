@@ -105,7 +105,7 @@ class HyperPodEKSIssueReportCollector:
             print(f"Error getting cluster nodes: {e}")
             return []
     
-    def generate_collector_script(self, commands: List[str]) -> str:
+    def generate_collector_script(self, commands: List[str], run_eks_log_collector: bool = False) -> str:
         """Generate the bash script that will run on each node.
         Instance group and ID are passed as environment variables."""
         script_lines = [
@@ -137,6 +137,32 @@ class HyperPodEKSIssueReportCollector:
             "date -u > \"${OUTPUT_DIR}/timestamp.txt\"",
             "",
         ]
+        
+        # Add EKS log collector if requested
+        if run_eks_log_collector:
+            script_lines.extend([
+                "# Run EKS log collector script",
+                "echo \"Running EKS log collector...\"",
+                "EKS_LOG_COLLECTOR_URL=\"https://raw.githubusercontent.com/awslabs/amazon-eks-ami/main/log-collector-script/linux/eks-log-collector.sh\"",
+                "curl -o /tmp/eks-log-collector.sh \"${EKS_LOG_COLLECTOR_URL}\"",
+                "chmod +x /tmp/eks-log-collector.sh",
+                "",
+                "# Run the collector and capture its output",
+                "cd /tmp",
+                "/tmp/eks-log-collector.sh > \"${OUTPUT_DIR}/eks-log-collector-output.txt\" 2>&1 || echo \"EKS log collector completed with warnings\"",
+                "",
+                "# Find the generated tarball and extract it to our output directory",
+                "EKS_TARBALL=$(ls -t /tmp/eks_*.tar.gz 2>/dev/null | head -1)",
+                "if [ -n \"${EKS_TARBALL}\" ]; then",
+                "    echo \"Extracting EKS logs from ${EKS_TARBALL}\"",
+                "    mkdir -p \"${OUTPUT_DIR}/eks-logs\"",
+                "    tar -xzf \"${EKS_TARBALL}\" -C \"${OUTPUT_DIR}/eks-logs\" 2>/dev/null || echo \"Extracted EKS logs\"",
+                "    rm -f \"${EKS_TARBALL}\"",
+                "else",
+                "    echo \"No EKS log tarball found\" >> \"${OUTPUT_DIR}/eks-log-collector-output.txt\"",
+                "fi",
+                "",
+            ])
         
         # Add each command to the script
         for i, cmd in enumerate(commands, 1):
@@ -365,7 +391,7 @@ class HyperPodEKSIssueReportCollector:
                 except:
                     pass
     
-    def collect_reports(self, commands: List[str], instance_group: Optional[str] = None, max_workers: int = 10):
+    def collect_reports(self, commands: List[str], instance_group: Optional[str] = None, max_workers: int = 10, run_eks_log_collector: bool = False):
         """Collect reports from all nodes or specific instance group."""
         # Get cluster nodes
         self.nodes = self.get_cluster_nodes()
@@ -384,10 +410,12 @@ class HyperPodEKSIssueReportCollector:
         print(f"\nCollecting reports from {len(self.nodes)} nodes")
         print(f"Report ID: {self.report_id}")
         print(f"S3 Location: s3://{self.s3_bucket}/{self.report_s3_key}/")
+        if run_eks_log_collector:
+            print("EKS log collector: ENABLED")
         print("-" * 60)
         
         # Generate and upload the collector script once
-        script_content = self.generate_collector_script(commands)
+        script_content = self.generate_collector_script(commands, run_eks_log_collector)
         script_key = f"{self.report_s3_key}/collector_script.sh"
         
         try:
@@ -510,6 +538,7 @@ Examples:
     parser.add_argument('--command', '-cmd', action='append', required=True, help='Command to execute on nodes (can be specified multiple times)')
     parser.add_argument('--instance-group', '-g', help='Target specific instance group only')
     parser.add_argument('--max-workers', '-w', type=int, default=10, help='Maximum concurrent workers (default: 10)')
+    parser.add_argument('--run-eks-log-collector', action='store_true', help='Run AWS EKS log collector script on each node')
     parser.add_argument('--debug', '-d', action='store_true', help='Enable debug mode')
     
     args = parser.parse_args()
@@ -525,7 +554,8 @@ Examples:
         collector.collect_reports(
             commands=args.command,
             instance_group=args.instance_group,
-            max_workers=args.max_workers
+            max_workers=args.max_workers,
+            run_eks_log_collector=args.run_eks_log_collector
         )
         
     except KeyboardInterrupt:
