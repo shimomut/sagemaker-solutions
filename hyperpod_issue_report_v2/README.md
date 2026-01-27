@@ -619,6 +619,42 @@ If nodes fail to respond:
 4. Check AWS credentials have SSM permissions
 5. Ensure correct SSM target format: `sagemaker-cluster:{cluster-id}_{instance-group}-{instance-id}`
 
+### Custom SSM Session Configuration
+
+**Symptom**: Tool fails with "Failed to detect shell prompt" error showing custom bash commands in the output.
+
+**Cause**: Your cluster has custom SSM session configuration (e.g., custom `.bashrc`, SSM session preferences, or lifecycle scripts that modify the shell prompt).
+
+**Example error output**:
+```
+Failed to detect shell prompt after 90 seconds.
+Session output received:
+'/bin/bash -c 'export HOME=/fsx/$(whoami) && cd ${HOME} && exec /bin/bash'
+h'-4.2# '/bin/bash -c 'export HOME=/fsx/$(whoami) && cd ${HOME} && exec /bin/bas
+>
+```
+
+**Why this happens**:
+- The tool expects standard shell prompts (ending with `$` or `#` followed by space)
+- Custom SSM configurations may:
+  - Execute commands on session start that interfere with prompt detection
+  - Use non-standard prompt formats
+  - Redirect or modify shell initialization
+
+**Workaround**:
+This tool is not compatible with clusters that have custom SSM session configurations. You may need to:
+1. Temporarily disable custom SSM session commands
+2. Use alternative collection methods (manual SSM sessions with script execution)
+3. Modify the tool's prompt detection patterns to match your custom prompts
+
+**To check your SSM configuration**:
+```bash
+# Test SSM session manually
+aws ssm start-session --target sagemaker-cluster:{cluster-id}_{instance-group}-{instance-id}
+
+# Observe the initial output and prompt format
+```
+
 ### S3 Upload Failures
 
 If uploads fail:
