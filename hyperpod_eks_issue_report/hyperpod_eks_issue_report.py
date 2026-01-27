@@ -164,6 +164,31 @@ class HyperPodEKSIssueReportCollector:
             "hostname > \"${OUTPUT_DIR}/hostname.txt\"",
             "date -u > \"${OUTPUT_DIR}/timestamp.txt\"",
             "",
+            "# Collect HyperPod resource config if available",
+            "if [ -f /opt/ml/config/resource_config.json ]; then",
+            "    echo \"Collecting HyperPod resource config...\"",
+            "    cp /opt/ml/config/resource_config.json \"${OUTPUT_DIR}/resource_config.json\" 2>/dev/null || echo \"Could not copy resource_config.json\"",
+            "fi",
+            "",
+            "# Collect cluster logs if available",
+            "if [ -d /var/log/aws/clusters ]; then",
+            "    echo \"Collecting cluster logs...\"",
+            "    mkdir -p \"${OUTPUT_DIR}/cluster_logs\"",
+            "    cp -r /var/log/aws/clusters/* \"${OUTPUT_DIR}/cluster_logs/\" 2>/dev/null || echo \"Could not copy cluster logs\"",
+            "fi",
+            "",
+            "# Collect systemd service status",
+            "echo \"Collecting systemd service status...\"",
+            "systemctl list-units --type=service --all --no-pager > \"${OUTPUT_DIR}/systemd_services.txt\" 2>&1 || echo \"Could not collect systemd services\"",
+            "",
+            "# Collect disk usage",
+            "echo \"Collecting disk usage...\"",
+            "df > \"${OUTPUT_DIR}/disk_usage.txt\" 2>&1 || echo \"Could not collect disk usage\"",
+            "",
+            "# Collect nvidia-smi output",
+            "echo \"Collecting nvidia-smi output...\"",
+            "nvidia-smi > \"${OUTPUT_DIR}/nvidia_smi.txt\" 2>&1 || echo \"nvidia-smi not available or failed\"",
+            "",
         ]
         
         # Add EKS log collector if requested
@@ -613,10 +638,10 @@ Examples:
             debug=args.debug
         )
         
-        # Default commands: nvidia-smi is always included
-        commands = ['nvidia-smi']
+        # User-specified commands (nvidia-smi is now collected by default, not as a command)
+        commands = []
         
-        # Add any additional user-specified commands
+        # Add any user-specified commands
         if args.command:
             commands.extend(args.command)
         
