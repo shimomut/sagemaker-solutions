@@ -15,6 +15,7 @@ A utility to collect diagnostic logs and configurations from multiple HyperPod n
 - Executes multiple commands on each node
 - Uploads individual node reports to S3 as compressed tarballs
 - Generates a summary JSON with collection status
+- **Interactive download**: Optionally download all results from S3 to local directory with zip archive creation
 - Concurrent execution across multiple nodes
 - Built on top of HyperPod SSM connectivity
 
@@ -105,6 +106,11 @@ make run CLUSTER=my-cluster S3_PATH=s3://my-bucket
 6. Executes the script on all nodes via SSM concurrently
 7. Each node uploads results to S3
 8. Summary JSON is created with collection status
+9. **Interactive download** (optional):
+   - Tool asks if you want to download all results from S3 to current directory
+   - If yes, downloads all files maintaining directory structure
+   - Optionally creates a zip archive of downloaded results
+   - Optionally deletes uncompressed directory after archiving
 
 ## Usage Examples
 
@@ -425,6 +431,52 @@ hyperpod_report_worker1_i-0123456789abcdef0_20260126_143025/
 - `instance-id`: The EC2 instance ID (e.g., `i-0123456789abcdef0`)
 
 ### View Results
+
+#### Interactive Download (Recommended)
+
+After collection completes, the tool will ask if you want to download results:
+
+```
+Would you like to download all results from S3 to the current directory? (y/n): y
+
+Downloading results to: ./my-cluster_20260127_143022/
+Source: s3://my-bucket/hyperpod-issue-reports/my-cluster/20260127_143022/
+Found 15 files to download...
+  Downloaded 5/15 files...
+  Downloaded 10/15 files...
+  Downloaded 15/15 files...
+
+✓ Download completed!
+  Downloaded: 15 files
+  Location: ./my-cluster_20260127_143022/
+
+Would you like to create a zip archive of the downloaded results? (y/n): y
+
+Creating zip archive: my-cluster_20260127_143022.zip
+  Archived 5 files...
+  Archived 10 files...
+  Archived 15 files...
+
+✓ Zip archive created!
+  File: my-cluster_20260127_143022.zip
+  Size: 45.23 MB
+  Files: 15
+
+Would you like to delete the uncompressed directory 'my-cluster_20260127_143022'? (y/n): y
+✓ Deleted directory: my-cluster_20260127_143022
+```
+
+The downloaded directory structure:
+```
+my-cluster_20260127_143022/
+├── collector_script.sh
+├── summary.json
+├── kubectl_resources.tar.gz
+└── instances/
+    ├── worker1_i-0123456789abcdef0.tar.gz
+    ├── worker1_i-0123456789abcdef1.tar.gz
+    └── worker2_i-0123456789abcdef2.tar.gz
+```
 
 #### Manual Download and Extract
 

@@ -647,6 +647,163 @@ class HyperPodIssueReportCollector:
         print(f"  Total nodes: {len(results)}")
         print(f"  Successful: {successful}")
         print(f"  Failed: {failed}")
+        
+        # Offer to download results
+        self.offer_download_results()
+    
+    def offer_download_results(self):
+        """Ask user if they want to download results from S3."""
+        print("\n" + "=" * 60)
+        print("Download Results")
+        print("=" * 60)
+        
+        try:
+            response = input("\nWould you like to download all results from S3 to the current directory? (y/n): ").strip().lower()
+            
+            if response in ['y', 'yes']:
+                download_dir = self.download_results_from_s3()
+                
+                if download_dir:
+                    # Ask about creating zip archive
+                    response = input("\nWould you like to create a zip archive of the downloaded results? (y/n): ").strip().lower()
+                    
+                    if response in ['y', 'yes']:
+                        self.create_zip_archive(download_dir)
+            else:
+                print("\nSkipping download. You can download manually using:")
+                print(f"  aws s3 sync s3://{self.s3_bucket}/{self.report_s3_key}/ ./{self.cluster_name}_{self.report_id}/")
+                
+        except KeyboardInterrupt:
+            print("\n\nDownload cancelled by user.")
+        except Exception as e:
+            print(f"\nError during download prompt: {e}")
+    
+    def download_results_from_s3(self) -> Optional[str]:
+        """Download all results from S3 to local directory.
+        
+        Returns:
+            str: Path to download directory if successful, None otherwise
+        """
+        # Create download directory
+        download_dir = f"{self.cluster_name}_{self.report_id}"
+        
+        print(f"\nDownloading results to: ./{download_dir}/")
+        print(f"Source: s3://{self.s3_bucket}/{self.report_s3_key}/")
+        
+        try:
+            # List all objects in the S3 prefix
+            paginator = self.s3_client.get_paginator('list_objects_v2')
+            pages = paginator.paginate(Bucket=self.s3_bucket, Prefix=self.report_s3_key)
+            
+            files_to_download = []
+            for page in pages:
+                if 'Contents' in page:
+                    for obj in page['Contents']:
+                        key = obj['Key']
+                        # Skip the prefix itself (directory marker)
+                        if key != self.report_s3_key and key != f"{self.report_s3_key}/":
+                            files_to_download.append(key)
+            
+            if not files_to_download:
+                print("No files found to download.")
+                return None
+            
+            print(f"Found {len(files_to_download)} files to download...")
+            
+            # Download each file
+            downloaded = 0
+            failed = 0
+            
+            for key in files_to_download:
+                # Calculate relative path (remove the report_s3_key prefix)
+                relative_path = key[len(self.report_s3_key):].lstrip('/')
+                local_path = os.path.join(download_dir, relative_path)
+                
+                # Create parent directory if needed
+                local_dir = os.path.dirname(local_path)
+                if local_dir:
+                    os.makedirs(local_dir, exist_ok=True)
+                
+                try:
+                    # Download file
+                    self.s3_client.download_file(self.s3_bucket, key, local_path)
+                    downloaded += 1
+                    
+                    # Show progress for every 5 files or last file
+                    if downloaded % 5 == 0 or downloaded == len(files_to_download):
+                        print(f"  Downloaded {downloaded}/{len(files_to_download)} files...")
+                        
+                except Exception as e:
+                    print(f"  Failed to download {relative_path}: {e}")
+                    failed += 1
+            
+            print(f"\n✓ Download completed!")
+            print(f"  Downloaded: {downloaded} files")
+            if failed > 0:
+                print(f"  Failed: {failed} files")
+            print(f"  Location: ./{download_dir}/")
+            
+            return download_dir
+            
+        except Exception as e:
+            print(f"\nError downloading results: {e}")
+            if self.debug:
+                import traceback
+                traceback.print_exc()
+            return None
+    
+    def create_zip_archive(self, directory: str):
+        """Create a zip archive of the downloaded results.
+        
+        Args:
+            directory: Path to directory to archive
+        """
+        import zipfile
+        
+        zip_filename = f"{directory}.zip"
+        
+        print(f"\nCreating zip archive: {zip_filename}")
+        
+        try:
+            with zipfile.ZipFile(zip_filename, 'w', zipfile.ZIP_DEFLATED) as zipf:
+                # Walk through directory
+                file_count = 0
+                for root, dirs, files in os.walk(directory):
+                    for file in files:
+                        file_path = os.path.join(root, file)
+                        # Calculate archive name (relative to directory)
+                        arcname = os.path.relpath(file_path, os.path.dirname(directory))
+                        zipf.write(file_path, arcname)
+                        file_count += 1
+                        
+                        # Show progress
+                        if file_count % 5 == 0:
+                            print(f"  Archived {file_count} files...")
+            
+            # Get zip file size
+            zip_size = os.path.getsize(zip_filename)
+            zip_size_mb = zip_size / (1024 * 1024)
+            
+            print(f"\n✓ Zip archive created!")
+            print(f"  File: {zip_filename}")
+            print(f"  Size: {zip_size_mb:.2f} MB")
+            print(f"  Files: {file_count}")
+            
+            # Ask if user wants to delete the uncompressed directory
+            response = input(f"\nWould you like to delete the uncompressed directory '{directory}'? (y/n): ").strip().lower()
+            
+            if response in ['y', 'yes']:
+                import shutil
+                shutil.rmtree(directory)
+                print(f"✓ Deleted directory: {directory}")
+            else:
+                print(f"Keeping directory: {directory}")
+                
+        except Exception as e:
+            print(f"\nError creating zip archive: {e}")
+            if self.debug:
+                import traceback
+                traceback.print_exc()
     
     def save_summary(self, results: List[Dict]):
         """Save collection summary to S3."""
