@@ -31,10 +31,13 @@ class HyperPodIssueReportCollector:
         
         self.sagemaker_client = boto3.client('sagemaker')
         self.s3_client = boto3.client('s3')
+        self.eks_client = boto3.client('eks')
         
         self.cluster_arn = None
         self.cluster_id = None
         self.cluster_type = None  # 'eks' or 'slurm'
+        self.eks_cluster_arn = None
+        self.eks_cluster_name = None
         self.nodes = []
         
         # Generate unique report ID using UTC time
@@ -89,6 +92,16 @@ class HyperPodIssueReportCollector:
             if 'Eks' in orchestrator:
                 self.cluster_type = 'eks'
                 print(f"Detected cluster type: EKS")
+                # Extract EKS cluster ARN
+                eks_config = orchestrator.get('Eks', {})
+                self.eks_cluster_arn = eks_config.get('ClusterArn')
+                if self.eks_cluster_arn:
+                    # Extract cluster name from ARN: arn:aws:eks:region:account:cluster/cluster-name
+                    self.eks_cluster_name = self.eks_cluster_arn.split('/')[-1]
+                    print(f"EKS Cluster ARN: {self.eks_cluster_arn}")
+                    print(f"EKS Cluster Name: {self.eks_cluster_name}")
+                else:
+                    print("Warning: Could not extract EKS cluster ARN from orchestrator config")
             elif 'Slurm' in orchestrator:
                 self.cluster_type = 'slurm'
                 print(f"Detected cluster type: Slurm")
@@ -527,6 +540,10 @@ class HyperPodIssueReportCollector:
             print("No nodes found in cluster")
             return
         
+        # Collect kubectl information first (for EKS clusters)
+        if self.cluster_type == 'eks':
+            self.collect_kubectl_node_info()
+        
         # Filter by specific instance IDs if specified
         if instance_ids:
             self.nodes = [n for n in self.nodes if n.get('InstanceId') in instance_ids]
@@ -653,6 +670,181 @@ class HyperPodIssueReportCollector:
             print(f"Summary saved to: s3://{self.s3_bucket}/{summary_key}")
         except Exception as e:
             print(f"Error saving summary: {e}")
+    
+    def verify_kubectl_config(self) -> bool:
+        """Verify kubectl is configured for the EKS cluster."""
+        if not self.eks_cluster_name:
+            print("Warning: EKS cluster name not available, skipping kubectl verification")
+            return False
+        
+        try:
+            import subprocess
+            
+            # Check if kubectl is installed
+            result = subprocess.run(['kubectl', 'version', '--client'], 
+                                  capture_output=True, text=True, timeout=10)
+            if result.returncode != 0:
+                print("\n" + "!" * 60)
+                print("ERROR: kubectl is not installed or not in PATH")
+                print("!" * 60)
+                print("\nkubectl is required for EKS cluster diagnostics.")
+                print("\nTo install kubectl:")
+                print("  macOS:  brew install kubectl")
+                print("  Linux:  https://kubernetes.io/docs/tasks/tools/install-kubectl-linux/")
+                return False
+            
+            # Extract just the version line
+            version_line = result.stdout.strip().split('\n')[0] if result.stdout else "kubectl installed"
+            print(f"kubectl version: {version_line}")
+            
+            # Check current context
+            result = subprocess.run(['kubectl', 'config', 'current-context'], 
+                                  capture_output=True, text=True, timeout=10)
+            if result.returncode == 0:
+                current_context = result.stdout.strip()
+                print(f"Current kubectl context: {current_context}")
+                
+                # Check if context matches EKS cluster
+                if self.eks_cluster_name in current_context:
+                    print(f"✓ kubectl is configured for EKS cluster: {self.eks_cluster_name}")
+                    return True
+                else:
+                    # Extract region from EKS cluster ARN
+                    region = self.eks_cluster_arn.split(':')[3] if self.eks_cluster_arn else 'REGION'
+                    
+                    print("\n" + "!" * 60)
+                    print(f"ERROR: kubectl context does not match EKS cluster")
+                    print(f"Current context: {current_context}")
+                    print(f"Expected cluster: {self.eks_cluster_name}")
+                    print("!" * 60)
+                    print("\nTo configure kubectl for this EKS cluster, run:")
+                    print(f"  aws eks update-kubeconfig --name {self.eks_cluster_name} --region {region}")
+                    return False
+            else:
+                # Extract region from EKS cluster ARN
+                region = self.eks_cluster_arn.split(':')[3] if self.eks_cluster_arn else 'REGION'
+                
+                print("\n" + "!" * 60)
+                print("ERROR: No kubectl context configured")
+                print("!" * 60)
+                print("\nTo configure kubectl for this EKS cluster, run:")
+                print(f"  aws eks update-kubeconfig --name {self.eks_cluster_name} --region {region}")
+                return False
+                
+        except subprocess.TimeoutExpired:
+            print("Warning: kubectl command timed out")
+            return False
+        except FileNotFoundError:
+            print("\n" + "!" * 60)
+            print("ERROR: kubectl not found in PATH")
+            print("!" * 60)
+            print("\nkubectl is required for EKS cluster diagnostics.")
+            print("\nTo install kubectl:")
+            print("  macOS:  brew install kubectl")
+            print("  Linux:  https://kubernetes.io/docs/tasks/tools/install-kubectl-linux/")
+            return False
+        except Exception as e:
+            print(f"Warning: Error verifying kubectl config: {e}")
+            return False
+    
+    def collect_kubectl_node_info(self):
+        """Collect kubectl describe node information for all nodes."""
+        if self.cluster_type != 'eks':
+            print("Skipping kubectl collection - not an EKS cluster")
+            return
+        
+        if not self.eks_cluster_name:
+            print("Skipping kubectl collection - EKS cluster name not available")
+            return
+        
+        print("\n" + "=" * 60)
+        print("Collecting kubectl node information...")
+        print("=" * 60)
+        
+        # Verify kubectl configuration - exit if not configured
+        if not self.verify_kubectl_config():
+            print("\n" + "!" * 60)
+            print("ERROR: kubectl must be configured for EKS clusters")
+            print("!" * 60)
+            print("\nPlease configure kubectl and re-run the tool.\n")
+            sys.exit(1)
+        
+        try:
+            import subprocess
+            
+            # Get all nodes
+            print("Fetching node list from Kubernetes...")
+            result = subprocess.run(
+                ['kubectl', 'get', 'nodes', '-o', 'json'],
+                capture_output=True, text=True, timeout=30
+            )
+            
+            if result.returncode != 0:
+                print(f"Error getting nodes: {result.stderr}")
+                return
+            
+            nodes_data = json.loads(result.stdout)
+            nodes = nodes_data.get('items', [])
+            
+            if not nodes:
+                print("No nodes found in Kubernetes cluster")
+                return
+            
+            print(f"Found {len(nodes)} nodes in Kubernetes cluster")
+            
+            # Collect describe output for each node
+            kubectl_output_dir = tempfile.mkdtemp(prefix='kubectl_output_')
+            
+            for node in nodes:
+                node_name = node.get('metadata', {}).get('name', 'unknown')
+                print(f"Collecting kubectl describe for node: {node_name}")
+                
+                result = subprocess.run(
+                    ['kubectl', 'describe', 'node', node_name],
+                    capture_output=True, text=True, timeout=30
+                )
+                
+                if result.returncode == 0:
+                    output_file = os.path.join(kubectl_output_dir, f"{node_name}_describe.txt")
+                    with open(output_file, 'w') as f:
+                        f.write(result.stdout)
+                    print(f"  ✓ Saved to {output_file}")
+                else:
+                    print(f"  ✗ Error: {result.stderr}")
+            
+            # Create tarball
+            print("\nCreating kubectl output tarball...")
+            tarball_path = os.path.join(tempfile.gettempdir(), f'kubectl_nodes_{self.report_id}.tar.gz')
+            
+            import tarfile
+            with tarfile.open(tarball_path, 'w:gz') as tar:
+                tar.add(kubectl_output_dir, arcname=os.path.basename(kubectl_output_dir))
+            
+            print(f"Created tarball: {tarball_path}")
+            
+            # Upload to S3
+            s3_key = f"{self.report_s3_key}/kubectl_nodes_{self.report_id}.tar.gz"
+            print(f"Uploading to S3: s3://{self.s3_bucket}/{s3_key}")
+            
+            self.s3_client.upload_file(tarball_path, self.s3_bucket, s3_key)
+            
+            print(f"✓ Successfully uploaded kubectl node information to S3")
+            print(f"  Location: s3://{self.s3_bucket}/{s3_key}")
+            
+            # Cleanup
+            import shutil
+            shutil.rmtree(kubectl_output_dir, ignore_errors=True)
+            os.remove(tarball_path)
+            
+        except subprocess.TimeoutExpired:
+            print("Error: kubectl command timed out")
+        except json.JSONDecodeError as e:
+            print(f"Error parsing kubectl output: {e}")
+        except Exception as e:
+            print(f"Error collecting kubectl information: {e}")
+            if self.debug:
+                import traceback
+                traceback.print_exc()
 
 
 def main():

@@ -6,7 +6,10 @@ A utility to collect diagnostic logs and configurations from multiple HyperPod n
 
 - **Auto-detects cluster type** (EKS or Slurm) and collects appropriate diagnostics
 - Collects diagnostic information from all nodes or specific instance groups
-- **EKS clusters**: Automatically runs nvidia-smi and AWS EKS log collector
+- **EKS clusters**: 
+  - **Requires kubectl configured** - tool will exit if kubectl is not configured for the cluster
+  - Automatically runs nvidia-smi and AWS EKS log collector on each node
+  - Collects kubectl describe node information for all Kubernetes nodes
 - **Slurm clusters**: Collects nvidia-smi, nvidia-bug-report, sinfo, Slurm services/config/logs, and system logs
 - Downloads collection script from S3 to each node
 - Executes multiple commands on each node
@@ -29,7 +32,31 @@ pip install -r requirements.txt
 aws configure
 ```
 
-3. Create an S3 bucket for reports (if you don't have one):
+3. **For EKS clusters**: Ensure kubectl is installed and configured (REQUIRED):
+```bash
+# Install kubectl
+# macOS
+brew install kubectl
+
+# Linux
+curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+chmod +x kubectl
+sudo mv kubectl /usr/local/bin/
+
+# Verify installation
+kubectl version --client
+
+# Configure kubectl for your EKS cluster (REQUIRED)
+# Get the EKS cluster name from: aws sagemaker describe-cluster --cluster-name <hyperpod-cluster>
+aws eks update-kubeconfig --name <eks-cluster-name> --region <region>
+
+# Verify configuration
+kubectl get nodes
+```
+
+**Note**: For EKS clusters, kubectl MUST be configured before running the tool. The tool will exit with an error if kubectl is not properly configured.
+
+4. Create an S3 bucket for reports (if you don't have one):
 ```bash
 aws s3 mb s3://my-diagnostics-bucket
 ```
@@ -39,12 +66,16 @@ aws s3 mb s3://my-diagnostics-bucket
 The tool automatically detects cluster type and collects appropriate diagnostics:
 
 ```bash
-# EKS cluster - collects nvidia-smi, containerd status, kubelet status, EKS logs, resource config, cluster logs, systemd services, disk usage
+# EKS cluster - REQUIRES kubectl configured first
+# Step 1: Configure kubectl (if not already done)
+aws eks update-kubeconfig --name <eks-cluster-name> --region <region>
+
+# Step 2: Run the tool
 python hyperpod_issue_report_v2.py \
   --cluster my-eks-cluster \
   --s3-path s3://my-diagnostics-bucket
 
-# Slurm cluster - collects nvidia-smi, nvidia-bug-report, sinfo, Slurm services/config/logs, system logs
+# Slurm cluster - no kubectl needed
 python hyperpod_issue_report_v2.py \
   --cluster my-slurm-cluster \
   --s3-path s3://my-diagnostics-bucket
@@ -61,14 +92,18 @@ make run CLUSTER=my-cluster S3_PATH=s3://my-bucket
 
 1. Script queries SageMaker API to get cluster information and detect cluster type (EKS or Slurm)
 2. Script queries SageMaker API to get all nodes in your cluster
-3. Generates a bash script that will:
+3. **For EKS clusters**: Collects kubectl describe node information for all Kubernetes nodes
+   - Verifies kubectl is installed and configured for the EKS cluster
+   - If not configured, displays instructions and skips kubectl collection
+   - Uploads kubectl output to S3 if successful
+4. Generates a bash script that will:
    - **For EKS**: Run nvidia-smi, AWS EKS log collector, collect resource config, cluster logs, systemd services, disk usage
    - **For Slurm**: Run nvidia-smi, nvidia-bug-report, sinfo, collect Slurm services/config/logs, system logs
    - Run any additional commands you specified
-4. Uploads the script to S3
-5. Executes the script on all nodes via SSM concurrently
-6. Each node uploads results to S3
-7. Summary JSON is created with collection status
+5. Uploads the script to S3
+6. Executes the script on all nodes via SSM concurrently
+7. Each node uploads results to S3
+8. Summary JSON is created with collection status
 
 ## Usage Examples
 
@@ -143,6 +178,11 @@ The tool automatically detects cluster type and collects appropriate diagnostics
 
 ### EKS-Specific Collections
 
+- **Kubectl node information**: `kubectl describe node` output for all Kubernetes nodes
+  - Collected from local machine (not from nodes)
+  - Includes node conditions, capacity, allocatable resources, system info
+  - Includes pod information and resource usage
+  - Uploaded as separate tarball: `kubectl_nodes_{timestamp}.tar.gz`
 - **Containerd service status**: `systemctl status containerd` output
 - **Kubelet service status**: `systemctl status kubelet` output
 - **EKS log collector**: Comprehensive diagnostics including:
@@ -301,6 +341,7 @@ Results are stored in S3 with the following structure:
 s3://my-bucket/hyperpod-issue-reports/my-cluster/20260126_143022/
 ├── collector_script.sh              # Single script (uses env vars)
 ├── summary.json                     # Summary of collection status
+├── kubectl_nodes_20260126_143022.tar.gz  # kubectl describe node output (EKS only)
 └── results/
     ├── worker1_i-0123456789abcdef0.tar.gz
     ├── worker1_i-0123456789abcdef1.tar.gz
@@ -364,10 +405,15 @@ hyperpod_report_worker1_i-0123456789abcdef0_20260126_143025/
 
 ```bash
 # Download all results
-aws s3 sync s3://my-bucket/hyperpod-issue-reports/my-cluster/20260126_143022/results/ ./reports/
+aws s3 sync s3://my-bucket/hyperpod-issue-reports/my-cluster/20260126_143022/ ./reports/
 
-# Extract a specific report
-tar -xzf reports/worker1_i-0123456789abcdef0.tar.gz
+# Extract kubectl node information (EKS only)
+tar -xzf reports/kubectl_nodes_20260126_143022.tar.gz
+ls kubectl_output_*/
+cat kubectl_output_*/ip-10-0-1-100.ec2.internal_describe.txt
+
+# Extract a specific node report
+tar -xzf reports/results/worker1_i-0123456789abcdef0.tar.gz
 
 # View nvidia-smi output
 cat hyperpod_report_worker1_i-0123456789abcdef0_20260126_143025/nvidia_smi.txt
@@ -422,13 +468,16 @@ cat hyperpod_report_worker1_i-0123456789abcdef0_20260126_143025/eks-logs/system/
         "sagemaker:ListClusterNodes",
         "ssm:StartSession",
         "s3:PutObject",
-        "s3:GetObject"
+        "s3:GetObject",
+        "eks:DescribeCluster"
       ],
       "Resource": "*"
     }
   ]
 }
 ```
+
+**Note**: For EKS clusters, kubectl MUST be configured before running the tool. The tool will exit with an error and display the exact command needed if kubectl is not properly configured.
 
 ### For the HyperPod Node IAM Role
 
@@ -532,6 +581,50 @@ If EKS log collector fails:
 3. Look for error messages in `eks-log-collector-output.txt`
 4. Ensure sufficient disk space in `/var/log/` and `/tmp/`
 5. Check if the tarball was created in `/var/log/eks_*.tar.gz`
+
+### Kubectl Collection Issues (EKS only)
+
+**IMPORTANT**: For EKS clusters, kubectl MUST be configured. The tool will exit with an error if kubectl is not properly configured.
+
+If you see an error message, follow the instructions displayed:
+
+1. **kubectl not installed**:
+   ```bash
+   # macOS
+   brew install kubectl
+   
+   # Linux
+   curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+   chmod +x kubectl
+   sudo mv kubectl /usr/local/bin/
+   ```
+
+2. **kubectl not configured**:
+   ```bash
+   # The tool will display the exact command you need to run
+   # Example:
+   aws eks update-kubeconfig --name sagemaker-k8-3-e32614e5-eks --region us-west-2
+   
+   # Verify
+   kubectl get nodes
+   
+   # Re-run the collection tool
+   python hyperpod_issue_report_v2.py --cluster <cluster> --s3-path <s3-path>
+   ```
+
+3. **Wrong context** (kubectl configured for different cluster):
+   ```bash
+   # Check current context
+   kubectl config current-context
+   
+   # Configure for the correct cluster (command shown in error message)
+   aws eks update-kubeconfig --name <correct-cluster-name> --region <region>
+   
+   # Verify
+   kubectl get nodes
+   ```
+
+4. **Missing EKS permissions**: Ensure your AWS credentials have `eks:DescribeCluster` permission
 
 ## Limitations
 
