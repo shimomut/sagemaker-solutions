@@ -1,4 +1,4 @@
-# HyperPod EKS Issue Report Collector Makefile
+# HyperPod Issue Report Collector v2 Makefile
 
 .PHONY: help install run clean test
 
@@ -42,7 +42,7 @@ run:
 	@if [ -z "$(CLUSTER)" ]; then echo "Error: CLUSTER not set"; exit 1; fi
 	@if [ -z "$(S3_PATH)" ]; then echo "Error: S3_PATH not set"; exit 1; fi
 	@echo "Collecting reports from cluster: $(CLUSTER)"
-	python hyperpod_eks_issue_report.py \
+	python hyperpod_issue_report_v2.py \
 		--cluster $(CLUSTER) \
 		--s3-path $(S3_PATH) \
 		$(if $(INSTANCE_GROUP),--instance-group $(INSTANCE_GROUP),) \
@@ -53,7 +53,7 @@ run-nvidia:
 	@if [ -z "$(CLUSTER)" ]; then echo "Error: CLUSTER not set"; exit 1; fi
 	@if [ -z "$(S3_PATH)" ]; then echo "Error: S3_PATH not set"; exit 1; fi
 	@echo "Collecting nvidia-smi from cluster: $(CLUSTER)"
-	python hyperpod_eks_issue_report.py \
+	python hyperpod_issue_report_v2.py \
 		--cluster $(CLUSTER) \
 		--s3-path $(S3_PATH) \
 		--command "nvidia-smi -q" \
@@ -66,7 +66,7 @@ run-system:
 	@if [ -z "$(CLUSTER)" ]; then echo "Error: CLUSTER not set"; exit 1; fi
 	@if [ -z "$(S3_PATH)" ]; then echo "Error: S3_PATH not set"; exit 1; fi
 	@echo "Collecting system health from cluster: $(CLUSTER)"
-	python hyperpod_eks_issue_report.py \
+	python hyperpod_issue_report_v2.py \
 		--cluster $(CLUSTER) \
 		--s3-path $(S3_PATH) \
 		--command "uptime" \
@@ -81,7 +81,7 @@ run-k8s:
 	@if [ -z "$(CLUSTER)" ]; then echo "Error: CLUSTER not set"; exit 1; fi
 	@if [ -z "$(S3_PATH)" ]; then echo "Error: S3_PATH not set"; exit 1; fi
 	@echo "Collecting Kubernetes status from cluster: $(CLUSTER)"
-	python hyperpod_eks_issue_report.py \
+	python hyperpod_issue_report_v2.py \
 		--cluster $(CLUSTER) \
 		--s3-path $(S3_PATH) \
 		--command "kubectl get nodes" \
@@ -95,7 +95,7 @@ run-network:
 	@if [ -z "$(CLUSTER)" ]; then echo "Error: CLUSTER not set"; exit 1; fi
 	@if [ -z "$(S3_PATH)" ]; then echo "Error: S3_PATH not set"; exit 1; fi
 	@echo "Collecting network diagnostics from cluster: $(CLUSTER)"
-	python hyperpod_eks_issue_report.py \
+	python hyperpod_issue_report_v2.py \
 		--cluster $(CLUSTER) \
 		--s3-path $(S3_PATH) \
 		--command "ip addr show" \
@@ -115,7 +115,7 @@ run-custom:
 	for cmd in "$${CMDS[@]}"; do \
 		CMD_ARGS="$$CMD_ARGS --command \"$$cmd\""; \
 	done; \
-	eval python hyperpod_eks_issue_report.py \
+	eval python hyperpod_issue_report_v2.py \
 		--cluster $(CLUSTER) \
 		--s3-path $(S3_PATH) \
 		$$CMD_ARGS \
@@ -133,7 +133,7 @@ clean:
 test:
 	@echo "Running basic tests..."
 	python -c "import boto3; print('boto3 OK')"
-	python -c "from hyperpod_eks_issue_report import HyperPodEKSIssueReportCollector; print('Import OK')"
+	python -c "from hyperpod_eks_issue_report import HyperPodIssueReportCollector; print('Import OK')"
 	@echo "Tests passed!"
 
 # Check AWS credentials
