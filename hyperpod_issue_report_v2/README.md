@@ -39,7 +39,7 @@ aws s3 mb s3://my-diagnostics-bucket
 The tool automatically detects cluster type and collects appropriate diagnostics:
 
 ```bash
-# EKS cluster - collects nvidia-smi, EKS logs, resource config, cluster logs, systemd services, disk usage
+# EKS cluster - collects nvidia-smi, containerd status, kubelet status, EKS logs, resource config, cluster logs, systemd services, disk usage
 python hyperpod_issue_report_v2.py \
   --cluster my-eks-cluster \
   --s3-path s3://my-diagnostics-bucket
@@ -143,14 +143,24 @@ The tool automatically detects cluster type and collects appropriate diagnostics
 
 ### EKS-Specific Collections
 
+- **Containerd service status**: `systemctl status containerd` output
+- **Kubelet service status**: `systemctl status kubelet` output
 - **EKS log collector**: Comprehensive diagnostics including:
-  - Kubelet logs and configuration
-  - Container runtime logs
-  - CNI plugin logs and configuration
-  - Network configuration (iptables, routes, interfaces)
-  - System logs (syslog, dmesg, journald)
-  - Kernel parameters
-  - EKS-specific diagnostics
+  - **CNI**: CNI plugin logs and configuration
+  - **Containerd**: Container runtime logs, config, version, namespaces, images, containers, tasks, plugins
+  - **Docker**: Docker logs (if present)
+  - **GPU**: GPU-related logs and diagnostics
+  - **IPAMD**: AWS VPC CNI IPAMD logs
+  - **Kernel**: dmesg output (current and human-readable), uname info
+  - **Kubelet**: Kubelet logs and configuration
+  - **Modinfo**: Kernel module information (lustre, ip_vs, etc.)
+  - **Networking**: Network configuration, iptables, routes, interfaces
+  - **Nodeadm**: Node administration logs
+  - **Sandbox-image**: Sandbox image information
+  - **Storage**: Mounts, inodes, lsblk, LVM (lvs, pvs, vgs), fstab, XFS info, pod local storage
+  - **Sysctls**: Kernel parameters
+  - **System**: Services, systemd-analyze, top, ps, netstat, procstat, CPU/IO throttling, last reboot
+  - **var_log**: System logs from /var/log
 
 ### Slurm-Specific Collections
 
@@ -311,12 +321,25 @@ hyperpod_report_worker1_i-0123456789abcdef0_20260126_143025/
 ├── systemd_services.txt             # All systemd services status
 ├── disk_usage.txt                   # Disk usage (df output)
 ├── nvidia_smi.txt                   # nvidia-smi output (always collected)
-├── eks-logs/                        # EKS log collector output (EKS clusters only)
-│   ├── kubelet/
-│   ├── docker/
-│   ├── var_log/
-│   └── ...
+├── containerd_status.txt            # Containerd service status (EKS only)
+├── kubelet_status.txt               # Kubelet service status (EKS only)
 ├── eks-log-collector-output.txt    # EKS log collector execution log (EKS only)
+├── eks-logs/                        # EKS log collector output (EKS only)
+│   ├── cni/                         # CNI plugin logs and config
+│   ├── containerd/                  # Containerd logs, config, version, images, containers, tasks
+│   ├── docker/                      # Docker logs (if present)
+│   ├── gpu/                         # GPU diagnostics
+│   ├── ipamd/                       # AWS VPC CNI IPAMD logs
+│   ├── kernel/                      # dmesg, uname
+│   ├── kubelet/                     # Kubelet logs and config
+│   ├── modinfo/                     # Kernel module info (lustre, ip_vs, etc.)
+│   ├── networking/                  # Network config, iptables, routes
+│   ├── nodeadm/                     # Node administration logs
+│   ├── sandbox-image/               # Sandbox image info
+│   ├── storage/                     # Mounts, inodes, lsblk, LVM, fstab, XFS, pod storage
+│   ├── sysctls/                     # Kernel parameters
+│   ├── system/                      # Services, systemd-analyze, top, ps, netstat, throttling
+│   └── var_log/                     # System logs from /var/log
 ├── sinfo.txt                        # Slurm node info (Slurm clusters only)
 ├── sinfo_R.txt                      # Slurm node reasons (Slurm clusters only)
 ├── slurmctld_status.txt             # Slurm controller status (Slurm clusters only)
@@ -349,8 +372,17 @@ tar -xzf reports/worker1_i-0123456789abcdef0.tar.gz
 # View nvidia-smi output
 cat hyperpod_report_worker1_i-0123456789abcdef0_20260126_143025/nvidia_smi.txt
 
+# View containerd and kubelet status (EKS)
+cat hyperpod_report_worker1_i-0123456789abcdef0_20260126_143025/containerd_status.txt
+cat hyperpod_report_worker1_i-0123456789abcdef0_20260126_143025/kubelet_status.txt
+
 # View EKS logs
 ls hyperpod_report_worker1_i-0123456789abcdef0_20260126_143025/eks-logs/
+
+# View specific EKS log categories
+cat hyperpod_report_worker1_i-0123456789abcdef0_20260126_143025/eks-logs/kubelet/*
+cat hyperpod_report_worker1_i-0123456789abcdef0_20260126_143025/eks-logs/containerd/*
+cat hyperpod_report_worker1_i-0123456789abcdef0_20260126_143025/eks-logs/system/*
 ```
 
 ## Summary JSON Format
