@@ -367,7 +367,7 @@ s3://my-bucket/hyperpod-issue-reports/my-cluster/20260126_143022/
 ├── collector_script.sh              # Single script (uses env vars)
 ├── summary.json                     # Summary of collection status
 ├── kubectl_resources.tar.gz         # kubectl resources (EKS only)
-└── results/
+└── instances/
     ├── worker1_i-0123456789abcdef0.tar.gz
     ├── worker1_i-0123456789abcdef1.tar.gz
     └── worker2_i-0123456789abcdef2.tar.gz
@@ -445,7 +445,7 @@ cat events_all_namespaces.txt
 cat pvcs_describe_all_namespaces.txt
 
 # Extract a specific node report
-tar -xzf reports/results/worker1_i-0123456789abcdef0.tar.gz
+tar -xzf reports/instances/worker1_i-0123456789abcdef0.tar.gz
 
 # View nvidia-smi output
 cat hyperpod_report_worker1_i-0123456789abcdef0_20260126_143025/nvidia_smi.txt
@@ -542,9 +542,9 @@ cat hyperpod_report_worker1_i-0123456789abcdef0_20260126_143025/eks-logs/system/
 
 ## Troubleshooting
 
-### No Results in S3 Results Folder
+### No Instance Reports in S3
 
-If you see `collector_script.sh` and `summary.json` but no files in the `results/` folder:
+If you see `collector_script.sh` and `summary.json` but no files in the `instances/` folder:
 
 1. **Check the summary.json** to see command execution status:
 ```bash

@@ -79,7 +79,7 @@ s3://bucket/prefix/cluster-name/timestamp/
 ├── kubectl_resources.tar.gz    # NEW: kubectl resources (15 types)
 ├── collector_script.sh
 ├── summary.json
-└── results/
+└── instances/
     ├── worker1_i-xxx.tar.gz
     └── worker2_i-yyy.tar.gz
 ```

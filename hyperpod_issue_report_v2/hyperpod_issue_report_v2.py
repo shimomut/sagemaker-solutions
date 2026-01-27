@@ -318,7 +318,7 @@ class HyperPodIssueReportCollector:
         script_lines.extend([
             "# Upload results to S3",
             f"S3_BUCKET=\"{self.s3_bucket}\"",
-            f"S3_PREFIX=\"{self.report_s3_key}/results\"",
+            f"S3_PREFIX=\"{self.report_s3_key}/instances\"",
             "",
             "echo \"Creating tarball...\"",
             "TARBALL=\"/tmp/${INSTANCE_GROUP}_${INSTANCE_ID}.tar.gz\"",
@@ -637,7 +637,7 @@ class HyperPodIssueReportCollector:
         
         print("-" * 60)
         print(f"\nReport collection completed!")
-        print(f"Results uploaded to: s3://{self.s3_bucket}/{self.report_s3_key}/results/")
+        print(f"Instance reports uploaded to: s3://{self.s3_bucket}/{self.report_s3_key}/instances/")
         print(f"Summary: s3://{self.s3_bucket}/{self.report_s3_key}/summary.json")
         
         # Print statistics

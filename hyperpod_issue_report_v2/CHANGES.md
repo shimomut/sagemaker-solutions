@@ -98,7 +98,7 @@ s3://bucket/prefix/cluster/timestamp/
 │       └── ip-10-0-1-102.ec2.internal_describe.txt
 ├── collector_script.sh
 ├── summary.json
-└── results/
+└── instances/
     ├── worker1_i-xxx.tar.gz
     └── worker2_i-yyy.tar.gz
 ```
