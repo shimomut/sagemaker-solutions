@@ -261,7 +261,7 @@ You can add additional commands using `--command` flags.
 - `--command, -cmd`: Additional command to execute on nodes (can be specified multiple times)
 - `--instance-groups, -g`: Target specific instance groups (e.g., `--instance-groups worker1 worker2`)
 - `--nodes, -n`: Target specific instance IDs (e.g., `--nodes i-abc123 i-def456`)
-- `--max-workers, -w`: Maximum concurrent workers (default: 10)
+- `--max-workers, -w`: Maximum concurrent workers (default: 64)
 - `--debug, -d`: Enable debug mode
 
 **Note**: 
@@ -354,7 +354,7 @@ You can add additional commands using `--command` flags.
 ```
 Main Thread
     │
-    ├─→ ThreadPoolExecutor (max_workers=10)
+    ├─→ ThreadPoolExecutor (max_workers=64)
     │       │
     │       ├─→ Worker 1: Node 1 → SSM → Execute
     │       ├─→ Worker 2: Node 2 → SSM → Execute

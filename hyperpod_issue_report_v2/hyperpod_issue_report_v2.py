@@ -847,10 +847,6 @@ class HyperPodIssueReportCollector:
                 print("\n" + "!" * 60)
                 print("ERROR: kubectl is not installed or not in PATH")
                 print("!" * 60)
-                print("\nkubectl is required for EKS cluster diagnostics.")
-                print("\nTo install kubectl:")
-                print("  macOS:  brew install kubectl")
-                print("  Linux:  https://kubernetes.io/docs/tasks/tools/install-kubectl-linux/")
                 return False
             
             # Extract just the version line
@@ -898,10 +894,6 @@ class HyperPodIssueReportCollector:
             print("\n" + "!" * 60)
             print("ERROR: kubectl not found in PATH")
             print("!" * 60)
-            print("\nkubectl is required for EKS cluster diagnostics.")
-            print("\nTo install kubectl:")
-            print("  macOS:  brew install kubectl")
-            print("  Linux:  https://kubernetes.io/docs/tasks/tools/install-kubectl-linux/")
             return False
         except Exception as e:
             print(f"Warning: Error verifying kubectl config: {e}")
@@ -1145,7 +1137,7 @@ Examples:
     parser.add_argument('--command', '-cmd', action='append', help='Additional command to execute on nodes (can be specified multiple times)')
     parser.add_argument('--instance-groups', '-g', nargs='+', help='Target specific instance groups (e.g., --instance-groups worker1 worker2)')
     parser.add_argument('--nodes', '-n', nargs='+', help='Target specific instance IDs (e.g., --nodes i-abc123 i-def456)')
-    parser.add_argument('--max-workers', '-w', type=int, default=10, help='Maximum concurrent workers (default: 10)')
+    parser.add_argument('--max-workers', '-w', type=int, default=64, help='Maximum concurrent workers (default: 64)')
     parser.add_argument('--debug', '-d', action='store_true', help='Enable debug mode')
     
     args = parser.parse_args()
