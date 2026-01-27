@@ -83,6 +83,32 @@ class HyperPodIssueReportCollector:
                 return parts[-1]
         return None
     
+    def get_node_private_ip(self, instance_id: str) -> Optional[str]:
+        """Get private IP address for a node using describe_cluster_node API."""
+        try:
+            response = self.sagemaker_client.describe_cluster_node(
+                ClusterName=self.cluster_name,
+                NodeId=instance_id
+            )
+            
+            # Extract private DNS name from NodeDetails
+            node_details = response.get('NodeDetails', {})
+            private_dns = node_details.get('PrivateDnsHostname', '')
+            
+            # Private DNS format is like: ip-10-1-104-161.us-west-2.compute.internal
+            # Extract the IP part (ip-10-1-104-161)
+            if private_dns and private_dns.startswith('ip-'):
+                # Get the first part before the first dot
+                slurm_node_name = private_dns.split('.')[0]
+                return slurm_node_name
+            
+            return None
+            
+        except Exception as e:
+            if self.debug:
+                print(f"Warning: Could not get private IP for {instance_id}: {e}")
+            return None
+    
     def get_cluster_nodes(self) -> List[Dict]:
         """Get all nodes in the HyperPod cluster and detect cluster type."""
         try:
@@ -161,6 +187,63 @@ class HyperPodIssueReportCollector:
         except Exception as e:
             print(f"Error getting cluster nodes: {e}")
             return []
+    
+    def resolve_node_identifiers(self, node_identifiers: List[str]) -> List[str]:
+        """Resolve node identifiers (instance IDs or Slurm node names) to instance IDs.
+        
+        For Slurm clusters, supports both:
+        - Instance IDs: i-0123456789abcdef0
+        - Slurm node names: ip-10-1-104-161
+        
+        Returns list of instance IDs.
+        """
+        if not node_identifiers:
+            return []
+        
+        # Separate instance IDs from potential Slurm node names
+        instance_ids = []
+        slurm_node_names = []
+        
+        for identifier in node_identifiers:
+            if identifier.startswith('i-'):
+                # This is an instance ID
+                instance_ids.append(identifier)
+            elif identifier.startswith('ip-'):
+                # This looks like a Slurm node name
+                slurm_node_names.append(identifier)
+            else:
+                # Unknown format, treat as instance ID and let validation fail later
+                instance_ids.append(identifier)
+        
+        # If we have Slurm node names and this is a Slurm cluster, resolve them
+        if slurm_node_names and self.cluster_type == 'slurm':
+            print(f"Resolving Slurm node names to instance IDs...")
+            
+            # Build a mapping of Slurm node name to instance ID
+            slurm_to_instance = {}
+            
+            for node in self.nodes:
+                instance_id = node.get('InstanceId')
+                if instance_id:
+                    slurm_name = self.get_node_private_ip(instance_id)
+                    if slurm_name:
+                        slurm_to_instance[slurm_name] = instance_id
+            
+            # Resolve the requested Slurm node names
+            for slurm_name in slurm_node_names:
+                if slurm_name in slurm_to_instance:
+                    resolved_id = slurm_to_instance[slurm_name]
+                    instance_ids.append(resolved_id)
+                    print(f"  {slurm_name} -> {resolved_id}")
+                else:
+                    print(f"  Warning: Slurm node name '{slurm_name}' not found in cluster")
+        
+        elif slurm_node_names and self.cluster_type != 'slurm':
+            print(f"Warning: Slurm node names provided but cluster type is {self.cluster_type}")
+            print(f"  Slurm node names are only supported for Slurm clusters")
+            print(f"  Ignoring: {', '.join(slurm_node_names)}")
+        
+        return instance_ids
     
     def generate_collector_script(self, commands: List[str]) -> str:
         """Generate the bash script that will run on each node.
@@ -537,7 +620,12 @@ class HyperPodIssueReportCollector:
                     pass
     
     def collect_reports(self, commands: List[str], instance_groups: Optional[List[str]] = None, instance_ids: Optional[List[str]] = None, max_workers: int = 10):
-        """Collect reports from all nodes, specific instance groups, or specific instance IDs."""
+        """Collect reports from all nodes, specific instance groups, or specific instance IDs.
+        
+        For Slurm clusters, instance_ids can be either:
+        - Instance IDs: i-0123456789abcdef0
+        - Slurm node names: ip-10-1-104-161
+        """
         # Get cluster nodes
         self.nodes = self.get_cluster_nodes()
         
@@ -549,15 +637,23 @@ class HyperPodIssueReportCollector:
         if self.cluster_type == 'eks':
             self.collect_kubectl_node_info()
         
-        # Filter by specific instance IDs if specified
+        # Filter by specific instance IDs or Slurm node names if specified
         if instance_ids:
-            self.nodes = [n for n in self.nodes if n.get('InstanceId') in instance_ids]
-            if not self.nodes:
-                print(f"No nodes found with specified instance IDs: {', '.join(instance_ids)}")
+            # Resolve node identifiers (handles both instance IDs and Slurm node names)
+            resolved_instance_ids = self.resolve_node_identifiers(instance_ids)
+            
+            if not resolved_instance_ids:
+                print(f"No valid nodes found from specified identifiers: {', '.join(instance_ids)}")
                 return
-            # Show which requested IDs were not found
+            
+            self.nodes = [n for n in self.nodes if n.get('InstanceId') in resolved_instance_ids]
+            if not self.nodes:
+                print(f"No nodes found with specified identifiers: {', '.join(instance_ids)}")
+                return
+            
+            # Show which requested identifiers were not found
             found_ids = {n.get('InstanceId') for n in self.nodes}
-            missing_ids = set(instance_ids) - found_ids
+            missing_ids = set(resolved_instance_ids) - found_ids
             if missing_ids:
                 print(f"Warning: Instance IDs not found in cluster: {', '.join(missing_ids)}")
         # Filter by instance groups if specified (only if instance_ids not specified)
@@ -1134,6 +1230,10 @@ Examples:
   # Target specific instance IDs
   python hyperpod_eks_issue_report.py --cluster my-cluster --s3-path s3://my-bucket \\
     --nodes i-abc123 i-def456
+  
+  # Target specific Slurm nodes (Slurm clusters only)
+  python hyperpod_eks_issue_report.py --cluster my-cluster --s3-path s3://my-bucket \\
+    --nodes ip-10-1-104-161 ip-10-1-104-162
         """
     )
     
@@ -1141,7 +1241,7 @@ Examples:
     parser.add_argument('--s3-path', '-s', required=True, help='S3 path for storing reports (e.g., s3://bucket-name/prefix or s3://bucket-name)')
     parser.add_argument('--command', '-cmd', action='append', help='Additional command to execute on nodes (can be specified multiple times)')
     parser.add_argument('--instance-groups', '-g', nargs='+', help='Target specific instance groups (e.g., --instance-groups worker1 worker2)')
-    parser.add_argument('--nodes', '-n', nargs='+', help='Target specific instance IDs (e.g., --nodes i-abc123 i-def456)')
+    parser.add_argument('--nodes', '-n', nargs='+', help='Target specific nodes by instance ID (e.g., i-abc123) or Slurm node name (e.g., ip-10-1-104-161 for Slurm clusters)')
     parser.add_argument('--max-workers', '-w', type=int, default=64, help='Maximum concurrent workers (default: 64)')
     parser.add_argument('--debug', '-d', action='store_true', help='Enable debug mode')
     

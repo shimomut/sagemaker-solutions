@@ -134,7 +134,9 @@ python hyperpod_issue_report_v2.py \
   --instance-groups worker-group-1 worker-group-2 gpu-group
 ```
 
-### Target Specific Instance IDs
+### Target Specific Nodes
+
+For EKS clusters, use instance IDs:
 
 ```bash
 # Single instance
@@ -148,6 +150,28 @@ python hyperpod_issue_report_v2.py \
   --cluster my-hyperpod-cluster \
   --s3-path s3://my-diagnostics-bucket \
   --nodes i-abc123 i-def456 i-ghi789
+```
+
+For Slurm clusters, use either instance IDs or Slurm node names:
+
+```bash
+# Using instance IDs
+python hyperpod_issue_report_v2.py \
+  --cluster my-hyperpod-cluster \
+  --s3-path s3://my-diagnostics-bucket \
+  --nodes i-abc123 i-def456
+
+# Using Slurm node names (ip-X-X-X-X format)
+python hyperpod_issue_report_v2.py \
+  --cluster my-hyperpod-cluster \
+  --s3-path s3://my-diagnostics-bucket \
+  --nodes ip-10-1-104-161 ip-10-1-104-162
+
+# Mix of both formats (Slurm only)
+python hyperpod_issue_report_v2.py \
+  --cluster my-hyperpod-cluster \
+  --s3-path s3://my-diagnostics-bucket \
+  --nodes i-abc123 ip-10-1-104-161
 ```
 
 ### Custom S3 Prefix
@@ -252,7 +276,10 @@ You can add additional commands using `--command` flags.
   - `s3://bucket-name/custom-prefix`
 - `--command, -cmd`: Additional command to execute on nodes (can be specified multiple times)
 - `--instance-groups, -g`: Target specific instance groups (e.g., `--instance-groups worker1 worker2`)
-- `--nodes, -n`: Target specific instance IDs (e.g., `--nodes i-abc123 i-def456`)
+- `--nodes, -n`: Target specific nodes. Accepts:
+  - Instance IDs: `i-0123456789abcdef0` (works for both EKS and Slurm)
+  - Slurm node names: `ip-10-1-104-161` (Slurm clusters only)
+  - Example: `--nodes i-abc123 i-def456` or `--nodes ip-10-1-104-161 ip-10-1-104-162`
 - `--max-workers, -w`: Maximum concurrent workers (default: 64)
 - `--debug, -d`: Enable debug mode
 
@@ -260,6 +287,7 @@ You can add additional commands using `--command` flags.
 - Cluster type is auto-detected from the cluster description
 - Default collections vary by cluster type (see "What Gets Collected" section)
 - `--instance-groups` and `--nodes` are mutually exclusive (cannot be used together)
+- For Slurm clusters, Slurm node names are resolved to instance IDs using the `describe_cluster_node` API
 
 ## Architecture
 
