@@ -255,45 +255,43 @@ class HyperPodEKSIssueReportCollector:
             if self.debug:
                 print(f"[DEBUG] {instance_id}: Custom prompt set")
             
-            # Execute the command and capture exit code
-            child.sendline(full_command)
+            # Execute the command and capture exit code immediately
+            child.sendline(f'{full_command}; EXIT_CODE=$?; echo "EXIT_CODE:$EXIT_CODE"')
             
             # Wait for command completion (up to 5 minutes)
             child.expect(custom_prompt, timeout=300)
             
             # Extract output
             output = child.before
+            exit_code = 1  # Default to failure
+            
             if output:
                 lines = output.split('\n')
                 cleaned_lines = []
                 command_echo_removed = False
                 
                 for line in lines:
-                    line = line.strip()
-                    if not command_echo_removed and line == full_command:
+                    line_stripped = line.strip()
+                    
+                    # Remove command echo
+                    if not command_echo_removed and full_command in line:
                         command_echo_removed = True
                         continue
-                    if line:
-                        cleaned_lines.append(line)
+                    
+                    # Extract exit code
+                    if line_stripped.startswith('EXIT_CODE:'):
+                        try:
+                            exit_code = int(line_stripped.split(':')[1].strip())
+                        except:
+                            pass
+                        continue
+                    
+                    if line_stripped:
+                        cleaned_lines.append(line_stripped)
                 
                 output = '\n'.join(cleaned_lines)
             else:
                 output = ""
-            
-            # Check exit code of the command
-            child.sendline('echo "EXIT_CODE:$?"')
-            child.expect(custom_prompt, timeout=10)
-            exit_code_output = child.before
-            
-            exit_code = 1  # Default to failure
-            if exit_code_output:
-                for line in exit_code_output.split('\n'):
-                    if line.startswith('EXIT_CODE:'):
-                        try:
-                            exit_code = int(line.split(':')[1].strip())
-                        except:
-                            pass
-                        break
             
             # Close session
             try:
@@ -305,24 +303,8 @@ class HyperPodEKSIssueReportCollector:
                 except:
                     pass
             
-            # Determine success based on exit code and output
-            success = (exit_code == 0)
-            
-            # Check for common error patterns in output
-            error_indicators = [
-                'Failed to upload to S3',
-                'Error:',
-                'command not found',
-                'No such file or directory',
-                'Permission denied',
-                'fatal:',
-                'cannot',
-                'Unable to'
-            ]
-            
-            has_error = any(indicator.lower() in output.lower() for indicator in error_indicators)
-            
-            if success and not has_error:
+            # Determine success based solely on exit code
+            if exit_code == 0:
                 return {
                     'InstanceId': instance_id,
                     'NodeGroup': instance_group,
@@ -330,25 +312,15 @@ class HyperPodEKSIssueReportCollector:
                     'Output': output
                 }
             else:
-                # Extract error message from output - show last 10 lines which usually contain the error
+                # Show last 15 lines of output which usually contain the error
                 output_lines = output.split('\n')
-                
-                # Try to find error lines
-                error_lines = [line for line in output_lines 
-                               if any(indicator.lower() in line.lower() for indicator in error_indicators)]
-                
-                if error_lines:
-                    # Show the error lines
-                    error_msg = '\n'.join(error_lines[:5])  # First 5 error lines
-                else:
-                    # Show last 10 lines of output which usually contain the error
-                    error_msg = '\n'.join(output_lines[-10:]) if len(output_lines) > 10 else output
+                error_context = '\n'.join(output_lines[-15:]) if len(output_lines) > 15 else output
                 
                 return {
                     'InstanceId': instance_id,
                     'NodeGroup': instance_group,
                     'Success': False,
-                    'Error': f"Script execution failed (exit code: {exit_code})\n{error_msg}",
+                    'Error': f"Script execution failed (exit code: {exit_code})\n{error_context}",
                     'Output': output
                 }
             
