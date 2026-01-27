@@ -270,15 +270,19 @@ hyperpod_report_worker1_i-0123456789abcdef0_20260126_143025/
 ├── instance_id.txt                  # EC2 instance ID
 ├── hostname.txt                     # Node hostname
 ├── timestamp.txt                    # Collection timestamp (UTC)
-├── eks-logs/                        # EKS log collector output
+├── resource_config.json             # HyperPod resource config (if exists)
+├── cluster_logs/                    # Cluster logs from /var/log/aws/clusters/ (if exists)
+├── systemd_services.txt             # All systemd services status
+├── disk_usage.txt                   # Disk usage (df output)
+├── nvidia_smi.txt                   # nvidia-smi output (always collected)
+├── eks-logs/                        # EKS log collector output (always collected)
 │   ├── kubelet/
 │   ├── docker/
 │   ├── var_log/
 │   └── ...
 ├── eks-log-collector-output.txt    # EKS log collector execution log
-├── command_01_nvidia-smi.txt
-├── command_02_df_-h.txt
-└── command_03_free_-h.txt
+├── command_01_df_-i.txt             # Additional user commands (if specified)
+└── command_02_free_-h.txt
 ```
 
 **Filename Format**: Result tarballs use the format `{instance-group}_{instance-id}.tar.gz` where:
