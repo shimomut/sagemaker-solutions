@@ -502,17 +502,18 @@ class HyperPodIssueReportCollector:
                 print(f"[DEBUG] {instance_id}: Full command: {full_command}")
             
             # Use pexpect to handle the interactive session
-            child = pexpect.spawn(ssm_command, timeout=600, encoding='utf-8')
+            # Increase timeout for large clusters where EKS log collector can take 10+ minutes
+            child = pexpect.spawn(ssm_command, timeout=900, encoding='utf-8')
             child.logfile_read = None
             
-            # Wait for initial prompt
+            # Wait for initial prompt (90 seconds to handle slow SSM session initialization)
             initial_prompt_patterns = [
                 r'[\$#]\s+',            # Standard shell prompt
                 r'sh-\d+\.\d+[\$#]\s*', # sh prompt
                 pexpect.TIMEOUT
             ]
             
-            prompt_index = child.expect(initial_prompt_patterns, timeout=60)
+            prompt_index = child.expect(initial_prompt_patterns, timeout=90)
             
             if prompt_index == len(initial_prompt_patterns) - 1:  # TIMEOUT
                 # Get output for debugging
@@ -560,8 +561,9 @@ class HyperPodIssueReportCollector:
             # Execute the command and capture exit code immediately
             child.sendline(f'{full_command}; EXIT_CODE=$?; echo "EXIT_CODE:$EXIT_CODE"')
             
-            # Wait for command completion (up to 10 minutes)
-            child.expect(custom_prompt, timeout=600)
+            # Wait for command completion (up to 15 minutes for large clusters)
+            # EKS log collector can take 10+ minutes on busy nodes
+            child.expect(custom_prompt, timeout=900)
             
             # Extract output
             output = child.before
@@ -605,8 +607,15 @@ class HyperPodIssueReportCollector:
                 except:
                     pass
             
-            # Determine success based solely on exit code
-            if exit_code == 0:
+            # Determine success based on exit code OR successful S3 upload message
+            # Some nodes may not properly echo the EXIT_CODE line due to terminal issues
+            success_indicators = [
+                exit_code == 0,
+                'Successfully uploaded report to s3://' in output,
+                'upload: ../../tmp/' in output and '.tar.gz to s3://' in output
+            ]
+            
+            if any(success_indicators):
                 return {
                     'InstanceId': instance_id,
                     'NodeGroup': instance_group,
@@ -691,12 +700,14 @@ class HyperPodIssueReportCollector:
                 except:
                     pass
     
-    def collect_reports(self, commands: List[str], instance_groups: Optional[List[str]] = None, instance_ids: Optional[List[str]] = None, max_workers: int = 10):
+    def collect_reports(self, commands: List[str], instance_groups: Optional[List[str]] = None, instance_ids: Optional[List[str]] = None, max_workers: int = 16):
         """Collect reports from all nodes, specific instance groups, or specific instance IDs.
         
         For Slurm clusters, instance_ids can be either:
         - Instance IDs: i-0123456789abcdef0
         - Slurm node names: ip-10-1-104-161
+        
+        Note: max_workers defaults to 16 to balance speed and avoid SSM throttling on large clusters.
         """
         # Get cluster nodes
         self.nodes = self.get_cluster_nodes()
@@ -772,11 +783,34 @@ class HyperPodIssueReportCollector:
         
         # Execute collection on all nodes using ThreadPoolExecutor
         from concurrent.futures import ThreadPoolExecutor, as_completed
+        import time
         
         results = []
+        
+        # Add exponential backoff for SSM throttling
+        def execute_with_retry(node, commands, script_s3_uri, max_retries=3):
+            """Execute with exponential backoff on throttling errors."""
+            for attempt in range(max_retries):
+                result = self.execute_collection_on_node(node, commands, script_s3_uri)
+                
+                # Check if error is throttling-related
+                error_msg = result.get('Error', '')
+                if 'ThrottlingException' in error_msg or 'Rate exceeded' in error_msg:
+                    if attempt < max_retries - 1:
+                        # Exponential backoff: 2^attempt seconds
+                        wait_time = 2 ** attempt
+                        if self.debug:
+                            print(f"[DEBUG] {node['InstanceId']}: Throttled, retrying in {wait_time}s (attempt {attempt + 1}/{max_retries})")
+                        time.sleep(wait_time)
+                        continue
+                
+                return result
+            
+            return result
+        
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             future_to_node = {
-                executor.submit(self.execute_collection_on_node, node, commands, script_s3_uri): node
+                executor.submit(execute_with_retry, node, commands, script_s3_uri): node
                 for node in self.nodes
             }
             
@@ -1194,11 +1228,15 @@ class HyperPodIssueReportCollector:
                 print(f"  Collecting: {description}...", end=' ')
                 
                 try:
+                    # Increase timeout for large clusters (130+ nodes)
+                    # Node descriptions and pod descriptions can take 3-5 minutes
+                    timeout = 300 if 'describe' in ' '.join(command) else 120
+                    
                     result = subprocess.run(
                         command,
                         capture_output=True,
                         text=True,
-                        timeout=60
+                        timeout=timeout
                     )
                     
                     output_file = os.path.join(kubectl_output_dir, f'{name}.txt')
@@ -1317,8 +1355,8 @@ Examples:
     parser.add_argument('--s3-path', '-s', required=True, help='S3 path for storing reports (e.g., s3://bucket-name/prefix or s3://bucket-name)')
     parser.add_argument('--command', '-cmd', action='append', help='Additional command to execute on nodes (can be specified multiple times)')
     parser.add_argument('--instance-groups', '-g', nargs='+', help='Target specific instance groups (e.g., --instance-groups worker1 worker2)')
+    parser.add_argument('--max-workers', '-w', type=int, default=16, help='Maximum concurrent SSM sessions (default: 16, reduce if hitting throttling)')
     parser.add_argument('--nodes', '-n', nargs='+', help='Target specific nodes: instance IDs (i-*), EKS node names (hyperpod-i-*), or Slurm node names (ip-*)')
-    parser.add_argument('--max-workers', '-w', type=int, default=64, help='Maximum concurrent workers (default: 64)')
     parser.add_argument('--debug', '-d', action='store_true', help='Enable debug mode')
     
     args = parser.parse_args()
