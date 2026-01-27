@@ -1,11 +1,13 @@
-# HyperPod EKS Issue Report Collector
+# HyperPod Issue Report Collector
 
-A utility to collect diagnostic logs and configurations from multiple HyperPod EKS nodes. The tool downloads a collection script from S3, executes it on all specified nodes via SSM, and uploads the results back to S3.
+A utility to collect diagnostic logs and configurations from multiple HyperPod nodes. Supports both HyperPod EKS and HyperPod Slurm clusters with automatic cluster type detection. The tool downloads a collection script from S3, executes it on all specified nodes via SSM, and uploads the results back to S3.
 
 ## Features
 
+- **Auto-detects cluster type** (EKS or Slurm) and collects appropriate diagnostics
 - Collects diagnostic information from all nodes or specific instance groups
-- Automatically runs nvidia-smi and AWS EKS log collector by default
+- **EKS clusters**: Automatically runs nvidia-smi and AWS EKS log collector
+- **Slurm clusters**: Collects nvidia-smi, nvidia-bug-report, sinfo, Slurm services/config/logs, and system logs
 - Downloads collection script from S3 to each node
 - Executes multiple commands on each node
 - Uploads individual node reports to S3 as compressed tarballs
@@ -34,32 +36,39 @@ aws s3 mb s3://my-diagnostics-bucket
 
 ### Basic Usage
 
-The tool automatically collects nvidia-smi and EKS logs:
+The tool automatically detects cluster type and collects appropriate diagnostics:
 
 ```bash
+# EKS cluster - collects nvidia-smi, EKS logs, resource config, cluster logs, systemd services, disk usage
 python hyperpod_eks_issue_report.py \
-  --cluster my-hyperpod-cluster \
+  --cluster my-eks-cluster \
+  --s3-path s3://my-diagnostics-bucket
+
+# Slurm cluster - collects nvidia-smi, nvidia-bug-report, sinfo, Slurm services/config/logs, system logs
+python hyperpod_eks_issue_report.py \
+  --cluster my-slurm-cluster \
   --s3-path s3://my-diagnostics-bucket
 ```
 
 ### Using Makefile
 
 ```bash
-# Basic collection (nvidia-smi + EKS logs)
+# Basic collection (auto-detects cluster type)
 make run CLUSTER=my-cluster S3_PATH=s3://my-bucket
 ```
 
 ### What Happens
 
-1. Script queries SageMaker API to get all nodes in your cluster
-2. Generates a bash script that will:
-   - Run nvidia-smi
-   - Run AWS EKS log collector
+1. Script queries SageMaker API to get cluster information and detect cluster type (EKS or Slurm)
+2. Script queries SageMaker API to get all nodes in your cluster
+3. Generates a bash script that will:
+   - **For EKS**: Run nvidia-smi, AWS EKS log collector, collect resource config, cluster logs, systemd services, disk usage
+   - **For Slurm**: Run nvidia-smi, nvidia-bug-report, sinfo, collect Slurm services/config/logs, system logs
    - Run any additional commands you specified
-3. Uploads the script to S3
-4. Executes the script on all nodes via SSM concurrently
-5. Each node uploads results to S3
-6. Summary JSON is created with collection status
+4. Uploads the script to S3
+5. Executes the script on all nodes via SSM concurrently
+6. Each node uploads results to S3
+7. Summary JSON is created with collection status
 
 ## Usage Examples
 
@@ -122,23 +131,48 @@ python hyperpod_eks_issue_report.py \
 
 ## What Gets Collected
 
-By default, the tool collects:
+The tool automatically detects cluster type and collects appropriate diagnostics:
 
-1. **nvidia-smi output**: GPU status, utilization, memory, temperature
-2. **EKS log collector**: Comprehensive diagnostics including:
-   - Kubelet logs and configuration
-   - Container runtime logs
-   - CNI plugin logs and configuration
-   - Network configuration (iptables, routes, interfaces)
-   - System logs (syslog, dmesg, journald)
-   - Kernel parameters
-   - EKS-specific diagnostics
+### Common to Both Cluster Types
+
+- **nvidia-smi output**: GPU status, utilization, memory, temperature
+- **HyperPod resource config**: `/opt/ml/config/resource_config.json`
+- **Cluster logs**: `/var/log/aws/clusters/*`
+- **Systemd services**: Status of all systemd services
+- **Disk usage**: `df` output
+
+### EKS-Specific Collections
+
+- **EKS log collector**: Comprehensive diagnostics including:
+  - Kubelet logs and configuration
+  - Container runtime logs
+  - CNI plugin logs and configuration
+  - Network configuration (iptables, routes, interfaces)
+  - System logs (syslog, dmesg, journald)
+  - Kernel parameters
+  - EKS-specific diagnostics
+
+### Slurm-Specific Collections
+
+- **Slurm information**:
+  - `sinfo` - Slurm node and partition information
+  - `sinfo -R` - Reasons for node down/drain states
+- **Slurm services**:
+  - `systemctl status slurmctld` - Slurm controller daemon status
+  - `systemctl status slurmd` - Slurm compute node daemon status
+- **Slurm configuration**: `/opt/slurm/etc/*`
+- **NVIDIA bug report**: `nvidia-bug-report.sh` output (compressed)
+- **System logs**:
+  - `/var/log/syslog` - System log
+  - `/var/log/kern.log` - Kernel log
+  - `dmesg -T` - Kernel ring buffer with timestamps
+- **Slurm logs**: `/var/log/slurm/*`
 
 You can add additional commands using `--command` flags.
 
 ## Command Line Options
 
-- `--cluster, -c`: HyperPod cluster name (required)
+- `--cluster, -c`: HyperPod cluster name (EKS or Slurm) (required)
 - `--s3-path, -s`: S3 path for storing reports (required). Accepts formats:
   - `s3://bucket-name` (uses default prefix: hyperpod-issue-reports)
   - `s3://bucket-name/custom-prefix`
@@ -150,7 +184,8 @@ You can add additional commands using `--command` flags.
 - `--debug, -d`: Enable debug mode
 
 **Note**: 
-- nvidia-smi and EKS log collector are always run by default
+- Cluster type is auto-detected from the cluster description
+- Default collections vary by cluster type (see "What Gets Collected" section)
 - `--instance-group` and `--nodes` are mutually exclusive (cannot be used together)
 
 ## Architecture
@@ -268,6 +303,7 @@ Each tarball contains:
 hyperpod_report_worker1_i-0123456789abcdef0_20260126_143025/
 ├── instance_group.txt               # Instance group name
 ├── instance_id.txt                  # EC2 instance ID
+├── cluster_type.txt                 # Cluster type (eks or slurm)
 ├── hostname.txt                     # Node hostname
 ├── timestamp.txt                    # Collection timestamp (UTC)
 ├── resource_config.json             # HyperPod resource config (if exists)
@@ -275,12 +311,22 @@ hyperpod_report_worker1_i-0123456789abcdef0_20260126_143025/
 ├── systemd_services.txt             # All systemd services status
 ├── disk_usage.txt                   # Disk usage (df output)
 ├── nvidia_smi.txt                   # nvidia-smi output (always collected)
-├── eks-logs/                        # EKS log collector output (always collected)
+├── eks-logs/                        # EKS log collector output (EKS clusters only)
 │   ├── kubelet/
 │   ├── docker/
 │   ├── var_log/
 │   └── ...
-├── eks-log-collector-output.txt    # EKS log collector execution log
+├── eks-log-collector-output.txt    # EKS log collector execution log (EKS only)
+├── sinfo.txt                        # Slurm node info (Slurm clusters only)
+├── sinfo_R.txt                      # Slurm node reasons (Slurm clusters only)
+├── slurmctld_status.txt             # Slurm controller status (Slurm clusters only)
+├── slurmd_status.txt                # Slurm daemon status (Slurm clusters only)
+├── opt_slurm_etc/                   # Slurm configuration (Slurm clusters only)
+├── nvidia-bug-report.log.gz         # NVIDIA bug report (Slurm clusters only)
+├── syslog                           # System log (Slurm clusters only)
+├── kern.log                         # Kernel log (Slurm clusters only)
+├── dmesg_T.txt                      # Kernel ring buffer (Slurm clusters only)
+├── var_log_slurm/                   # Slurm logs (Slurm clusters only)
 ├── command_01_df_-i.txt             # Additional user commands (if specified)
 └── command_02_free_-h.txt
 ```
@@ -467,17 +513,20 @@ If EKS log collector fails:
 
 ### Comparison with hyperpod_issue_report
 
-**hyperpod_issue_report (Slurm-based)**:
+**hyperpod_issue_report (Slurm-based, SSH)**:
 - Uses SSH for connectivity
 - Requires head node access
 - Slurm-specific commands
 - Direct file system access
+- Differentiates between head and worker nodes
 
-**hyperpod_eks_issue_report (EKS-based)**:
+**hyperpod_eks_issue_report (Universal, SSM)**:
+- Supports both EKS and Slurm clusters
 - Uses SSM for connectivity
 - No head node required
-- Kubernetes-aware
+- Auto-detects cluster type
 - S3-based distribution and collection
+- Treats all nodes uniformly
 
 ### Performance Characteristics
 
@@ -501,6 +550,10 @@ If EKS log collector fails:
 
 ## Related Tools
 
-- `hyperpod_run_on_multi_nodes`: Interactive command execution on multiple nodes
-- `hyperpod_issue_report`: Slurm-based issue report collector for HyperPod Slurm clusters
+- `hyperpod_run_on_multi_nodes`: Interactive command execution on multiple nodes (both EKS and Slurm)
+- `hyperpod_issue_report`: SSH-based issue report collector for HyperPod Slurm clusters (legacy)
 - AWS EKS Log Collector: https://github.com/awslabs/amazon-eks-ami/blob/main/log-collector-script/linux/eks-log-collector.sh
+
+## Note on Directory Name
+
+This tool is located in `hyperpod_eks_issue_report/` for historical reasons, but it now supports both HyperPod EKS and HyperPod Slurm clusters. The directory name may be updated in a future release to reflect its universal nature.

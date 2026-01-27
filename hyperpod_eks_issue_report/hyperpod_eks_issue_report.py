@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """
-HyperPod EKS Issue Report Collector
+HyperPod Issue Report Collector
 
-Collects diagnostic logs and configurations from multiple HyperPod EKS nodes.
+Collects diagnostic logs and configurations from multiple HyperPod nodes.
+Supports both HyperPod EKS and HyperPod Slurm clusters.
 Uses hyperpod_run_on_multi_nodes mechanism to execute collection scripts on nodes.
 Downloads collection script from S3 and uploads results back to S3.
 """
@@ -20,7 +21,7 @@ from datetime import datetime, timezone
 from typing import List, Dict, Optional
 
 
-class HyperPodEKSIssueReportCollector:
+class HyperPodIssueReportCollector:
     def __init__(self, cluster_name: str, s3_path: str, debug: bool = False):
         self.cluster_name = cluster_name
         self.debug = debug
@@ -33,6 +34,7 @@ class HyperPodEKSIssueReportCollector:
         
         self.cluster_arn = None
         self.cluster_id = None
+        self.cluster_type = None  # 'eks' or 'slurm'
         self.nodes = []
         
         # Generate unique report ID using UTC time
@@ -74,12 +76,26 @@ class HyperPodEKSIssueReportCollector:
         return None
     
     def get_cluster_nodes(self) -> List[Dict]:
-        """Get all nodes in the HyperPod cluster."""
+        """Get all nodes in the HyperPod cluster and detect cluster type."""
         try:
             print(f"Describing cluster: {self.cluster_name}")
             response = self.sagemaker_client.describe_cluster(ClusterName=self.cluster_name)
             
             print(f"Cluster status: {response.get('ClusterStatus', 'Unknown')}")
+            
+            # Detect cluster type from Orchestrator field
+            orchestrator = response.get('Orchestrator', {})
+            
+            if 'Eks' in orchestrator:
+                self.cluster_type = 'eks'
+                print(f"Detected cluster type: EKS")
+            elif 'Slurm' in orchestrator:
+                self.cluster_type = 'slurm'
+                print(f"Detected cluster type: Slurm")
+            else:
+                # If Orchestrator field is missing or doesn't contain Eks/Slurm, assume Slurm
+                self.cluster_type = 'slurm'
+                print(f"Orchestrator field not found or unrecognized, assuming cluster type: Slurm")
             
             self.cluster_arn = response.get('ClusterArn')
             self.cluster_id = self.extract_cluster_id_from_arn(self.cluster_arn)
@@ -128,21 +144,22 @@ class HyperPodEKSIssueReportCollector:
             print(f"Error getting cluster nodes: {e}")
             return []
     
-    def generate_collector_script(self, commands: List[str], run_eks_log_collector: bool = False) -> str:
+    def generate_collector_script(self, commands: List[str]) -> str:
         """Generate the bash script that will run on each node.
-        Instance group and ID are passed as environment variables."""
+        Instance group and ID are passed as environment variables.
+        Script content varies based on cluster type (EKS vs Slurm)."""
         script_lines = [
             "#!/bin/bash",
-            "# HyperPod EKS Issue Report Collector Script",
+            "# HyperPod Issue Report Collector Script",
             "# Auto-generated script to collect diagnostic information",
-            "# Expects INSTANCE_GROUP and INSTANCE_ID environment variables",
+            "# Expects INSTANCE_GROUP, INSTANCE_ID, and CLUSTER_TYPE environment variables",
             "",
             "# Note: We don't use 'set -e' because some commands (like grep) may return non-zero",
             "# exit codes even when they succeed (e.g., grep returns 1 when no matches found)",
             "",
             "# Validate required environment variables",
-            "if [ -z \"${INSTANCE_GROUP}\" ] || [ -z \"${INSTANCE_ID}\" ]; then",
-            "    echo \"Error: INSTANCE_GROUP and INSTANCE_ID environment variables are required\"",
+            "if [ -z \"${INSTANCE_GROUP}\" ] || [ -z \"${INSTANCE_ID}\" ] || [ -z \"${CLUSTER_TYPE}\" ]; then",
+            "    echo \"Error: INSTANCE_GROUP, INSTANCE_ID, and CLUSTER_TYPE environment variables are required\"",
             "    exit 1",
             "fi",
             "",
@@ -161,6 +178,7 @@ class HyperPodEKSIssueReportCollector:
             "echo \"Collecting system information...\"",
             "echo \"${INSTANCE_GROUP}\" > \"${OUTPUT_DIR}/instance_group.txt\"",
             "echo \"${INSTANCE_ID}\" > \"${OUTPUT_DIR}/instance_id.txt\"",
+            "echo \"${CLUSTER_TYPE}\" > \"${OUTPUT_DIR}/cluster_type.txt\"",
             "hostname > \"${OUTPUT_DIR}/hostname.txt\"",
             "date -u > \"${OUTPUT_DIR}/timestamp.txt\"",
             "",
@@ -191,10 +209,10 @@ class HyperPodEKSIssueReportCollector:
             "",
         ]
         
-        # Add EKS log collector if requested
-        if run_eks_log_collector:
+        # Add cluster-type specific collections
+        if self.cluster_type == 'eks':
             script_lines.extend([
-                "# Run EKS log collector script",
+                "# EKS-specific collections",
                 "echo \"Running EKS log collector...\"",
                 "EKS_LOG_COLLECTOR_URL=\"https://raw.githubusercontent.com/awslabs/amazon-eks-ami/main/log-collector-script/linux/eks-log-collector.sh\"",
                 "curl -o /tmp/eks-log-collector.sh \"${EKS_LOG_COLLECTOR_URL}\"",
@@ -220,6 +238,44 @@ class HyperPodEKSIssueReportCollector:
                 "",
                 "# Clean up the collector script",
                 "rm -f /tmp/eks-log-collector.sh",
+                "",
+            ])
+        elif self.cluster_type == 'slurm':
+            script_lines.extend([
+                "# Slurm-specific collections",
+                "echo \"Collecting Slurm information...\"",
+                "",
+                "# Slurm info commands",
+                "sinfo > \"${OUTPUT_DIR}/sinfo.txt\" 2>&1 || echo \"sinfo not available\"",
+                "sinfo -R > \"${OUTPUT_DIR}/sinfo_R.txt\" 2>&1 || echo \"sinfo -R not available\"",
+                "",
+                "# Slurm service status",
+                "systemctl status slurmctld > \"${OUTPUT_DIR}/slurmctld_status.txt\" 2>&1 || echo \"slurmctld not running on this node\"",
+                "systemctl status slurmd > \"${OUTPUT_DIR}/slurmd_status.txt\" 2>&1 || echo \"slurmd not running on this node\"",
+                "",
+                "# Slurm configuration",
+                "if [ -d /opt/slurm/etc ]; then",
+                "    echo \"Collecting Slurm configuration...\"",
+                "    mkdir -p \"${OUTPUT_DIR}/opt_slurm_etc\"",
+                "    cp -r /opt/slurm/etc/* \"${OUTPUT_DIR}/opt_slurm_etc/\" 2>/dev/null || echo \"Could not copy Slurm config\"",
+                "fi",
+                "",
+                "# NVIDIA bug report",
+                "echo \"Running nvidia-bug-report.sh...\"",
+                "nvidia-bug-report.sh --output-file \"${OUTPUT_DIR}/nvidia-bug-report.log.gz\" 2>&1 || echo \"nvidia-bug-report.sh not available or failed\"",
+                "",
+                "# System logs",
+                "echo \"Collecting system logs...\"",
+                "cp /var/log/syslog \"${OUTPUT_DIR}/syslog\" 2>/dev/null || echo \"Could not copy syslog\"",
+                "cp /var/log/kern.log \"${OUTPUT_DIR}/kern.log\" 2>/dev/null || echo \"Could not copy kern.log\"",
+                "dmesg -T > \"${OUTPUT_DIR}/dmesg_T.txt\" 2>&1 || echo \"Could not run dmesg -T\"",
+                "",
+                "# Slurm logs",
+                "if [ -d /var/log/slurm ]; then",
+                "    echo \"Collecting Slurm logs...\"",
+                "    mkdir -p \"${OUTPUT_DIR}/var_log_slurm\"",
+                "    cp -r /var/log/slurm/* \"${OUTPUT_DIR}/var_log_slurm/\" 2>/dev/null || echo \"Could not copy Slurm logs\"",
+                "fi",
                 "",
             ])
         
@@ -295,7 +351,7 @@ class HyperPodEKSIssueReportCollector:
         commands_to_run = [
             f"aws s3 cp {script_s3_uri} /tmp/collector_script.sh",
             "chmod +x /tmp/collector_script.sh",
-            f"INSTANCE_GROUP={instance_group} INSTANCE_ID={instance_id} /tmp/collector_script.sh"
+            f"INSTANCE_GROUP={instance_group} INSTANCE_ID={instance_id} CLUSTER_TYPE={self.cluster_type} /tmp/collector_script.sh"
         ]
         
         full_command = " && ".join(commands_to_run)
@@ -456,7 +512,7 @@ class HyperPodEKSIssueReportCollector:
                 except:
                     pass
     
-    def collect_reports(self, commands: List[str], instance_group: Optional[str] = None, instance_ids: Optional[List[str]] = None, max_workers: int = 10, run_eks_log_collector: bool = False):
+    def collect_reports(self, commands: List[str], instance_group: Optional[str] = None, instance_ids: Optional[List[str]] = None, max_workers: int = 10):
         """Collect reports from all nodes, specific instance group, or specific instance IDs."""
         # Get cluster nodes
         self.nodes = self.get_cluster_nodes()
@@ -484,15 +540,22 @@ class HyperPodEKSIssueReportCollector:
                 return
         
         print(f"\nCollecting reports from {len(self.nodes)} nodes")
+        print(f"Cluster type: {self.cluster_type.upper()}")
         print(f"Report ID: {self.report_id}")
         print(f"S3 Location: s3://{self.s3_bucket}/{self.report_s3_key}/")
-        print(f"Default collections: nvidia-smi, EKS log collector")
-        if len(commands) > 1:
-            print(f"Additional commands: {', '.join(commands[1:])}")
+        
+        # Show what will be collected based on cluster type
+        if self.cluster_type == 'eks':
+            print(f"Default collections: nvidia-smi, EKS log collector, resource config, cluster logs, systemd services, disk usage")
+        elif self.cluster_type == 'slurm':
+            print(f"Default collections: nvidia-smi, nvidia-bug-report, sinfo, Slurm services, Slurm config, Slurm logs, system logs")
+        
+        if commands:
+            print(f"Additional commands: {', '.join(commands)}")
         print("-" * 60)
         
         # Generate and upload the collector script once
-        script_content = self.generate_collector_script(commands, run_eks_log_collector)
+        script_content = self.generate_collector_script(commands)
         script_key = f"{self.report_s3_key}/collector_script.sh"
         
         try:
@@ -588,12 +651,18 @@ class HyperPodEKSIssueReportCollector:
 
 def main():
     parser = argparse.ArgumentParser(
-        description='HyperPod EKS Issue Report Collector',
+        description='HyperPod Issue Report Collector - Supports both EKS and Slurm clusters',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  # Basic usage - collects nvidia-smi and EKS logs from all nodes
+  # Basic usage - auto-detects cluster type and collects appropriate diagnostics
   python hyperpod_eks_issue_report.py --cluster my-cluster --s3-path s3://my-bucket
+  
+  # EKS cluster - collects nvidia-smi, EKS logs, resource config, cluster logs, systemd services, disk usage
+  python hyperpod_eks_issue_report.py --cluster my-eks-cluster --s3-path s3://my-bucket
+  
+  # Slurm cluster - collects nvidia-smi, nvidia-bug-report, sinfo, Slurm services/config/logs, system logs
+  python hyperpod_eks_issue_report.py --cluster my-slurm-cluster --s3-path s3://my-bucket
   
   # With custom prefix
   python hyperpod_eks_issue_report.py --cluster my-cluster --s3-path s3://my-bucket/diagnostics
@@ -610,13 +679,10 @@ Examples:
   # Target specific instance IDs
   python hyperpod_eks_issue_report.py --cluster my-cluster --s3-path s3://my-bucket \\
     --nodes i-abc123 i-def456
-  
-  # Use custom S3 prefix
-  python hyperpod_eks_issue_report.py --cluster my-cluster --s3-path s3://my-bucket/diagnostics
         """
     )
     
-    parser.add_argument('--cluster', '-c', required=True, help='HyperPod cluster name')
+    parser.add_argument('--cluster', '-c', required=True, help='HyperPod cluster name (EKS or Slurm)')
     parser.add_argument('--s3-path', '-s', required=True, help='S3 path for storing reports (e.g., s3://bucket-name/prefix or s3://bucket-name)')
     parser.add_argument('--command', '-cmd', action='append', help='Additional command to execute on nodes (can be specified multiple times)')
     parser.add_argument('--instance-group', '-g', help='Target specific instance group only')
@@ -632,13 +698,13 @@ Examples:
         sys.exit(1)
     
     try:
-        collector = HyperPodEKSIssueReportCollector(
+        collector = HyperPodIssueReportCollector(
             cluster_name=args.cluster,
             s3_path=args.s3_path,
             debug=args.debug
         )
         
-        # User-specified commands (nvidia-smi is now collected by default, not as a command)
+        # User-specified commands
         commands = []
         
         # Add any user-specified commands
@@ -649,8 +715,7 @@ Examples:
             commands=commands,
             instance_group=args.instance_group,
             instance_ids=args.nodes,
-            max_workers=args.max_workers,
-            run_eks_log_collector=True  # Always run EKS log collector
+            max_workers=args.max_workers
         )
         
     except KeyboardInterrupt:
