@@ -137,7 +137,8 @@ class HyperPodEKSIssueReportCollector:
             "# Auto-generated script to collect diagnostic information",
             "# Expects INSTANCE_GROUP and INSTANCE_ID environment variables",
             "",
-            "set -e",
+            "# Note: We don't use 'set -e' because some commands (like grep) may return non-zero",
+            "# exit codes even when they succeed (e.g., grep returns 1 when no matches found)",
             "",
             "# Validate required environment variables",
             "if [ -z \"${INSTANCE_GROUP}\" ] || [ -z \"${INSTANCE_ID}\" ]; then",
@@ -151,6 +152,10 @@ class HyperPodEKSIssueReportCollector:
             "",
             "echo \"Creating output directory: ${OUTPUT_DIR}\"",
             "mkdir -p \"${OUTPUT_DIR}\"",
+            "if [ $? -ne 0 ]; then",
+            "    echo \"ERROR: Failed to create output directory\"",
+            "    exit 1",
+            "fi",
             "",
             "# Collect system information",
             "echo \"Collecting system information...\"",
@@ -195,7 +200,8 @@ class HyperPodEKSIssueReportCollector:
         
         # Add each command to the script
         for i, cmd in enumerate(commands, 1):
-            safe_name = cmd.replace(' ', '_').replace('/', '_')[:50]
+            # Sanitize command for filename - replace problematic characters
+            safe_name = cmd.replace(' ', '_').replace('/', '_').replace('|', '_').replace('>', '_').replace('<', '_').replace('&', '_').replace(';', '_').replace('(', '_').replace(')', '_').replace('$', '_').replace('`', '_').replace('"', '_').replace("'", '_')[:50]
             output_file = f"command_{i:02d}_{safe_name}.txt"
             
             # Use regular string (not f-string) to avoid any escaping issues with bash variables
@@ -217,6 +223,10 @@ class HyperPodEKSIssueReportCollector:
             "echo \"Creating tarball...\"",
             "TARBALL=\"/tmp/${INSTANCE_GROUP}_${INSTANCE_ID}.tar.gz\"",
             "tar -czf \"${TARBALL}\" -C /tmp \"$(basename ${OUTPUT_DIR})\"",
+            "if [ $? -ne 0 ]; then",
+            "    echo \"ERROR: Failed to create tarball\"",
+            "    exit 1",
+            "fi",
             "",
             "echo \"Uploading to S3...\"",
             "aws s3 cp \"${TARBALL}\" \"s3://${S3_BUCKET}/${S3_PREFIX}/$(basename ${TARBALL})\"",
@@ -224,8 +234,9 @@ class HyperPodEKSIssueReportCollector:
             "if [ $? -eq 0 ]; then",
             "    echo \"Successfully uploaded report to s3://${S3_BUCKET}/${S3_PREFIX}/$(basename ${TARBALL})\"",
             "    rm -rf \"${OUTPUT_DIR}\" \"${TARBALL}\"",
+            "    exit 0",
             "else",
-            "    echo \"Failed to upload to S3\"",
+            "    echo \"ERROR: Failed to upload to S3\"",
             "    exit 1",
             "fi",
             "",
