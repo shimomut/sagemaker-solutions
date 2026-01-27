@@ -505,7 +505,7 @@ class HyperPodIssueReportCollector:
             child = pexpect.spawn(ssm_command, timeout=600, encoding='utf-8')
             child.logfile_read = None
             
-            # Wait for initial prompt (increased timeout for slow connections)
+            # Wait for initial prompt
             initial_prompt_patterns = [
                 r'[\$#]\s+',            # Standard shell prompt
                 r'sh-\d+\.\d+[\$#]\s*', # sh prompt
@@ -515,42 +515,38 @@ class HyperPodIssueReportCollector:
             prompt_index = child.expect(initial_prompt_patterns, timeout=60)
             
             if prompt_index == len(initial_prompt_patterns) - 1:  # TIMEOUT
-                child.sendline('')
-                try:
-                    child.expect(initial_prompt_patterns[:-1], timeout=30)
-                except pexpect.TIMEOUT:
-                    # Get output for debugging
-                    output_sample = ""
-                    if child and hasattr(child, 'before') and child.before:
-                        # Show more output to help diagnose the issue
-                        output_sample = child.before.strip()
-                        if len(output_sample) > 1000:
-                            output_sample = output_sample[-1000:]  # Last 1000 chars
-                    
-                    error_msg = (
-                        f"Failed to detect shell prompt after 90 seconds.\n"
-                        f"This may indicate:\n"
-                        f"  - Custom SSM session configuration interfering with prompt detection\n"
-                        f"  - Non-standard shell prompt format\n"
-                        f"  - SSM session initialization issues\n"
+                # Get output for debugging
+                output_sample = ""
+                if child and hasattr(child, 'before') and child.before:
+                    # Show more output to help diagnose the issue
+                    output_sample = child.before.strip()
+                    if len(output_sample) > 1000:
+                        output_sample = output_sample[-1000:]  # Last 1000 chars
+                
+                error_msg = (
+                    f"Failed to detect shell prompt after 90 seconds.\n"
+                    f"This may indicate:\n"
+                    f"  - Custom SSM session configuration interfering with prompt detection\n"
+                    f"  - Non-standard shell prompt format\n"
+                    f"  - SSM session initialization issues\n"
+                )
+                
+                if output_sample:
+                    error_msg += f"\nSession output received:\n{output_sample}\n"
+                    error_msg += (
+                        f"\nExpected prompt patterns: $ or # followed by space\n"
+                        f"If your cluster uses custom SSM session commands or non-standard prompts,\n"
+                        f"this tool may not be compatible."
                     )
-                    
-                    if output_sample:
-                        error_msg += f"\nSession output received:\n{output_sample}\n"
-                        error_msg += (
-                            f"\nExpected prompt patterns: $ or # followed by space\n"
-                            f"If your cluster uses custom SSM session commands or non-standard prompts,\n"
-                            f"this tool may not be compatible."
-                        )
-                    else:
-                        error_msg += "\nNo output received from SSM session."
-                    
-                    return {
-                        'InstanceId': instance_id,
-                        'NodeGroup': instance_group,
-                        'Success': False,
-                        'Error': error_msg
-                    }
+                else:
+                    error_msg += "\nNo output received from SSM session."
+                
+                return {
+                    'InstanceId': instance_id,
+                    'NodeGroup': instance_group,
+                    'Success': False,
+                    'Error': error_msg
+                }
             
             # Set custom prompt
             child.sendline(f'export PS1="{custom_prompt}"')
