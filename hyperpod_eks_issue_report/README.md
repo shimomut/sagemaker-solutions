@@ -287,18 +287,6 @@ hyperpod_report_worker1_i-0123456789abcdef0_20260126_143025/
 
 ### View Results
 
-#### Quick Check with Helper Script
-
-```bash
-./check_results.sh my-bucket my-cluster 20260126_143022
-```
-
-This will show you:
-- If the report exists
-- Summary statistics
-- Number of result files
-- Troubleshooting tips if results are missing
-
 #### Manual Download and Extract
 
 ```bash
@@ -309,7 +297,7 @@ aws s3 sync s3://my-bucket/hyperpod-issue-reports/my-cluster/20260126_143022/res
 tar -xzf reports/worker1_i-0123456789abcdef0.tar.gz
 
 # View nvidia-smi output
-cat hyperpod_report_worker1_i-0123456789abcdef0_20260126_143025/command_01_nvidia-smi.txt
+cat hyperpod_report_worker1_i-0123456789abcdef0_20260126_143025/nvidia_smi.txt
 
 # View EKS logs
 ls hyperpod_report_worker1_i-0123456789abcdef0_20260126_143025/eks-logs/
