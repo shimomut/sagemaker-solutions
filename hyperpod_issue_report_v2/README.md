@@ -118,22 +118,36 @@ python hyperpod_issue_report_v2.py \
   --command "uptime"
 ```
 
-### Target Specific Instance Group
+### Target Specific Instance Groups
 
 ```bash
+# Single instance group
 python hyperpod_issue_report_v2.py \
   --cluster my-hyperpod-cluster \
   --s3-path s3://my-diagnostics-bucket \
-  --instance-group worker-group
+  --instance-groups worker-group-1
+
+# Multiple instance groups
+python hyperpod_issue_report_v2.py \
+  --cluster my-hyperpod-cluster \
+  --s3-path s3://my-diagnostics-bucket \
+  --instance-groups worker-group-1 worker-group-2 gpu-group
 ```
 
 ### Target Specific Instance IDs
 
 ```bash
+# Single instance
 python hyperpod_issue_report_v2.py \
   --cluster my-hyperpod-cluster \
   --s3-path s3://my-diagnostics-bucket \
-  --nodes i-abc123 i-def456
+  --nodes i-abc123
+
+# Multiple instances
+python hyperpod_issue_report_v2.py \
+  --cluster my-hyperpod-cluster \
+  --s3-path s3://my-diagnostics-bucket \
+  --nodes i-abc123 i-def456 i-ghi789
 ```
 
 ### Custom S3 Prefix
@@ -229,7 +243,7 @@ You can add additional commands using `--command` flags.
   - `s3://bucket-name/custom-prefix`
   - `bucket-name/custom-prefix` (s3:// prefix optional)
 - `--command, -cmd`: Additional command to execute on nodes (can be specified multiple times)
-- `--instance-group, -g`: Target specific instance group only
+- `--instance-groups, -g`: Target specific instance groups (e.g., `--instance-groups worker1 worker2`)
 - `--nodes, -n`: Target specific instance IDs (e.g., `--nodes i-abc123 i-def456`)
 - `--max-workers, -w`: Maximum concurrent workers (default: 10)
 - `--debug, -d`: Enable debug mode
@@ -237,7 +251,7 @@ You can add additional commands using `--command` flags.
 **Note**: 
 - Cluster type is auto-detected from the cluster description
 - Default collections vary by cluster type (see "What Gets Collected" section)
-- `--instance-group` and `--nodes` are mutually exclusive (cannot be used together)
+- `--instance-groups` and `--nodes` are mutually exclusive (cannot be used together)
 
 ## Architecture
 

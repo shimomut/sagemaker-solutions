@@ -531,8 +531,8 @@ class HyperPodIssueReportCollector:
                 except:
                     pass
     
-    def collect_reports(self, commands: List[str], instance_group: Optional[str] = None, instance_ids: Optional[List[str]] = None, max_workers: int = 10):
-        """Collect reports from all nodes, specific instance group, or specific instance IDs."""
+    def collect_reports(self, commands: List[str], instance_groups: Optional[List[str]] = None, instance_ids: Optional[List[str]] = None, max_workers: int = 10):
+        """Collect reports from all nodes, specific instance groups, or specific instance IDs."""
         # Get cluster nodes
         self.nodes = self.get_cluster_nodes()
         
@@ -555,12 +555,15 @@ class HyperPodIssueReportCollector:
             missing_ids = set(instance_ids) - found_ids
             if missing_ids:
                 print(f"Warning: Instance IDs not found in cluster: {', '.join(missing_ids)}")
-        # Filter by instance group if specified (only if instance_ids not specified)
-        elif instance_group:
-            self.nodes = [n for n in self.nodes if n.get('NodeGroup', '').lower() == instance_group.lower()]
+        # Filter by instance groups if specified (only if instance_ids not specified)
+        elif instance_groups:
+            # Convert instance groups to lowercase for case-insensitive matching
+            instance_groups_lower = [ig.lower() for ig in instance_groups]
+            self.nodes = [n for n in self.nodes if n.get('NodeGroup', '').lower() in instance_groups_lower]
             if not self.nodes:
-                print(f"No nodes found in instance group: {instance_group}")
+                print(f"No nodes found in instance groups: {', '.join(instance_groups)}")
                 return
+            print(f"Filtering to instance groups: {', '.join(instance_groups)}")
         
         print(f"\nCollecting reports from {len(self.nodes)} nodes")
         print(f"Cluster type: {self.cluster_type.upper()}")
@@ -854,9 +857,9 @@ Examples:
     --command "df -h" \\
     --command "free -h"
   
-  # Target specific instance group
+  # Target specific instance groups
   python hyperpod_eks_issue_report.py --cluster my-cluster --s3-path s3://my-bucket \\
-    --instance-group worker-group
+    --instance-groups worker-group-1 worker-group-2
   
   # Target specific instance IDs
   python hyperpod_eks_issue_report.py --cluster my-cluster --s3-path s3://my-bucket \\
@@ -867,7 +870,7 @@ Examples:
     parser.add_argument('--cluster', '-c', required=True, help='HyperPod cluster name (EKS or Slurm)')
     parser.add_argument('--s3-path', '-s', required=True, help='S3 path for storing reports (e.g., s3://bucket-name/prefix or s3://bucket-name)')
     parser.add_argument('--command', '-cmd', action='append', help='Additional command to execute on nodes (can be specified multiple times)')
-    parser.add_argument('--instance-group', '-g', help='Target specific instance group only')
+    parser.add_argument('--instance-groups', '-g', nargs='+', help='Target specific instance groups (e.g., --instance-groups worker1 worker2)')
     parser.add_argument('--nodes', '-n', nargs='+', help='Target specific instance IDs (e.g., --nodes i-abc123 i-def456)')
     parser.add_argument('--max-workers', '-w', type=int, default=10, help='Maximum concurrent workers (default: 10)')
     parser.add_argument('--debug', '-d', action='store_true', help='Enable debug mode')
@@ -875,8 +878,8 @@ Examples:
     args = parser.parse_args()
     
     # Validate mutually exclusive options
-    if args.instance_group and args.nodes:
-        print("Error: --instance-group and --nodes cannot be used together")
+    if args.instance_groups and args.nodes:
+        print("Error: --instance-groups and --nodes cannot be used together")
         sys.exit(1)
     
     try:
@@ -895,7 +898,7 @@ Examples:
         
         collector.collect_reports(
             commands=commands,
-            instance_group=args.instance_group,
+            instance_groups=args.instance_groups,
             instance_ids=args.nodes,
             max_workers=args.max_workers
         )
