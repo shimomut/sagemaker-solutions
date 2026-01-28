@@ -285,100 +285,20 @@ You can add additional commands using `--command` flags.
 - For Slurm clusters, Slurm node names are resolved to instance IDs using the `describe_cluster_node` API
 - For EKS clusters, EKS node names (hyperpod-i-*) are converted to instance IDs by removing the prefix
 
-## Architecture
+## How It Works
 
-### System Overview
+The tool automatically detects your cluster type (EKS or Slurm) and collects appropriate diagnostics:
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                         User's Machine                          │
-│                                                                 │
-│  ┌───────────────────────────────────────────────────────────┐ │
-│  │  hyperpod_eks_issue_report.py                             │ │
-│  │  - Queries SageMaker API for cluster nodes                │ │
-│  │  - Generates collection script                            │ │
-│  │  - Orchestrates parallel execution                        │ │
-│  └───────────────────────────────────────────────────────────┘ │
-│                            │                                    │
-└────────────────────────────┼────────────────────────────────────┘
-                             │
-                             ▼
-              ┌──────────────────────────┐
-              │      AWS Services        │
-              │                          │
-              │  ┌────────────────────┐  │
-              │  │  SageMaker API     │  │
-              │  │  - List nodes      │  │
-              │  │  - Get cluster info│  │
-              │  └────────────────────┘  │
-              │                          │
-              │  ┌────────────────────┐  │
-              │  │  S3 Bucket         │  │
-              │  │  - Store script    │  │
-              │  │  - Store results   │  │
-              │  └────────────────────┘  │
-              │                          │
-              │  ┌────────────────────┐  │
-              │  │  SSM Service       │  │
-              │  │  - Execute commands│  │
-              │  └────────────────────┘  │
-              └──────────────────────────┘
-                             │
-                             ▼
-              ┌──────────────────────────┐
-              │   HyperPod EKS Cluster   │
-              │                          │
-              │  ┌────────────────────┐  │
-              │  │  Node 1            │  │
-              │  │  - Download script │  │
-              │  │  - Run commands    │  │
-              │  │  - Upload results  │  │
-              │  └────────────────────┘  │
-              │                          │
-              │  ┌────────────────────┐  │
-              │  │  Node 2            │  │
-              │  │  - Download script │  │
-              │  │  - Run commands    │  │
-              │  │  - Upload results  │  │
-              │  └────────────────────┘  │
-              │                          │
-              │  ┌────────────────────┐  │
-              │  │  Node N            │  │
-              │  │  - Download script │  │
-              │  │  - Run commands    │  │
-              │  │  - Upload results  │  │
-              │  └────────────────────┘  │
-              └──────────────────────────┘
-```
+1. **Queries SageMaker API** to get cluster information and all nodes
+2. **For EKS clusters**: Collects kubectl resource information (requires kubectl configured)
+3. **Generates a collection script** tailored to your cluster type
+4. **Uploads the script to S3** for distribution
+5. **Connects to each node via SSM** and executes the script in parallel
+6. **Each node collects diagnostics** and uploads results to S3
+7. **Generates a summary** with collection status
+8. **Optionally downloads** all results to your local machine
 
-### Execution Flow
-
-1. **Initialization**: Query SageMaker API for cluster nodes, filter by instance group if specified
-2. **Script Generation**: Create bash collection script with user commands
-3. **Script Distribution**: Upload collection script to S3
-4. **Parallel Execution**: For each node (in parallel):
-   - Connect via SSM using HyperPod target format: `sagemaker-cluster:{cluster-id}_{instance-group}-{instance-id}`
-   - Download script from S3
-   - Execute script with `INSTANCE_GROUP` and `INSTANCE_ID` environment variables
-   - Script runs all commands
-   - Script creates tarball
-   - Script uploads tarball to S3
-5. **Summary**: Collect execution results, generate summary JSON, upload to S3
-
-### Concurrency Model
-
-```
-Main Thread
-    │
-    ├─→ ThreadPoolExecutor (max_workers=64)
-    │       │
-    │       ├─→ Worker 1: Node 1 → SSM → Execute
-    │       ├─→ Worker 2: Node 2 → SSM → Execute
-    │       ├─→ Worker 3: Node 3 → SSM → Execute
-    │       └─→ Worker N: Node N → SSM → Execute
-    │
-    └─→ Collect Results → Generate Summary
-```
+For technical details, see [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ## Output Structure
 
@@ -718,41 +638,11 @@ If you see an error message, follow the instructions displayed:
 
 ## Large Cluster Handling (100+ Nodes)
 
-For clusters with 100+ nodes, the tool includes optimizations to handle AWS service limits:
+The tool is optimized for large clusters (tested up to 130 nodes with 99.2% success rate):
 
-### Timeout Configuration
-
-The tool includes configurable timeout constants at the top of the script, calibrated for large clusters (tested up to 130 nodes):
-
-```python
-# SSM session timeouts (seconds)
-SSM_SCRIPT_EXECUTION_TIMEOUT = 900  # 15 minutes - script execution on nodes
-SSM_PROMPT_TIMEOUT = 60             # 60 seconds - prompt detection and setup
-
-# kubectl command timeout (seconds)
-KUBECTL_TIMEOUT = 600               # 10 minutes - all kubectl operations
-```
-
-**Test results (130-node cluster):**
-- kubectl commands: 1-26s (longest: kubectl describe pods)
-- SSM node collection: 31-48s per node
-
-**How timeouts work:**
-- Each pexpect `expect()` call has an explicit timeout parameter
-- No default session timeout - each operation specifies its own timeout
-- Prompt operations (detection and setup) use 60 seconds
-- Script execution uses 15 minutes for comprehensive diagnostics collection
-- kubectl operations use 10 minutes (provides 20x headroom over observed times)
-
-**To customize timeouts:** Edit the constants at the top of `hyperpod_issue_report_v2.py` if you experience timeouts with your cluster size.
-
-### SSM Throttling Protection
-
-AWS SSM has rate limits that can be hit with large concurrent requests. The tool includes:
-
-- **Automatic retry with exponential backoff**: Failed requests due to throttling are automatically retried (up to 3 attempts)
-- **Balanced default concurrency**: Default `--max-workers` is 16 to balance speed and reliability
-- **Configurable concurrency**: Use `--max-workers` to adjust based on your needs
+- **Automatic retry with exponential backoff**: Handles AWS SSM throttling automatically
+- **Balanced default concurrency**: Default `--max-workers 16` balances speed and reliability
+- **Configurable concurrency**: Adjust `--max-workers` based on your cluster size
 
 ```bash
 # For very large clusters (200+ nodes), reduce concurrency if hitting throttling
@@ -768,34 +658,16 @@ python hyperpod_issue_report_v2.py \
   --max-workers 32
 ```
 
-### Extended Timeouts
-
-For large clusters, collection operations take longer. The tool uses scaled timeouts:
-
-- **SSM session**: 15 minutes for script execution on nodes
-- **kubectl describe**: 30 minutes for node/pod descriptions (1000+ nodes)
-- **kubectl get**: 10 minutes for resource listings (1000+ nodes)
-- **Script execution**: 15 minutes for EKS log collector on busy nodes
-
-These timeouts are defined as constants at the top of the script and can be customized for your cluster size.
-
-### Recommendations for 100+ Node Clusters
+### Recommendations
 
 1. **Default works well**: The default `--max-workers 16` balances speed and reliability
 2. **Monitor for throttling**: Watch for `ThrottlingException` or `Rate exceeded` errors
 3. **Adjust if needed**: 
    - If throttling occurs: reduce to `--max-workers 8`
    - If no throttling: increase to `--max-workers 32`
-4. **Consider batching**: For 200+ nodes, run collection in batches by instance group:
-   ```bash
-   # Batch 1
-   python hyperpod_issue_report_v2.py --cluster my-cluster --s3-path s3://my-bucket \
-     --instance-groups worker1 worker2
-   
-   # Batch 2
-   python hyperpod_issue_report_v2.py --cluster my-cluster --s3-path s3://my-bucket \
-     --instance-groups worker3 worker4
-   ```
+4. **Consider batching**: For 200+ nodes, run collection in batches by instance group
+
+For technical details about timeouts and performance characteristics, see [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ### Test Results
 
