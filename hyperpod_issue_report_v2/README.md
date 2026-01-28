@@ -722,28 +722,27 @@ For clusters with 100+ nodes, the tool includes optimizations to handle AWS serv
 
 ### Timeout Configuration
 
-The tool includes configurable timeout constants at the top of the script, calibrated for large clusters (tested up to 130 nodes, extrapolated for 1000+ nodes):
+The tool includes configurable timeout constants at the top of the script, calibrated for large clusters (tested up to 130 nodes):
 
 ```python
 # SSM session timeouts (seconds)
 SSM_SCRIPT_EXECUTION_TIMEOUT = 900  # 15 minutes - script execution on nodes
-SSM_PROMPT_TIMEOUT = 90             # 90 seconds - prompt detection and setup
+SSM_PROMPT_TIMEOUT = 60             # 60 seconds - prompt detection and setup
 
-# kubectl command timeouts (seconds) - scaled for 1000+ node clusters
-KUBECTL_DESCRIBE_TIMEOUT = 1800     # 30 minutes - 'kubectl describe' operations
-KUBECTL_GET_TIMEOUT = 600           # 10 minutes - 'kubectl get' operations
+# kubectl command timeout (seconds)
+KUBECTL_TIMEOUT = 600               # 10 minutes - all kubectl operations
 ```
+
+**Test results (130-node cluster):**
+- kubectl commands: 1-26s (longest: kubectl describe pods)
+- SSM node collection: 31-48s per node
 
 **How timeouts work:**
 - Each pexpect `expect()` call has an explicit timeout parameter
 - No default session timeout - each operation specifies its own timeout
-- Prompt operations (detection and setup) use 90 seconds
+- Prompt operations (detection and setup) use 60 seconds
 - Script execution uses 15 minutes for comprehensive diagnostics collection
-
-**Scaling assumptions:**
-- kubectl describe operations scale roughly linearly with node/pod count
-- 130 nodes: ~3-5 minutes for describe operations
-- 1000 nodes: ~20-30 minutes for describe operations (7.7x scale factor)
+- kubectl operations use 10 minutes (provides 20x headroom over observed times)
 
 **To customize timeouts:** Edit the constants at the top of `hyperpod_issue_report_v2.py` if you experience timeouts with your cluster size.
 

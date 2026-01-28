@@ -24,23 +24,21 @@ from typing import List, Dict, Optional
 # ============================================================================
 # TIMEOUT CONFIGURATION
 # ============================================================================
-# These timeouts are calibrated for large clusters (tested up to 130 nodes,
-# extrapolated for 1000+ nodes). Adjust these values if you experience timeouts.
+# These timeouts are calibrated for large clusters (tested up to 130 nodes).
+# Adjust these values if you experience timeouts with larger clusters.
 #
-# Scaling assumptions:
-# - kubectl describe operations scale roughly linearly with node/pod count
-# - 130 nodes: ~3-5 minutes for describe operations
-# - 1000 nodes: ~20-30 minutes for describe operations (7.7x scale factor)
+# Test results (130-node cluster):
+# - kubectl commands: 1-26s (longest: kubectl describe pods)
+# - SSM node collection: 31-48s per node
 # ============================================================================
 
 # SSM session timeouts (seconds)
 # These are passed explicitly to each pexpect expect() call
 SSM_SCRIPT_EXECUTION_TIMEOUT = 900  # 15 minutes - script execution on nodes
-SSM_PROMPT_TIMEOUT = 90             # 90 seconds - prompt detection and setup
+SSM_PROMPT_TIMEOUT = 60             # 60 seconds - prompt detection and setup
 
-# kubectl command timeouts (seconds) - scaled for 1000+ node clusters
-KUBECTL_DESCRIBE_TIMEOUT = 1800     # 30 minutes - for 'kubectl describe' operations (nodes, pods)
-KUBECTL_GET_TIMEOUT = 600           # 10 minutes - for 'kubectl get' operations (list resources)
+# kubectl command timeout (seconds)
+KUBECTL_TIMEOUT = 600               # 10 minutes - all kubectl operations
 
 
 class HyperPodIssueReportCollector:
@@ -532,7 +530,7 @@ class HyperPodIssueReportCollector:
             child = pexpect.spawn(ssm_command, encoding='utf-8')
             child.logfile_read = None
             
-            # Wait for initial prompt (90 seconds to handle slow SSM session initialization)
+            # Wait for initial prompt (60 seconds to handle slow SSM session initialization)
             initial_prompt_patterns = [
                 r'[\$#]\s+',            # Standard shell prompt
                 r'sh-\d+\.\d+[\$#]\s*', # sh prompt
@@ -551,7 +549,7 @@ class HyperPodIssueReportCollector:
                         output_sample = output_sample[-1000:]  # Last 1000 chars
                 
                 error_msg = (
-                    f"Failed to detect shell prompt after 90 seconds.\n"
+                    f"Failed to detect shell prompt after 60 seconds.\n"
                     f"This may indicate:\n"
                     f"  - Custom SSM session configuration interfering with prompt detection\n"
                     f"  - Non-standard shell prompt format\n"
@@ -1260,9 +1258,8 @@ class HyperPodIssueReportCollector:
                 print(f"  Collecting: {description}...", end=' ', flush=True)
                 
                 try:
-                    # Increase timeout for large clusters (1000+ nodes)
-                    # kubectl describe operations scale with node/pod count
-                    timeout = KUBECTL_DESCRIBE_TIMEOUT if 'describe' in ' '.join(command) else KUBECTL_GET_TIMEOUT
+                    # Use unified timeout for all kubectl operations
+                    timeout = KUBECTL_TIMEOUT
                     
                     # Measure execution time
                     start_time = time.time()
