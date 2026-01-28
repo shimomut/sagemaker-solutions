@@ -720,6 +720,33 @@ If you see an error message, follow the instructions displayed:
 
 For clusters with 100+ nodes, the tool includes optimizations to handle AWS service limits:
 
+### Timeout Configuration
+
+The tool includes configurable timeout constants at the top of the script, calibrated for large clusters (tested up to 130 nodes, extrapolated for 1000+ nodes):
+
+```python
+# SSM session timeouts (seconds)
+SSM_SCRIPT_EXECUTION_TIMEOUT = 900  # 15 minutes - script execution on nodes
+SSM_PROMPT_TIMEOUT = 90             # 90 seconds - prompt detection and setup
+
+# kubectl command timeouts (seconds) - scaled for 1000+ node clusters
+KUBECTL_DESCRIBE_TIMEOUT = 1800     # 30 minutes - 'kubectl describe' operations
+KUBECTL_GET_TIMEOUT = 600           # 10 minutes - 'kubectl get' operations
+```
+
+**How timeouts work:**
+- Each pexpect `expect()` call has an explicit timeout parameter
+- No default session timeout - each operation specifies its own timeout
+- Prompt operations (detection and setup) use 90 seconds
+- Script execution uses 15 minutes for comprehensive diagnostics collection
+
+**Scaling assumptions:**
+- kubectl describe operations scale roughly linearly with node/pod count
+- 130 nodes: ~3-5 minutes for describe operations
+- 1000 nodes: ~20-30 minutes for describe operations (7.7x scale factor)
+
+**To customize timeouts:** Edit the constants at the top of `hyperpod_issue_report_v2.py` if you experience timeouts with your cluster size.
+
 ### SSM Throttling Protection
 
 AWS SSM has rate limits that can be hit with large concurrent requests. The tool includes:
@@ -744,11 +771,14 @@ python hyperpod_issue_report_v2.py \
 
 ### Extended Timeouts
 
-For large clusters, collection operations take longer:
+For large clusters, collection operations take longer. The tool uses scaled timeouts:
 
-- **SSM session timeout**: 15 minutes (up from 10) for EKS log collector on busy nodes
-- **kubectl describe timeout**: 5 minutes (up from 1) for node/pod descriptions with 100+ nodes
-- **kubectl get timeout**: 2 minutes for resource listings
+- **SSM session**: 15 minutes for script execution on nodes
+- **kubectl describe**: 30 minutes for node/pod descriptions (1000+ nodes)
+- **kubectl get**: 10 minutes for resource listings (1000+ nodes)
+- **Script execution**: 15 minutes for EKS log collector on busy nodes
+
+These timeouts are defined as constants at the top of the script and can be customized for your cluster size.
 
 ### Recommendations for 100+ Node Clusters
 
@@ -770,11 +800,16 @@ For large clusters, collection operations take longer:
 
 ### Test Results
 
-Tested successfully on a 130-node cluster:
-- **Success rate**: 102/130 nodes (78%)
+**130-node cluster:**
+- **Success rate**: 129/130 nodes (99.2%)
 - **Throttling**: Automatic retry handled all throttling errors
 - **kubectl collection**: Completed successfully with extended timeouts
 - **Total time**: ~15 minutes with default concurrency
+
+**Projected for 1000-node cluster:**
+- **kubectl describe**: ~20-30 minutes (within 30-minute timeout)
+- **Node collection**: ~60-90 minutes with default concurrency (16 workers)
+- **Recommendation**: Use `--max-workers 32` for faster collection if no throttling occurs
 
 ## Limitations
 

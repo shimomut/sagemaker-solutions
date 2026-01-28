@@ -21,6 +21,28 @@ from datetime import datetime, timezone
 from typing import List, Dict, Optional
 
 
+# ============================================================================
+# TIMEOUT CONFIGURATION
+# ============================================================================
+# These timeouts are calibrated for large clusters (tested up to 130 nodes,
+# extrapolated for 1000+ nodes). Adjust these values if you experience timeouts.
+#
+# Scaling assumptions:
+# - kubectl describe operations scale roughly linearly with node/pod count
+# - 130 nodes: ~3-5 minutes for describe operations
+# - 1000 nodes: ~20-30 minutes for describe operations (7.7x scale factor)
+# ============================================================================
+
+# SSM session timeouts (seconds)
+# These are passed explicitly to each pexpect expect() call
+SSM_SCRIPT_EXECUTION_TIMEOUT = 900  # 15 minutes - script execution on nodes
+SSM_PROMPT_TIMEOUT = 90             # 90 seconds - prompt detection and setup
+
+# kubectl command timeouts (seconds) - scaled for 1000+ node clusters
+KUBECTL_DESCRIBE_TIMEOUT = 1800     # 30 minutes - for 'kubectl describe' operations (nodes, pods)
+KUBECTL_GET_TIMEOUT = 600           # 10 minutes - for 'kubectl get' operations (list resources)
+
+
 class HyperPodIssueReportCollector:
     def __init__(self, cluster_name: str, s3_path: str, debug: bool = False):
         self.cluster_name = cluster_name
@@ -470,6 +492,9 @@ class HyperPodIssueReportCollector:
         instance_id = node['InstanceId']
         instance_group = node.get('NodeGroup', 'unknown')
         
+        # Start timing
+        start_time = time.time()
+        
         try:
             ssm_target = self.get_hyperpod_ssm_target(instance_id, instance_group)
         except ValueError as e:
@@ -477,7 +502,8 @@ class HyperPodIssueReportCollector:
                 'InstanceId': instance_id,
                 'NodeGroup': instance_group,
                 'Success': False,
-                'Error': str(e)
+                'Error': str(e),
+                'ElapsedTime': time.time() - start_time
             }
         
         # Build the command to download and execute the script with environment variables
@@ -502,8 +528,8 @@ class HyperPodIssueReportCollector:
                 print(f"[DEBUG] {instance_id}: Full command: {full_command}")
             
             # Use pexpect to handle the interactive session
-            # Increase timeout for large clusters where EKS log collector can take 10+ minutes
-            child = pexpect.spawn(ssm_command, timeout=900, encoding='utf-8')
+            # Note: No default timeout set - each expect() call has explicit timeout
+            child = pexpect.spawn(ssm_command, encoding='utf-8')
             child.logfile_read = None
             
             # Wait for initial prompt (90 seconds to handle slow SSM session initialization)
@@ -513,7 +539,7 @@ class HyperPodIssueReportCollector:
                 pexpect.TIMEOUT
             ]
             
-            prompt_index = child.expect(initial_prompt_patterns, timeout=90)
+            prompt_index = child.expect(initial_prompt_patterns, timeout=SSM_PROMPT_TIMEOUT)
             
             if prompt_index == len(initial_prompt_patterns) - 1:  # TIMEOUT
                 # Get output for debugging
@@ -552,8 +578,8 @@ class HyperPodIssueReportCollector:
             # Set custom prompt
             child.sendline(f'export PS1="{custom_prompt}"')
             child.sendline('echo "PROMPT_SET_MARKER"')
-            child.expect('PROMPT_SET_MARKER', timeout=30)
-            child.expect(custom_prompt, timeout=30)
+            child.expect('PROMPT_SET_MARKER', timeout=SSM_PROMPT_TIMEOUT)
+            child.expect(custom_prompt, timeout=SSM_PROMPT_TIMEOUT)
             
             if self.debug:
                 print(f"[DEBUG] {instance_id}: Custom prompt set")
@@ -561,9 +587,8 @@ class HyperPodIssueReportCollector:
             # Execute the command and capture exit code immediately
             child.sendline(f'{full_command}; EXIT_CODE=$?; echo "EXIT_CODE:$EXIT_CODE"')
             
-            # Wait for command completion (up to 15 minutes for large clusters)
-            # EKS log collector can take 10+ minutes on busy nodes
-            child.expect(custom_prompt, timeout=900)
+            # Wait for command completion (15 minutes for script execution)
+            child.expect(custom_prompt, timeout=SSM_SCRIPT_EXECUTION_TIMEOUT)
             
             # Extract output
             output = child.before
@@ -620,7 +645,8 @@ class HyperPodIssueReportCollector:
                     'InstanceId': instance_id,
                     'NodeGroup': instance_group,
                     'Success': True,
-                    'Output': output
+                    'Output': output,
+                    'ElapsedTime': time.time() - start_time
                 }
             else:
                 # Show last 15 lines of output which usually contain the error
@@ -632,7 +658,8 @@ class HyperPodIssueReportCollector:
                     'NodeGroup': instance_group,
                     'Success': False,
                     'Error': f"Script execution failed (exit code: {exit_code})\n{error_context}",
-                    'Output': output
+                    'Output': output,
+                    'ElapsedTime': time.time() - start_time
                 }
             
         except pexpect.TIMEOUT:
@@ -660,7 +687,8 @@ class HyperPodIssueReportCollector:
                 'InstanceId': instance_id,
                 'NodeGroup': instance_group,
                 'Success': False,
-                'Error': error_msg
+                'Error': error_msg,
+                'ElapsedTime': time.time() - start_time
             }
             
         except pexpect.EOF:
@@ -678,7 +706,8 @@ class HyperPodIssueReportCollector:
                 'InstanceId': instance_id,
                 'NodeGroup': instance_group,
                 'Success': False,
-                'Error': error_msg
+                'Error': error_msg,
+                'ElapsedTime': time.time() - start_time
             }
             
         except Exception as e:
@@ -690,7 +719,8 @@ class HyperPodIssueReportCollector:
                 'InstanceId': instance_id,
                 'NodeGroup': instance_group,
                 'Success': False,
-                'Error': error_msg
+                'Error': error_msg,
+                'ElapsedTime': time.time() - start_time
             }
             
         finally:
@@ -821,7 +851,8 @@ class HyperPodIssueReportCollector:
                     results.append(result)
                     
                     status = "✓" if result['Success'] else "✗"
-                    print(f"[{status}] {result['InstanceId']} ({result['NodeGroup']})")
+                    elapsed = result.get('ElapsedTime', 0)
+                    print(f"[{status}] {result['InstanceId']} ({result['NodeGroup']}) - {elapsed:.1f}s")
                     
                     if not result['Success']:
                         error_msg = result.get('Error', 'Unknown error')
@@ -836,7 +867,8 @@ class HyperPodIssueReportCollector:
                         'InstanceId': node['InstanceId'],
                         'NodeGroup': node.get('NodeGroup', 'unknown'),
                         'Success': False,
-                        'Error': str(e)
+                        'Error': str(e),
+                        'ElapsedTime': 0
                     })
         
         # Save summary
@@ -1225,12 +1257,15 @@ class HyperPodIssueReportCollector:
                 command = collection['command']
                 description = collection['description']
                 
-                print(f"  Collecting: {description}...", end=' ')
+                print(f"  Collecting: {description}...", end=' ', flush=True)
                 
                 try:
-                    # Increase timeout for large clusters (130+ nodes)
-                    # Node descriptions and pod descriptions can take 3-5 minutes
-                    timeout = 300 if 'describe' in ' '.join(command) else 120
+                    # Increase timeout for large clusters (1000+ nodes)
+                    # kubectl describe operations scale with node/pod count
+                    timeout = KUBECTL_DESCRIBE_TIMEOUT if 'describe' in ' '.join(command) else KUBECTL_GET_TIMEOUT
+                    
+                    # Measure execution time
+                    start_time = time.time()
                     
                     result = subprocess.run(
                         command,
@@ -1239,32 +1274,34 @@ class HyperPodIssueReportCollector:
                         timeout=timeout
                     )
                     
+                    elapsed_time = time.time() - start_time
+                    
                     output_file = os.path.join(kubectl_output_dir, f'{name}.txt')
                     
                     if result.returncode == 0:
                         if result.stdout.strip():
                             with open(output_file, 'w') as f:
                                 f.write(result.stdout)
-                            print(f"✓")
+                            print(f"✓ ({elapsed_time:.1f}s)")
                             successful += 1
                         else:
                             # Empty output (no resources of this type)
                             with open(output_file, 'w') as f:
                                 f.write("No resources found\n")
-                            print(f"✓ (empty)")
+                            print(f"✓ (empty, {elapsed_time:.1f}s)")
                             successful += 1
                     else:
                         # Command failed
                         with open(output_file, 'w') as f:
                             f.write(f"Error: {result.stderr}\n")
-                        print(f"✗ ({result.stderr.strip()[:50]})")
+                        print(f"✗ ({result.stderr.strip()[:50]}, {elapsed_time:.1f}s)")
                         failed += 1
                         
                 except subprocess.TimeoutExpired:
                     output_file = os.path.join(kubectl_output_dir, f'{name}.txt')
                     with open(output_file, 'w') as f:
                         f.write("Error: Command timed out\n")
-                    print(f"✗ (timeout)")
+                    print(f"✗ (timeout after {timeout}s)")
                     failed += 1
                     
                 except Exception as e:
