@@ -1,4 +1,4 @@
-# HyperPod Issue Report Collector v2
+# HyperPod Issue Report Collector
 
 A utility to collect diagnostic logs and configurations from multiple HyperPod nodes. Supports both HyperPod EKS and HyperPod Slurm clusters with automatic cluster type detection. The tool downloads a collection script from S3, executes it on all specified nodes via SSM, and uploads the results back to S3.
 
@@ -69,12 +69,12 @@ The tool automatically detects cluster type and collects appropriate diagnostics
 aws eks update-kubeconfig --name <eks-cluster-name> --region <region>
 
 # Step 2: Run the tool
-python hyperpod_issue_report_v2.py \
+python hyperpod_issue_report.py \
   --cluster my-eks-cluster \
   --s3-path s3://my-diagnostics-bucket
 
 # Slurm cluster - no kubectl needed
-python hyperpod_issue_report_v2.py \
+python hyperpod_issue_report.py \
   --cluster my-slurm-cluster \
   --s3-path s3://my-diagnostics-bucket
 ```
@@ -84,7 +84,7 @@ python hyperpod_issue_report_v2.py \
 ### Add Additional Commands
 
 ```bash
-python hyperpod_issue_report_v2.py \
+python hyperpod_issue_report.py \
   --cluster my-hyperpod-cluster \
   --s3-path s3://my-diagnostics-bucket \
   --command "df -h" \
@@ -96,13 +96,13 @@ python hyperpod_issue_report_v2.py \
 
 ```bash
 # Single instance group
-python hyperpod_issue_report_v2.py \
+python hyperpod_issue_report.py \
   --cluster my-hyperpod-cluster \
   --s3-path s3://my-diagnostics-bucket \
   --instance-groups worker-group-1
 
 # Multiple instance groups
-python hyperpod_issue_report_v2.py \
+python hyperpod_issue_report.py \
   --cluster my-hyperpod-cluster \
   --s3-path s3://my-diagnostics-bucket \
   --instance-groups worker-group-1 worker-group-2 gpu-group
@@ -114,13 +114,13 @@ For EKS clusters, use instance IDs or EKS node names:
 
 ```bash
 # Using instance IDs
-python hyperpod_issue_report_v2.py \
+python hyperpod_issue_report.py \
   --cluster my-hyperpod-cluster \
   --s3-path s3://my-diagnostics-bucket \
   --nodes i-abc123 i-def456
 
 # Using EKS node names (hyperpod-i-* format)
-python hyperpod_issue_report_v2.py \
+python hyperpod_issue_report.py \
   --cluster my-hyperpod-cluster \
   --s3-path s3://my-diagnostics-bucket \
   --nodes hyperpod-i-044bbf66a68558e87 hyperpod-i-055ccf77b79669f98
@@ -130,13 +130,13 @@ For Slurm clusters, use instance IDs or Slurm node names:
 
 ```bash
 # Using instance IDs
-python hyperpod_issue_report_v2.py \
+python hyperpod_issue_report.py \
   --cluster my-hyperpod-cluster \
   --s3-path s3://my-diagnostics-bucket \
   --nodes i-abc123 i-def456
 
 # Using Slurm node names (ip-X-X-X-X format)
-python hyperpod_issue_report_v2.py \
+python hyperpod_issue_report.py \
   --cluster my-hyperpod-cluster \
   --s3-path s3://my-diagnostics-bucket \
   --nodes ip-10-1-104-161 ip-10-1-104-162
@@ -145,7 +145,7 @@ python hyperpod_issue_report_v2.py \
 ### Custom S3 Prefix
 
 ```bash
-python hyperpod_issue_report_v2.py \
+python hyperpod_issue_report.py \
   --cluster my-hyperpod-cluster \
   --s3-path s3://my-diagnostics-bucket/diagnostics/gpu-issues
 ```
@@ -153,7 +153,7 @@ python hyperpod_issue_report_v2.py \
 ### Debug Mode
 
 ```bash
-python hyperpod_issue_report_v2.py \
+python hyperpod_issue_report.py \
   --cluster my-hyperpod-cluster \
   --s3-path s3://my-diagnostics-bucket \
   --debug
@@ -162,7 +162,7 @@ python hyperpod_issue_report_v2.py \
 ### System Health Checks
 
 ```bash
-python hyperpod_issue_report_v2.py \
+python hyperpod_issue_report.py \
   --cluster my-cluster \
   --s3-path s3://my-bucket \
   --command "uptime" \
@@ -593,7 +593,7 @@ If you see an error message, follow the instructions displayed:
    kubectl get nodes
    
    # Re-run the collection tool
-   python hyperpod_issue_report_v2.py --cluster <cluster> --s3-path <s3-path>
+   python hyperpod_issue_report.py --cluster <cluster> --s3-path <s3-path>
    ```
 
 3. **Wrong context** (kubectl configured for different cluster):
@@ -620,13 +620,13 @@ The tool is optimized for large clusters (tested up to 130 nodes with 99.2% succ
 
 ```bash
 # For very large clusters (200+ nodes), reduce concurrency if hitting throttling
-python hyperpod_issue_report_v2.py \
+python hyperpod_issue_report.py \
   --cluster my-large-cluster \
   --s3-path s3://my-bucket \
   --max-workers 8
 
 # For smaller clusters or if you have higher SSM limits
-python hyperpod_issue_report_v2.py \
+python hyperpod_issue_report.py \
   --cluster my-cluster \
   --s3-path s3://my-bucket \
   --max-workers 32
@@ -667,22 +667,27 @@ For technical details about timeouts and performance characteristics, see [ARCHI
 
 ## Technical Details
 
-### Comparison with hyperpod_issue_report
+### Architecture
 
-**hyperpod_issue_report (v1, Slurm-based, SSH)**:
-- Uses SSH for connectivity
-- Requires head node access
-- Slurm-specific commands only
-- Direct file system access
-- Differentiates between head and worker nodes
-
-**hyperpod_issue_report_v2 (Universal, SSM)**:
+This tool uses a universal SSM-based approach:
 - Supports both EKS and Slurm clusters
-- Uses SSM for connectivity
+- Uses SSM for connectivity (no SSH required)
 - No head node required
 - Auto-detects cluster type
 - S3-based distribution and collection
 - Treats all nodes uniformly
+
+For detailed architecture information, see [ARCHITECTURE.md](ARCHITECTURE.md).
+
+### Legacy Tool (Archived)
+
+The original `hyperpod_issue_report` (v1) has been archived to `_archived/hyperpod_issue_report_v1`:
+- SSH-based connectivity
+- Required head node access
+- Slurm-specific only
+- Direct file system access
+
+The current tool supersedes v1 with broader cluster support and SSM-based connectivity.
 
 ### Performance Characteristics
 
@@ -707,5 +712,5 @@ For technical details about timeouts and performance characteristics, see [ARCHI
 ## Related Tools
 
 - `hyperpod_run_on_multi_nodes`: Interactive command execution on multiple nodes (both EKS and Slurm)
-- `hyperpod_issue_report`: SSH-based issue report collector for HyperPod Slurm clusters (v1, legacy)
+- `_archived/hyperpod_issue_report_v1`: Legacy SSH-based issue report collector for HyperPod Slurm clusters
 - AWS EKS Log Collector: https://github.com/awslabs/amazon-eks-ami/blob/main/log-collector-script/linux/eks-log-collector.sh
