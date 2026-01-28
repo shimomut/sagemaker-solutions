@@ -75,36 +75,6 @@ python hyperpod_issue_report_v2.py \
   --s3-path s3://my-diagnostics-bucket
 ```
 
-### Using Makefile
-
-```bash
-# Basic collection (auto-detects cluster type)
-make run CLUSTER=my-cluster S3_PATH=s3://my-bucket
-```
-
-### What Happens
-
-1. Script queries SageMaker API to get cluster information and detect cluster type (EKS or Slurm)
-2. Script queries SageMaker API to get all nodes in your cluster
-3. **For EKS clusters**: Collects kubectl resource information for comprehensive cluster state
-   - Verifies kubectl is installed and configured for the EKS cluster
-   - If not configured, displays instructions and skips kubectl collection
-   - Collects 15 resource types including nodes, pods, events, PVCs, services, deployments, etc.
-   - Uploads kubectl output to S3 if successful
-4. Generates a bash script that will:
-   - **For EKS**: Run nvidia-smi, AWS EKS log collector, collect resource config, cluster logs, systemd services, disk usage
-   - **For Slurm**: Run nvidia-smi, nvidia-bug-report, sinfo, collect Slurm services/config/logs, system logs
-   - Run any additional commands you specified
-5. Uploads the script to S3
-6. Executes the script on all nodes via SSM concurrently
-7. Each node uploads results to S3
-8. Summary JSON is created with collection status
-9. **Interactive download** (optional):
-   - Tool asks if you want to download all results from S3 to current directory
-   - If yes, downloads all files maintaining directory structure
-   - Optionally creates a zip archive of downloaded results
-   - Optionally deletes uncompressed directory after archiving
-
 ## Usage Examples
 
 ### Add Additional Commands
