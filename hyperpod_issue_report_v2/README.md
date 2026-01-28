@@ -23,6 +23,10 @@ A utility to collect diagnostic logs and configurations from multiple HyperPod n
 
 ### Prerequisites
 
+**Platform Requirements:**
+- macOS or Linux (Windows is not supported due to pexpect compatibility issues)
+- If using Windows, run the tool from WSL (Windows Subsystem for Linux)
+
 1. Install dependencies:
 ```bash
 pip install -r requirements.txt

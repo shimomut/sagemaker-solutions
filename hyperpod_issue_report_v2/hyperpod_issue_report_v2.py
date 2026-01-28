@@ -12,6 +12,7 @@ import argparse
 import boto3
 import json
 import os
+import platform
 import pexpect
 import signal
 import sys
@@ -1345,6 +1346,24 @@ class HyperPodIssueReportCollector:
 
 
 def main():
+    # Check platform compatibility
+    if platform.system() == 'Windows':
+        print("=" * 70)
+        print("ERROR: Windows is not supported")
+        print("=" * 70)
+        print()
+        print("This tool uses pexpect for interactive SSM sessions, which has")
+        print("different behavior on Windows compared to macOS and Linux.")
+        print()
+        print("Supported platforms:")
+        print("  - macOS")
+        print("  - Linux")
+        print()
+        print("Please run this tool from a macOS or Linux machine, or use WSL")
+        print("(Windows Subsystem for Linux) if you're on Windows.")
+        print()
+        sys.exit(1)
+    
     parser = argparse.ArgumentParser(
         description='HyperPod Issue Report Collector - Supports both EKS and Slurm clusters',
         formatter_class=argparse.RawDescriptionHelpFormatter,
