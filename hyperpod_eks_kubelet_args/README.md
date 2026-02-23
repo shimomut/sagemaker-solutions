@@ -43,6 +43,14 @@ bash ./configure-kubelet-args.sh 110 100m 1Gi
 
 Note: The script should be called during the lifecycle script execution. It configures kubelet before HyperPod starts it, so no restart is needed.
 
+### Sample Lifecycle Scripts
+
+This solution includes sample lifecycle scripts (`on_create.sh` and `on_create_main.sh`) that demonstrate:
+- How to invoke `configure-kubelet-args.sh` in your lifecycle script
+- Additional HyperPod node configuration (containerd/kubelet disk setup, EFA FSx client setup)
+
+These are reference implementations showing best practices for HyperPod EKS node initialization. You can use them as-is or adapt them to your specific requirements.
+
 ## Verification
 
 ### On the Node (via SSM)
