@@ -39,17 +39,13 @@ bash ./configure-kubelet-args.sh
 
 # Or with custom values
 bash ./configure-kubelet-args.sh 110 100m 1Gi
-
-# Or download from S3
-aws s3 cp s3://your-bucket/lifecycle-scripts/configure-kubelet-args.sh /tmp/
-bash /tmp/configure-kubelet-args.sh
 ```
 
 Note: The script should be called during the lifecycle script execution. It configures kubelet before HyperPod starts it, so no restart is needed.
 
 ## Verification
 
-### On the Node (SSH)
+### On the Node (via SSM)
 
 Check that kubelet is using the new arguments:
 
@@ -81,7 +77,7 @@ kubectl describe node <node-name> | grep -A 10 "Allocatable:"
 kubectl describe node <node-name>
 ```
 
-Expected results for an m5.xlarge instance (4 CPU, ~16Gi memory):
+Expected results for an ml.m5.xlarge instance (4 CPU, ~16Gi memory):
 - **Max Pods**: 110 (instead of default ~29)
 - **Allocatable CPU**: ~3800m (4000m - 100m kube-reserved - 100m system-reserved)
 - **Allocatable Memory**: ~14.1Gi (16Gi - 1Gi kube-reserved - 500Mi system-reserved - eviction threshold)
@@ -117,22 +113,3 @@ Additional arguments automatically included:
 - Changes persist across node reboots
 - No prompts or interactive input required - suitable for automation
 - Always test in non-production environments first
-
-## Cleanup
-
-To remove the configuration on a running node:
-
-```bash
-# Remove drop-in file
-sudo rm /etc/systemd/system/kubelet.service.d/10-kubelet-args-override.conf
-
-# Restore original kubelet.service (if you have a backup)
-sudo cp /etc/systemd/system/kubelet.service.backup /etc/systemd/system/kubelet.service
-
-# Or manually edit to remove $HYPERPOD_KUBELET_ARGS from ExecStart line
-sudo vi /etc/systemd/system/kubelet.service
-
-# Reload and restart
-sudo systemctl daemon-reload
-sudo systemctl restart kubelet
-```

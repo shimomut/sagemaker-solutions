@@ -260,6 +260,6 @@ logger "[INFO] FSx client setup complete"
 # ===== KUBELET ARGUMENTS CONFIGURATION =====
 
 logger "[INFO] Configuring kubelet arguments"
-bash "$(dirname "${BASH_SOURCE[0]}")/configure-kubelet-args.sh"
+bash ./configure-kubelet-args.sh
 
 logger "[stop] on_create_main.sh"
