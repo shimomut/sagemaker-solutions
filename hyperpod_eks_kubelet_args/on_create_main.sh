@@ -137,6 +137,24 @@ else
 fi
 
 
+# ===== KUBELET ARGUMENTS CONFIGURATION =====
+
+logger "[INFO] Configuring kubelet arguments"
+logger "[INFO] Current directory: $(pwd)"
+logger "[INFO] Available files: $(ls -la . 2>&1 | head -20)"
+
+# Check if the script exists in the current directory
+if [[ -f "./configure-kubelet-args.sh" ]]; then
+    logger "[INFO] Found configure-kubelet-args.sh, executing..."
+    bash ./configure-kubelet-args.sh
+    #bash ./configure-kubelet-args.sh 110 100m 1Gi my-cluster-cpu-
+else
+    logger "[ERROR] configure-kubelet-args.sh not found in current directory"
+    logger "[ERROR] Make sure configure-kubelet-args.sh is uploaded to S3 alongside on_create.sh and on_create_main.sh"
+    exit 1
+fi
+
+
 # ===== EFA FSx LUSTRE CLIENT SETUP =====
 
 setup_efa_fsx_client() {
@@ -256,10 +274,5 @@ fi
 load_lustre_modules
 
 logger "[INFO] FSx client setup complete"
-
-# ===== KUBELET ARGUMENTS CONFIGURATION =====
-
-logger "[INFO] Configuring kubelet arguments"
-bash ./configure-kubelet-args.sh
 
 logger "[stop] on_create_main.sh"
