@@ -11,6 +11,63 @@ The health monitoring service:
 - Triggers instance reboot via `batch-reboot-cluster-nodes` API when unhealthy
 - Logs all activities for troubleshooting
 
+## Prerequisites
+
+### IAM Permissions
+
+The HyperPod cluster's IAM execution role must include permissions to call the remediation APIs. Add the following inline policy to your cluster's IAM role:
+
+```json
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Effect": "Allow",
+            "Action": [
+                "sagemaker:BatchRebootClusterNodes",
+                "sagemaker:BatchReplaceClusterNodes",
+                "sagemaker:DescribeCluster"
+            ],
+            "Resource": "arn:aws:sagemaker:*:*:cluster/*"
+        }
+    ]
+}
+```
+
+For more restrictive permissions, limit to your specific cluster:
+
+```json
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Effect": "Allow",
+            "Action": [
+                "sagemaker:BatchRebootClusterNodes",
+                "sagemaker:BatchReplaceClusterNodes",
+                "sagemaker:DescribeCluster"
+            ],
+            "Resource": "arn:aws:sagemaker:us-west-2:842413447717:cluster/onhwgliuxn4u"
+        }
+    ]
+}
+```
+
+**Permissions explained:**
+- `sagemaker:BatchRebootClusterNodes` - Required for triggering node reboots (used by this solution)
+- `sagemaker:BatchReplaceClusterNodes` - Optional, for future enhancements to replace failed nodes
+- `sagemaker:DescribeCluster` - Optional, for retrieving cluster status information
+
+### Required Tools
+
+The following tools must be available on the nodes:
+- `ec2-metadata` - For retrieving instance metadata
+- `aws` CLI - For calling SageMaker APIs
+- `systemctl` - For service management
+- `jq` - For JSON parsing (if using resource config fallback)
+
+These are typically pre-installed on HyperPod nodes.
+
 ## Components
 
 - `custom-health-monitor.service` - Systemd service definition
@@ -56,18 +113,20 @@ sudo systemctl status custom-health-monitor
 
 Edit `custom-health-monitor.sh` to customize:
 - `CHECK_INTERVAL` - Time between health checks (default: 60 seconds)
-- `SLURMD_RESTART_ATTEMPTS` - Number of restart attempts before reboot (default: 3)
 - Health check logic and conditions
 
 ## How It Works
 
 1. Service starts on boot and runs continuously
 2. Every `CHECK_INTERVAL` seconds, the script:
-   - Checks if running on a worker node
+   - Checks if running on a worker node (skips head nodes)
    - Verifies slurmd is active and running
-   - Attempts to restart slurmd if unhealthy
-   - Triggers cluster node reboot if restart fails
+   - Triggers cluster node reboot via `batch-reboot-cluster-nodes` API if unhealthy
 3. All actions are logged to systemd journal
+4. The script retrieves cluster information from HyperPod metadata:
+   - Cluster name from ec2-metadata user-data
+   - Region from availability zone
+   - Instance ID from ec2-metadata
 
 ## Integration with HyperPod Lifecycle Scripts
 
@@ -99,11 +158,25 @@ sudo journalctl -u health-monitor -f
 
 ## Troubleshooting
 
-If the service fails to start:
+### Service Fails to Start
 1. Check service status: `sudo systemctl status custom-health-monitor`
 2. View logs: `sudo journalctl -u custom-health-monitor -n 50`
 3. Verify script permissions: `ls -l /usr/local/bin/custom-health-monitor.sh`
 4. Test script manually: `sudo /usr/local/bin/custom-health-monitor.sh`
+
+### AccessDeniedException Error
+If you see an error like:
+```
+An error occurred (AccessDeniedException) when calling the BatchRebootClusterNodes operation
+```
+
+This means the cluster's IAM role lacks the required permissions. Add the `sagemaker:BatchRebootClusterNodes` permission to the IAM role as described in the Prerequisites section.
+
+### Cannot Determine Cluster Name
+If the script cannot extract the cluster name from metadata:
+1. Verify ec2-metadata is installed: `which ec2-metadata`
+2. Check user-data contains CLUSTER_NAME: `ec2-metadata --user-data | grep CLUSTER_NAME`
+3. Ensure the node is part of a HyperPod cluster
 
 ## Uninstallation
 

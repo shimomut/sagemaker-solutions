@@ -7,7 +7,6 @@ set -euo pipefail
 
 # Configuration
 CHECK_INTERVAL=60  # Seconds between health checks
-SLURMD_RESTART_ATTEMPTS=3
 LOG_PREFIX="[HyperPod Health Monitor]"
 
 # Logging function
@@ -45,69 +44,44 @@ is_slurmd_healthy() {
     return 0
 }
 
-# Attempt to restart slurmd
-restart_slurmd() {
-    log "Attempting to restart slurmd..."
-    if systemctl restart slurmd; then
-        sleep 5
-        if is_slurmd_healthy; then
-            log "Successfully restarted slurmd"
-            return 0
-        fi
-    fi
-    log "Failed to restart slurmd"
-    return 1
-}
-
 # Trigger instance reboot via HyperPod API
 trigger_reboot() {
     log "Triggering instance reboot via batch-reboot-cluster-nodes API..."
     
-    # Get instance metadata
-    local instance_id
-    local region
+    # Get cluster name from ec2-metadata user-data
+    local cluster_name
+    cluster_name=$(ec2-metadata --user-data | grep -oP 'export CLUSTER_NAME=\K[^\s]+' || true)
     
-    instance_id=$(ec2-metadata --instance-id | cut -d ' ' -f 2)
+    if [ -z "$cluster_name" ]; then
+        log "ERROR: Could not determine cluster name from ec2-metadata"
+        return 1
+    fi
+    
+    # Get region from ec2-metadata
+    local region
     region=$(ec2-metadata --availability-zone | cut -d ' ' -f 2 | sed 's/[a-z]$//')
     
-    # Get cluster name from instance tags
-    local cluster_name
-    cluster_name=$(aws ec2 describe-tags \
-        --region "$region" \
-        --filters "Name=resource-id,Values=$instance_id" "Name=key,Values=aws:sagemaker:cluster-name" \
-        --query 'Tags[0].Value' \
-        --output text)
+    # Get instance ID from ec2-metadata
+    local instance_id
+    instance_id=$(ec2-metadata --instance-id | cut -d ' ' -f 2)
     
-    if [ -z "$cluster_name" ] || [ "$cluster_name" == "None" ]; then
-        log "ERROR: Could not determine cluster name from instance tags"
+    if [ -z "$instance_id" ]; then
+        log "ERROR: Could not determine instance ID from ec2-metadata"
         return 1
     fi
     
-    # Get node ID from instance tags
-    local node_id
-    node_id=$(aws ec2 describe-tags \
-        --region "$region" \
-        --filters "Name=resource-id,Values=$instance_id" "Name=key,Values=aws:sagemaker:node-id" \
-        --query 'Tags[0].Value' \
-        --output text)
+    log "Cluster: $cluster_name, Instance: $instance_id, Region: $region"
     
-    if [ -z "$node_id" ] || [ "$node_id" == "None" ]; then
-        log "ERROR: Could not determine node ID from instance tags"
-        return 1
-    fi
-    
-    log "Cluster: $cluster_name, Node: $node_id, Instance: $instance_id"
-    
-    # Call batch-reboot-cluster-nodes API
+    # Call batch-reboot-cluster-nodes API with instance ID
     aws sagemaker batch-reboot-cluster-nodes \
         --region "$region" \
         --cluster-name "$cluster_name" \
-        --node-ids "$node_id" \
+        --node-ids "$instance_id" \
         2>&1 | while read -r line; do log "API Response: $line"; done
     
     local exit_code=${PIPESTATUS[0]}
     if [ $exit_code -eq 0 ]; then
-        log "Successfully triggered reboot for node $node_id"
+        log "Successfully triggered reboot for instance $instance_id"
         return 0
     else
         log "ERROR: Failed to trigger reboot (exit code: $exit_code)"
@@ -127,35 +101,18 @@ main() {
     
     log "Worker node detected. Starting health monitoring..."
     
-    local restart_attempts=0
-    
     while true; do
         if is_slurmd_healthy; then
-            if [ $restart_attempts -gt 0 ]; then
-                log "slurmd is now healthy after restart"
-                restart_attempts=0
-            fi
+            log "slurmd is healthy"
         else
             log "WARNING: slurmd is not healthy"
+            log "Triggering instance reboot..."
             
-            if [ $restart_attempts -lt $SLURMD_RESTART_ATTEMPTS ]; then
-                restart_attempts=$((restart_attempts + 1))
-                log "Restart attempt $restart_attempts of $SLURMD_RESTART_ATTEMPTS"
-                
-                if restart_slurmd; then
-                    restart_attempts=0
-                fi
+            if trigger_reboot; then
+                log "Reboot triggered successfully. Service will exit."
+                exit 0
             else
-                log "ERROR: slurmd failed to recover after $SLURMD_RESTART_ATTEMPTS restart attempts"
-                log "Triggering instance reboot..."
-                
-                if trigger_reboot; then
-                    log "Reboot triggered successfully. Service will exit."
-                    exit 0
-                else
-                    log "ERROR: Failed to trigger reboot. Will retry on next check."
-                    restart_attempts=0  # Reset to try restart again
-                fi
+                log "ERROR: Failed to trigger reboot. Will retry on next check."
             fi
         fi
         
