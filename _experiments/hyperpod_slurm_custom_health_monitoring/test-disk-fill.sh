@@ -44,8 +44,8 @@ cleanup() {
     fi
 }
 
-# Trap to ensure cleanup on exit
-trap cleanup EXIT INT TERM
+# Note: Cleanup is NOT automatic - you must manually run with --cleanup
+# This allows the health monitor to detect the disk usage and trigger replacement
 
 show_usage() {
     cat << EOF
@@ -213,16 +213,17 @@ echo ""
 
 if [ "$final_usage" -ge 98 ]; then
     warn "Disk usage ≥98% - Health monitor should trigger REPLACEMENT"
-elif [ "$final_usage" -ge 90 ]; then
-    warn "Disk usage ≥90% - Health monitor should trigger REBOOT"
 else
-    log "Disk usage below thresholds - Health monitor will not trigger"
+    log "Disk usage below threshold - Health monitor will not trigger"
 fi
 
+echo ""
+log "IMPORTANT: Test file will NOT be automatically deleted"
+log "This allows the health monitor to detect the disk usage issue"
 echo ""
 log "To monitor health monitor logs, run:"
 echo "  sudo journalctl -u custom-health-monitor -f"
 echo ""
-log "To clean up the test file, run:"
+log "To clean up the test file AFTER testing, run:"
 echo "  sudo $0 --cleanup"
 echo ""
