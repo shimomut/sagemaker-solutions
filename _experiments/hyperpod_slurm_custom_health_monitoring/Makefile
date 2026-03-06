@@ -28,42 +28,13 @@ help:
 
 install:
 	@echo "Installing HyperPod Slurm Custom Health Monitor..."
-	@echo "Installing script to /usr/local/bin/custom-health-monitor.sh..."
-	@sudo cp custom-health-monitor.sh /usr/local/bin/custom-health-monitor.sh
-	@sudo chmod +x /usr/local/bin/custom-health-monitor.sh
-	@echo "Installing systemd service..."
-	@sudo cp custom-health-monitor.service /etc/systemd/system/custom-health-monitor.service
-	@sudo chmod 644 /etc/systemd/system/custom-health-monitor.service
-	@echo "Reloading systemd daemon..."
-	@sudo systemctl daemon-reload
-	@echo "Enabling service to start on boot..."
-	@sudo systemctl enable custom-health-monitor
-	@echo "Starting service..."
-	@sudo systemctl start custom-health-monitor
-	@echo ""
-	@echo "Installation complete!"
-	@echo ""
-	@echo "Service status:"
-	@sudo systemctl status custom-health-monitor --no-pager || true
-	@echo ""
-	@echo "To view logs: make logs-follow"
-	@echo "To check status: make status"
+	@chmod +x install_custom_health_monitor.sh
+	@sudo ./install_custom_health_monitor.sh
 
 uninstall:
 	@echo "Uninstalling HyperPod Slurm Custom Health Monitor..."
-	@echo "Stopping service..."
-	@sudo systemctl stop custom-health-monitor 2>/dev/null || true
-	@echo "Disabling service..."
-	@sudo systemctl disable custom-health-monitor 2>/dev/null || true
-	@echo "Removing systemd service file..."
-	@sudo rm -f /etc/systemd/system/custom-health-monitor.service
-	@echo "Removing script..."
-	@sudo rm -f /usr/local/bin/custom-health-monitor.sh
-	@echo "Reloading systemd daemon..."
-	@sudo systemctl daemon-reload
-	@echo ""
-	@echo "Uninstallation complete!"
-	@echo "The custom-health-monitor service has been removed."
+	@chmod +x uninstall_custom_health_monitor.sh
+	@sudo ./uninstall_custom_health_monitor.sh
 
 status:
 	@echo "Checking service status..."

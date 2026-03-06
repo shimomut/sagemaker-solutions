@@ -93,6 +93,36 @@ make logs
 make uninstall
 ```
 
+### Using Installation Scripts Directly
+
+The installation scripts can be used standalone or from HyperPod lifecycle scripts:
+
+```bash
+# Install
+sudo ./install_custom_health_monitor.sh
+
+# Uninstall
+sudo ./uninstall_custom_health_monitor.sh
+```
+
+### Integration with HyperPod Lifecycle Scripts
+
+To deploy this during cluster creation, add to your `on_create.sh`:
+
+```bash
+# Install custom health monitoring
+cd /tmp
+git clone <your-repo>
+cd sagemaker-solutions/_experiments/hyperpod_slurm_custom_health_monitoring
+sudo ./install_custom_health_monitor.sh
+```
+
+The installation script:
+- Automatically detects its location
+- Copies files to system directories
+- Configures and starts the systemd service
+- Can be called from any directory
+
 ### Manual Installation
 
 ```bash
@@ -160,8 +190,16 @@ To deploy this during cluster creation, add to your `on_create.sh`:
 cd /tmp
 git clone <your-repo>
 cd sagemaker-solutions/_experiments/hyperpod_slurm_custom_health_monitoring
-make install
+sudo ./install_custom_health_monitor.sh
 ```
+
+The installation script automatically:
+- Detects its location and finds required files
+- Installs to system directories
+- Configures systemd service
+- Starts monitoring immediately
+
+This makes it easy to integrate into HyperPod cluster provisioning.
 
 ## Monitoring
 
