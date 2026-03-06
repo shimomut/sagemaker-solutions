@@ -9,8 +9,7 @@ The health monitoring service:
 - Checks if the instance is a worker node (not head node)
 - Monitors slurmd daemon health status
 - Monitors disk space usage on root filesystem
-- Triggers instance reboot via `batch-reboot-cluster-nodes` API for service issues or moderate disk usage
-- Triggers instance replacement via `batch-replace-cluster-nodes` API for critical disk space issues
+- Triggers instance reboot via `batch-reboot-cluster-nodes` API when issues are detected
 - Logs all activities for troubleshooting
 
 ## Prerequisites
@@ -115,8 +114,7 @@ sudo systemctl status custom-health-monitor
 
 Edit `custom-health-monitor.sh` to customize:
 - `CHECK_INTERVAL` - Time between health checks (default: 60 seconds)
-- `DISK_USAGE_REBOOT_THRESHOLD` - Disk usage percentage to trigger reboot (default: 90%)
-- `DISK_USAGE_REPLACE_THRESHOLD` - Disk usage percentage to trigger replacement (default: 98%)
+- `DISK_USAGE_THRESHOLD` - Disk usage percentage to trigger reboot (default: 90%)
 - Health check logic and conditions
 
 ## Health Checks
@@ -127,20 +125,17 @@ The monitor performs the following health checks:
 - Verifies slurmd daemon is active and running
 - Checks systemd service status
 
-### Disk Space Health (triggers reboot or replacement)
+### Disk Space Health (triggers reboot)
 The script monitors root filesystem (`/`) disk space usage to prevent node failures:
 
 **Remediation Logic:**
-- **90-97% usage** → Trigger reboot (clears temporary files, rotates logs, restarts services)
-- **≥98% usage** → Trigger replacement (persistent disk space issue, likely needs investigation)
+- **≥90% usage** → Trigger reboot (clears temporary files, rotates logs, restarts services)
 
 A reboot often resolves disk space issues by:
 - Clearing `/tmp` and other temporary directories
 - Rotating and compressing logs
 - Releasing deleted but open file handles
 - Restarting services that may be holding disk space
-
-If disk usage remains critically high after reboot, replacement allows for manual investigation.
 
 ## How It Works
 
@@ -149,8 +144,7 @@ If disk usage remains critically high after reboot, replacement allows for manua
    - Checks if running on a worker node (skips head nodes)
    - Verifies slurmd is active and running
    - Checks root filesystem (`/`) disk space usage
-   - Triggers instance replacement via `batch-replace-cluster-nodes` API for critical disk issues (≥98%)
-   - Triggers instance reboot via `batch-reboot-cluster-nodes` API for service issues or moderate disk usage (90-97%)
+   - Triggers instance reboot via `batch-reboot-cluster-nodes` API for service issues or high disk usage (≥90%)
 3. All actions are logged to systemd journal
 4. The script retrieves cluster information from HyperPod metadata:
    - Cluster name from ec2-metadata user-data
@@ -207,7 +201,6 @@ make test-disk-cleanup
 ```bash
 # Fill disk to specific percentage
 sudo ./test-disk-fill.sh --target 92   # Triggers reboot
-sudo ./test-disk-fill.sh --target 99   # Triggers replacement
 
 # Check status
 ./test-disk-fill.sh --status
@@ -234,8 +227,7 @@ sudo ./test-disk-fill.sh --cleanup
    ```
 
 4. **Observe the health monitor**:
-   - At 90-97% usage: Should trigger reboot
-   - At ≥98% usage: Should trigger replacement
+   - At ≥90% usage: Should trigger reboot
 
 5. **Clean up after testing**:
    ```bash

@@ -7,8 +7,7 @@ set -euo pipefail
 
 # Configuration
 CHECK_INTERVAL=60  # Seconds between health checks
-DISK_USAGE_REBOOT_THRESHOLD=90  # Percentage - trigger reboot to clear temp files
-DISK_USAGE_REPLACE_THRESHOLD=98  # Percentage - trigger replacement for disk issues
+DISK_USAGE_THRESHOLD=98  # Percentage - trigger replacement for disk space issues
 LOG_PREFIX="[HyperPod Health Monitor]"
 
 # Logging function
@@ -140,12 +139,9 @@ main() {
         local disk_usage
         disk_usage=$(check_disk_space)
         
-        if [ $disk_usage -ge $DISK_USAGE_REPLACE_THRESHOLD ]; then
-            log "CRITICAL: Disk usage ($disk_usage%) exceeds replacement threshold ($DISK_USAGE_REPLACE_THRESHOLD%)"
+        if [ $disk_usage -ge $DISK_USAGE_THRESHOLD ]; then
+            log "CRITICAL: Disk usage ($disk_usage%) exceeds threshold ($DISK_USAGE_THRESHOLD%)"
             needs_replacement=true
-        elif [ $disk_usage -ge $DISK_USAGE_REBOOT_THRESHOLD ]; then
-            log "WARNING: Disk usage ($disk_usage%) exceeds reboot threshold ($DISK_USAGE_REBOOT_THRESHOLD%)"
-            needs_reboot=true
         fi
         
         # Take action based on health status
@@ -159,7 +155,7 @@ main() {
                 log "ERROR: Failed to trigger replacement. Will retry on next check."
             fi
         elif [ "$needs_reboot" = true ]; then
-            log "Triggering instance reboot to clear temporary files and restart services..."
+            log "Triggering instance reboot due to service issues..."
             
             if trigger_remediation "reboot"; then
                 log "Reboot triggered successfully. Service will exit."

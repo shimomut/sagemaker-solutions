@@ -22,7 +22,7 @@ help:
 	@echo ""
 	@echo "Testing:"
 	@echo "  make test-script       - Test the health monitor script manually"
-	@echo "  make test-disk-fill    - Fill disk to 92% to test reboot trigger"
+	@echo "  make test-disk-fill    - Fill disk to 99% to test replacement trigger"
 	@echo "  make test-disk-status  - Check current disk usage"
 	@echo "  make test-disk-cleanup - Remove test file and free disk space"
 
@@ -118,7 +118,7 @@ test-script:
 	@sudo ./custom-health-monitor.sh
 
 test-disk-fill:
-	@echo "Filling disk to 99% to test reboot trigger..."
+	@echo "Filling disk to 99% to test replacement trigger..."
 	@chmod +x test-disk-fill.sh
 	@sudo ./test-disk-fill.sh --target 99
 

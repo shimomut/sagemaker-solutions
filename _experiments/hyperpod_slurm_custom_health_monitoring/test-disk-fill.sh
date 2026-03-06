@@ -6,9 +6,9 @@
 set -euo pipefail
 
 # Configuration
-TEST_FILE="/tmp/disk-fill-test.bin"
+TEST_FILE="/var/log/disk-fill-test.bin"
 CHUNK_SIZE_MB=100
-TARGET_USAGE=92  # Target disk usage percentage
+TARGET_USAGE=99  # Target disk usage percentage (default for replacement test)
 
 # Colors for output
 RED='\033[0;31m'
@@ -60,14 +60,11 @@ OPTIONS:
     -h, --help              Show this help message
 
 EXAMPLES:
-    # Fill disk to 92% (triggers reboot threshold)
+    # Fill disk to 99% (triggers replacement threshold)
     sudo $0
 
-    # Fill disk to 95%
+    # Fill disk to specific percentage
     sudo $0 --target 95
-
-    # Fill disk to 99% (triggers replacement threshold)
-    sudo $0 --target 99
 
     # Check current disk usage
     $0 --status
@@ -76,11 +73,11 @@ EXAMPLES:
     sudo $0 --cleanup
 
 NOTES:
-    - This script requires root/sudo privileges to write large files
+    - This script MUST be run with root/sudo privileges
     - The test file is created at: $TEST_FILE
+    - This fills the root volume (/) by writing to /var/log/
     - Use Ctrl+C to stop and cleanup
-    - Health monitor thresholds:
-      * 90-97%: Triggers reboot
+    - Health monitor threshold:
       * ≥98%: Triggers replacement
 
 EOF
