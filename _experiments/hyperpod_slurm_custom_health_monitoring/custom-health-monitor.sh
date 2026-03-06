@@ -7,6 +7,8 @@ set -euo pipefail
 
 # Configuration
 CHECK_INTERVAL=60  # Seconds between health checks
+DISK_USAGE_REBOOT_THRESHOLD=90  # Percentage - trigger reboot to clear temp files
+DISK_USAGE_REPLACE_THRESHOLD=98  # Percentage - trigger replacement for disk issues
 LOG_PREFIX="[HyperPod Health Monitor]"
 
 # Logging function
@@ -44,9 +46,32 @@ is_slurmd_healthy() {
     return 0
 }
 
-# Trigger instance reboot via HyperPod API
-trigger_reboot() {
-    log "Triggering instance reboot via batch-reboot-cluster-nodes API..."
+# Check disk space health (outputs usage percentage of root filesystem)
+check_disk_space() {
+    # Get root filesystem usage percentage (without % sign)
+    local usage
+    usage=$(df -h / | awk 'NR==2 {print $5}' | sed 's/%//')
+    
+    if [ -z "$usage" ] || ! [[ "$usage" =~ ^[0-9]+$ ]]; then
+        log "ERROR: Could not determine disk usage"
+        echo "0"
+        return
+    fi
+    
+    echo "$usage"
+}
+
+# Trigger instance remediation via HyperPod API
+# Parameters: $1 = action ("reboot" or "replace")
+trigger_remediation() {
+    local action="$1"
+    
+    if [ "$action" != "reboot" ] && [ "$action" != "replace" ]; then
+        log "ERROR: Invalid action '$action'. Must be 'reboot' or 'replace'"
+        return 1
+    fi
+    
+    log "Triggering instance $action via batch-${action}-cluster-nodes API..."
     
     # Get cluster name from ec2-metadata user-data
     local cluster_name
@@ -70,10 +95,10 @@ trigger_reboot() {
         return 1
     fi
     
-    log "Cluster: $cluster_name, Instance: $instance_id, Region: $region"
+    log "Cluster: $cluster_name, Instance: $instance_id, Region: $region, Action: $action"
     
-    # Call batch-reboot-cluster-nodes API with instance ID
-    aws sagemaker batch-reboot-cluster-nodes \
+    # Call appropriate SageMaker API
+    aws sagemaker "batch-${action}-cluster-nodes" \
         --region "$region" \
         --cluster-name "$cluster_name" \
         --node-ids "$instance_id" \
@@ -81,10 +106,10 @@ trigger_reboot() {
     
     local exit_code=${PIPESTATUS[0]}
     if [ $exit_code -eq 0 ]; then
-        log "Successfully triggered reboot for instance $instance_id"
+        log "Successfully triggered $action for instance $instance_id"
         return 0
     else
-        log "ERROR: Failed to trigger reboot (exit code: $exit_code)"
+        log "ERROR: Failed to trigger $action (exit code: $exit_code)"
         return 1
     fi
 }
@@ -102,18 +127,48 @@ main() {
     log "Worker node detected. Starting health monitoring..."
     
     while true; do
-        if is_slurmd_healthy; then
-            log "slurmd is healthy"
-        else
+        local needs_reboot=false
+        local needs_replacement=false
+        
+        # Check slurmd health
+        if ! is_slurmd_healthy; then
             log "WARNING: slurmd is not healthy"
-            log "Triggering instance reboot..."
+            needs_reboot=true
+        fi
+        
+        # Check disk space
+        local disk_usage
+        disk_usage=$(check_disk_space)
+        
+        if [ $disk_usage -ge $DISK_USAGE_REPLACE_THRESHOLD ]; then
+            log "CRITICAL: Disk usage ($disk_usage%) exceeds replacement threshold ($DISK_USAGE_REPLACE_THRESHOLD%)"
+            needs_replacement=true
+        elif [ $disk_usage -ge $DISK_USAGE_REBOOT_THRESHOLD ]; then
+            log "WARNING: Disk usage ($disk_usage%) exceeds reboot threshold ($DISK_USAGE_REBOOT_THRESHOLD%)"
+            needs_reboot=true
+        fi
+        
+        # Take action based on health status
+        if [ "$needs_replacement" = true ]; then
+            log "Triggering instance replacement due to critical disk space issues..."
             
-            if trigger_reboot; then
+            if trigger_remediation "replace"; then
+                log "Replacement triggered successfully. Service will exit."
+                exit 0
+            else
+                log "ERROR: Failed to trigger replacement. Will retry on next check."
+            fi
+        elif [ "$needs_reboot" = true ]; then
+            log "Triggering instance reboot to clear temporary files and restart services..."
+            
+            if trigger_remediation "reboot"; then
                 log "Reboot triggered successfully. Service will exit."
                 exit 0
             else
                 log "ERROR: Failed to trigger reboot. Will retry on next check."
             fi
+        else
+            log "All health checks passed (disk usage: ${disk_usage}%)"
         fi
         
         sleep $CHECK_INTERVAL

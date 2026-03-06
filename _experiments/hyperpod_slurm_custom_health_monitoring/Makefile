@@ -1,4 +1,4 @@
-.PHONY: help install uninstall status logs logs-all logs-follow restart stop start enable disable test-script
+.PHONY: help install uninstall status logs logs-all logs-follow restart stop start enable disable test-script test-disk-fill test-disk-status test-disk-cleanup
 
 help:
 	@echo "HyperPod Slurm Custom Health Monitoring - Makefile Commands"
@@ -21,7 +21,10 @@ help:
 	@echo "  make logs-follow    - Follow logs in real-time"
 	@echo ""
 	@echo "Testing:"
-	@echo "  make test-script    - Test the health monitor script manually"
+	@echo "  make test-script       - Test the health monitor script manually"
+	@echo "  make test-disk-fill    - Fill disk to 92% to test reboot trigger"
+	@echo "  make test-disk-status  - Check current disk usage"
+	@echo "  make test-disk-cleanup - Remove test file and free disk space"
 
 install:
 	@echo "Installing HyperPod Slurm Custom Health Monitor..."
@@ -113,3 +116,18 @@ test-script:
 	@echo ""
 	@chmod +x custom-health-monitor.sh
 	@sudo ./custom-health-monitor.sh
+
+test-disk-fill:
+	@echo "Filling disk to 99% to test reboot trigger..."
+	@chmod +x test-disk-fill.sh
+	@sudo ./test-disk-fill.sh --target 99
+
+test-disk-status:
+	@echo "Checking current disk usage..."
+	@chmod +x test-disk-fill.sh
+	@./test-disk-fill.sh --status
+
+test-disk-cleanup:
+	@echo "Cleaning up test file..."
+	@chmod +x test-disk-fill.sh
+	@sudo ./test-disk-fill.sh --cleanup

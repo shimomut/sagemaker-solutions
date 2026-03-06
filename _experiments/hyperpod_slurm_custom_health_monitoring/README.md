@@ -8,7 +8,9 @@ The health monitoring service:
 - Runs as a systemd service with automatic restart on failure
 - Checks if the instance is a worker node (not head node)
 - Monitors slurmd daemon health status
-- Triggers instance reboot via `batch-reboot-cluster-nodes` API when unhealthy
+- Monitors disk space usage on root filesystem
+- Triggers instance reboot via `batch-reboot-cluster-nodes` API for service issues or moderate disk usage
+- Triggers instance replacement via `batch-replace-cluster-nodes` API for critical disk space issues
 - Logs all activities for troubleshooting
 
 ## Prerequisites
@@ -47,7 +49,7 @@ For more restrictive permissions, limit to your specific cluster:
                 "sagemaker:BatchReplaceClusterNodes",
                 "sagemaker:DescribeCluster"
             ],
-            "Resource": "arn:aws:sagemaker:us-west-2:842413447717:cluster/onhwgliuxn4u"
+            "Resource": "arn:aws:sagemaker:us-west-2:123456789012:cluster/abcdefghijkl"
         }
     ]
 }
@@ -64,7 +66,7 @@ The following tools must be available on the nodes:
 - `ec2-metadata` - For retrieving instance metadata
 - `aws` CLI - For calling SageMaker APIs
 - `systemctl` - For service management
-- `jq` - For JSON parsing (if using resource config fallback)
+- `df` - For checking disk space
 
 These are typically pre-installed on HyperPod nodes.
 
@@ -113,7 +115,32 @@ sudo systemctl status custom-health-monitor
 
 Edit `custom-health-monitor.sh` to customize:
 - `CHECK_INTERVAL` - Time between health checks (default: 60 seconds)
+- `DISK_USAGE_REBOOT_THRESHOLD` - Disk usage percentage to trigger reboot (default: 90%)
+- `DISK_USAGE_REPLACE_THRESHOLD` - Disk usage percentage to trigger replacement (default: 98%)
 - Health check logic and conditions
+
+## Health Checks
+
+The monitor performs the following health checks:
+
+### Service Health (triggers reboot)
+- Verifies slurmd daemon is active and running
+- Checks systemd service status
+
+### Disk Space Health (triggers reboot or replacement)
+The script monitors root filesystem (`/`) disk space usage to prevent node failures:
+
+**Remediation Logic:**
+- **90-97% usage** → Trigger reboot (clears temporary files, rotates logs, restarts services)
+- **≥98% usage** → Trigger replacement (persistent disk space issue, likely needs investigation)
+
+A reboot often resolves disk space issues by:
+- Clearing `/tmp` and other temporary directories
+- Rotating and compressing logs
+- Releasing deleted but open file handles
+- Restarting services that may be holding disk space
+
+If disk usage remains critically high after reboot, replacement allows for manual investigation.
 
 ## How It Works
 
@@ -121,7 +148,9 @@ Edit `custom-health-monitor.sh` to customize:
 2. Every `CHECK_INTERVAL` seconds, the script:
    - Checks if running on a worker node (skips head nodes)
    - Verifies slurmd is active and running
-   - Triggers cluster node reboot via `batch-reboot-cluster-nodes` API if unhealthy
+   - Checks root filesystem (`/`) disk space usage
+   - Triggers instance replacement via `batch-replace-cluster-nodes` API for critical disk issues (≥98%)
+   - Triggers instance reboot via `batch-reboot-cluster-nodes` API for service issues or moderate disk usage (90-97%)
 3. All actions are logged to systemd journal
 4. The script retrieves cluster information from HyperPod metadata:
    - Cluster name from ec2-metadata user-data
@@ -150,11 +179,78 @@ make status
 make logs
 
 # View all logs
-sudo journalctl -u health-monitor --no-pager
+sudo journalctl -u custom-health-monitor --no-pager
 
 # Follow logs in real-time
-sudo journalctl -u health-monitor -f
+make logs-follow
 ```
+
+## Testing
+
+The solution includes a test utility to simulate disk space issues:
+
+### Quick Test Commands
+
+```bash
+# Fill disk to 92% (triggers reboot threshold)
+make test-disk-fill
+
+# Check current disk usage
+make test-disk-status
+
+# Clean up test file
+make test-disk-cleanup
+```
+
+### Manual Testing
+
+```bash
+# Fill disk to specific percentage
+sudo ./test-disk-fill.sh --target 92   # Triggers reboot
+sudo ./test-disk-fill.sh --target 99   # Triggers replacement
+
+# Check status
+./test-disk-fill.sh --status
+
+# Clean up
+sudo ./test-disk-fill.sh --cleanup
+```
+
+### Testing Workflow
+
+1. **Install the health monitor**:
+   ```bash
+   make install
+   ```
+
+2. **Monitor the logs in one terminal**:
+   ```bash
+   make logs-follow
+   ```
+
+3. **Fill disk in another terminal**:
+   ```bash
+   make test-disk-fill
+   ```
+
+4. **Observe the health monitor**:
+   - At 90-97% usage: Should trigger reboot
+   - At ≥98% usage: Should trigger replacement
+
+5. **Clean up after testing**:
+   ```bash
+   make test-disk-cleanup
+   ```
+
+### Test Utility Features
+
+The `test-disk-fill.sh` script:
+- Safely fills disk space in 100MB chunks
+- Stops automatically at target percentage
+- Includes safety limit at 99% to prevent complete disk fill
+- Creates test file at `/tmp/disk-fill-test.bin`
+- Automatically cleans up on Ctrl+C or exit
+- Shows real-time progress and disk usage
 
 ## Troubleshooting
 
