@@ -54,14 +54,27 @@ systemctl daemon-reload
 log "Enabling service to start on boot..."
 systemctl enable "$SERVICE_NAME"
 
+# Start the service now
+log "Starting service..."
+systemctl start "$SERVICE_NAME"
+
+# Wait a moment for service to start
+sleep 2
+
+# Check service status
+if systemctl is-active --quiet "$SERVICE_NAME"; then
+    log "Service started successfully!"
+else
+    echo "WARNING: Service may not have started. Check logs with: journalctl -u $SERVICE_NAME -n 50"
+fi
+
 echo ""
 log "=== Installation Complete ==="
 log "Service: $SERVICE_NAME"
 log "Script: $INSTALL_PATH"
 log "Service file: $SERVICE_PATH"
-log "Status: Enabled (will start on next boot or when dependencies are ready)"
+log "Status: Enabled and started"
 echo ""
-log "To start immediately: systemctl start $SERVICE_NAME"
 log "To view logs: journalctl -u $SERVICE_NAME -f"
 log "To check status: systemctl status $SERVICE_NAME"
 echo ""

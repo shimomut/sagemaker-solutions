@@ -1,12 +1,11 @@
 [Unit]
 Description=HyperPod Slurm Custom Health Monitor
 After=network.target slurmd.service
-Wants=slurmd.service
 
 [Service]
 Type=simple
 ExecStart=/usr/local/bin/custom-health-monitor.sh
-Restart=always
+Restart=on-failure
 RestartSec=10
 StandardOutput=journal
 StandardError=journal

@@ -17,16 +17,19 @@ log() {
 
 # Check if this is a worker node (not head node)
 is_worker_node() {
-    # Head node typically has slurmctld running
-    if systemctl is-active --quiet slurmctld; then
+    # Head node typically has slurmctld service
+    if systemctl list-unit-files 2>/dev/null | grep -q slurmctld.service; then
+        log "DEBUG: slurmctld.service found - this is a head node"
         return 1  # This is head node
     fi
     
-    # Worker nodes should have slurmd
-    if systemctl list-unit-files | grep -q slurmd.service; then
+    # Worker nodes should have slurmd service
+    if systemctl list-unit-files 2>/dev/null | grep -q slurmd.service; then
+        log "DEBUG: slurmd.service found - this is a worker node"
         return 0  # This is worker node
     fi
     
+    log "DEBUG: Neither slurmctld nor slurmd service found"
     return 1  # Not a worker node
 }
 
@@ -117,13 +120,60 @@ trigger_remediation() {
 main() {
     log "Starting HyperPod Slurm health monitor..."
     
+    # Wait for slurmd.service to be available (with timeout)
+    local max_wait=120  # 2 minutes (reduced from 5 since slurmd should already be running)
+    local elapsed=0
+    local check_interval=5  # Check more frequently (every 5 seconds instead of 10)
+    
+    log "Waiting for slurmd.service to be available..."
+    while [ $elapsed -lt $max_wait ]; do
+        if systemctl list-unit-files 2>/dev/null | grep -q slurmd.service; then
+            log "slurmd.service unit file detected"
+            break
+        fi
+        
+        if [ $elapsed -eq 0 ] || [ $((elapsed % 30)) -eq 0 ]; then
+            # Only log every 30 seconds to reduce noise
+            log "slurmd.service not yet available, waiting... (${elapsed}s/${max_wait}s)"
+        fi
+        sleep $check_interval
+        elapsed=$((elapsed + check_interval))
+    done
+    
+    if [ $elapsed -ge $max_wait ]; then
+        log "ERROR: Timeout waiting for slurmd.service. This may not be a worker node."
+        exit 1
+    fi
+    
     # Check if this is a worker node
     if ! is_worker_node; then
-        log "This is not a worker node. Exiting."
+        log "This is not a worker node (head node detected). Exiting."
         exit 0
     fi
     
-    log "Worker node detected. Starting health monitoring..."
+    log "Worker node detected. Waiting for services to stabilize..."
+    
+    # Debug: Check slurmd status
+    log "DEBUG: Checking slurmd.service status..."
+    if systemctl is-enabled --quiet slurmd.service 2>/dev/null; then
+        log "DEBUG: slurmd.service is enabled"
+    else
+        log "DEBUG: slurmd.service is NOT enabled"
+    fi
+    if systemctl is-active --quiet slurmd.service 2>/dev/null; then
+        log "DEBUG: slurmd.service is active"
+    else
+        log "DEBUG: slurmd.service is NOT active yet"
+    fi
+    log "DEBUG: slurmd.service full status:"
+    systemctl status slurmd.service --no-pager || true
+    
+    # Wait for slurmd to be fully started and stable
+    local wait_time=30
+    log "Waiting ${wait_time} seconds for slurmd to stabilize..."
+    sleep $wait_time
+    
+    log "Starting health monitoring..."
     
     while true; do
         local needs_reboot=false
