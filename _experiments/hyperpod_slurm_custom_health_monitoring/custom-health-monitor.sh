@@ -29,8 +29,9 @@ is_worker_node() {
         return 0  # This is worker node
     fi
     
+    # Neither service found - return error code to trigger retry
     log "DEBUG: Neither slurmctld nor slurmd service found"
-    return 1  # Not a worker node
+    return 2  # Special code for "not ready yet"
 }
 
 # Check if slurmd is healthy
@@ -145,11 +146,28 @@ main() {
         exit 1
     fi
     
-    # Check if this is a worker node
-    if ! is_worker_node; then
-        log "This is not a worker node (head node detected). Exiting."
-        exit 0
-    fi
+    # Give systemd a moment to fully register the service
+    sleep 2
+    
+    # Check if this is a worker node (retry infinitely if services not ready)
+    while true; do
+        is_worker_node
+        local result=$?
+        
+        if [ $result -eq 0 ]; then
+            # This is a worker node - proceed with monitoring
+            log "Worker node confirmed. Proceeding with health monitoring setup..."
+            break
+        elif [ $result -eq 1 ]; then
+            # This is a head node - exit cleanly
+            log "This is a head node. Exiting."
+            exit 0
+        else
+            # Neither service found yet (result == 2) - retry
+            log "Slurm services not ready yet. Retrying in 10 seconds..."
+            sleep 10
+        fi
+    done
     
     log "Worker node detected. Waiting for services to stabilize..."
     

@@ -5,7 +5,7 @@ After=network.target slurmd.service
 [Service]
 Type=simple
 ExecStart=/usr/local/bin/custom-health-monitor.sh
-Restart=on-failure
+Restart=always
 RestartSec=10
 StandardOutput=journal
 StandardError=journal
