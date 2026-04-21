@@ -10,28 +10,41 @@ XID_VALUE ?= 94
 DCGM_FIELD_XID ?= 230
 NODE_COLUMNS ?= NAME:.metadata.name,INSTANCETYPE:.metadata.labels.node\.kubernetes\.io/instance-type,GPU:.status.allocatable.nvidia\.com/gpu,EFA:.status.allocatable.vpc\.amazonaws\.com/efa,HEALTH:.metadata.labels.sagemaker\.amazonaws\.com/node-health-status
 
-# Pod selectors (adjust if your cluster uses different labels)
+# Device plugin pod selectors
 PLUGIN_NS ?= kube-system
 PLUGIN_LABEL ?= app.kubernetes.io/name=nvidia-device-plugin
-DCGM_NS ?= hyperpod-observability
-DCGM_LABEL ?= app.kubernetes.io/name=dcgm-exporter
+
+# SSM target components (derived from node labels)
+CLUSTER_NAME ?= $(shell kubectl get node $(GPU_NODE) -o jsonpath='{.metadata.labels.sagemaker\.amazonaws\.com/cluster-name}' 2>/dev/null)
+CLUSTER_ID ?= $(shell aws sagemaker describe-cluster --cluster-name $(CLUSTER_NAME) --query 'ClusterArn' --output text 2>/dev/null | awk -F/ '{print $$NF}')
+INSTANCE_GROUP ?= $(shell kubectl get node $(GPU_NODE) -o jsonpath='{.metadata.labels.sagemaker\.amazonaws\.com/instance-group-name}' 2>/dev/null)
+INSTANCE_ID ?= $(shell echo $(GPU_NODE) | grep -o 'i-[a-f0-9]\+')
+SSM_TARGET ?= sagemaker-cluster:$(CLUSTER_ID)_$(INSTANCE_GROUP)-$(INSTANCE_ID)
 
 # GPU Operator (Phase 2)
 OPERATOR_NAMESPACE ?= gpu-operator
+
+# Helper: run a command on the node via SSM
+define SSM_CMD
+aws ssm start-session \
+  --target "$(SSM_TARGET)" \
+  --document-name AWS-StartNonInteractiveCommand \
+  --parameters '{"command":["$(1)"]}'
+endef
 
 help:
 	@echo "HyperPod EKS GPU Recovery Experiment"
 	@echo ""
 	@echo "Pre-checks:"
 	@echo "  make check-nodes          - List GPU nodes and allocatable GPUs"
-	@echo "  make check-plugin-pods    - List device plugin and DCGM pods"
-	@echo "  make check-gpu-health     - Check DCGM health status on GPU_NODE"
+	@echo "  make check-plugin-pods    - List device plugin pods"
+	@echo "  make check-gpu-health     - Check DCGM health status on GPU_NODE (via SSM)"
 	@echo "  make check-allocatable    - Show allocatable nvidia.com/gpu on GPU_NODE"
 	@echo "  make check-plugin-logs    - Tail device plugin logs for XID events"
 	@echo ""
 	@echo "Error Injection (Phase 1 & 2):"
-	@echo "  make inject-error         - Inject Xid $(XID_VALUE) on GPU_ID via DCGM"
-	@echo "  make clear-error          - Clear injected XID error on GPU_ID"
+	@echo "  make inject-error         - Inject Xid $(XID_VALUE) on GPU_ID via DCGM (SSM)"
+	@echo "  make clear-error          - Clear injected XID error on GPU_ID (SSM)"
 	@echo "  make restart-plugin       - Restart device plugin pod on GPU_NODE"
 	@echo ""
 	@echo "GPU Operator (Phase 2):"
@@ -49,8 +62,7 @@ help:
 	@echo "  GPU_NODE=$(GPU_NODE)"
 	@echo "  GPU_ID=$(GPU_ID)"
 	@echo "  XID_VALUE=$(XID_VALUE)"
-	@echo "  PLUGIN_NS=$(PLUGIN_NS)  PLUGIN_LABEL=$(PLUGIN_LABEL)"
-	@echo "  DCGM_NS=$(DCGM_NS)  DCGM_LABEL=$(DCGM_LABEL)"
+	@echo "  SSM_TARGET=$(SSM_TARGET)"
 
 # ============================================================
 # Pre-checks
@@ -61,24 +73,17 @@ check-nodes:
 	kubectl get nodes -o=custom-columns='$(NODE_COLUMNS)'
 	@echo ""
 	@echo "=== Target Node: $(GPU_NODE) ==="
+	@echo "=== SSM Target:  $(SSM_TARGET) ==="
 
 check-plugin-pods:
 	@echo "=== Device Plugin Pods ($(PLUGIN_NS) / $(PLUGIN_LABEL)) ==="
 	kubectl get pods -n $(PLUGIN_NS) -l $(PLUGIN_LABEL) -o wide
-	@echo ""
-	@echo "=== DCGM Exporter Pods ($(DCGM_NS) / $(DCGM_LABEL)) ==="
-	kubectl get pods -n $(DCGM_NS) -l $(DCGM_LABEL) -o wide
 
 check-gpu-health:
-	@echo "=== DCGM Health Check on $(GPU_NODE) ==="
-	@POD=$$(kubectl get pods -n $(DCGM_NS) -l $(DCGM_LABEL) --field-selector spec.nodeName=$(GPU_NODE) -o jsonpath='{.items[0].metadata.name}' 2>/dev/null); \
-	if [ -z "$$POD" ]; then \
-		echo "ERROR: No dcgm-exporter pod found on $(GPU_NODE) in namespace $(DCGM_NS)."; \
-		echo "Run 'make check-plugin-pods' to verify."; \
-		exit 1; \
-	fi; \
-	echo "Using pod: $(DCGM_NS)/$$POD"; \
-	kubectl exec -n $(DCGM_NS) $$POD -- dcgmi health -g 0 -c
+	@echo "=== DCGM Health Check on $(GPU_NODE) via SSM ==="
+	@echo "SSM Target: $(SSM_TARGET)"
+	@$(call SSM_CMD,dcgmi health -g 0 -s a)
+	@$(call SSM_CMD,dcgmi health -g 0 -c)
 
 check-allocatable:
 	@echo "=== Allocatable GPUs on $(GPU_NODE) ==="
@@ -94,27 +99,21 @@ check-plugin-logs:
 	@POD=$$(kubectl get pods -n $(PLUGIN_NS) -l $(PLUGIN_LABEL) --field-selector spec.nodeName=$(GPU_NODE) -o jsonpath='{.items[0].metadata.name}' 2>/dev/null); \
 	if [ -z "$$POD" ]; then \
 		echo "ERROR: No device plugin pod found on $(GPU_NODE) in namespace $(PLUGIN_NS)."; \
-		echo "Run 'make check-plugin-pods' to verify."; \
 		exit 1; \
 	fi; \
 	echo "Pod: $(PLUGIN_NS)/$$POD"; \
 	kubectl logs -n $(PLUGIN_NS) $$POD --tail=50
 
 # ============================================================
-# Error Injection (Xid 94 via DCGM field 230)
+# Error Injection (Xid 94 via DCGM field 230, over SSM)
 # ============================================================
 
 inject-error:
 	@echo "=== Injecting Xid $(XID_VALUE) on GPU $(GPU_ID) @ $(GPU_NODE) ==="
 	@echo "DCGM Field $(DCGM_FIELD_XID) = DCGM_FI_DEV_XID_ERRORS, value = $(XID_VALUE)"
+	@echo "SSM Target: $(SSM_TARGET)"
 	@echo ""
-	@POD=$$(kubectl get pods -n $(DCGM_NS) -l $(DCGM_LABEL) --field-selector spec.nodeName=$(GPU_NODE) -o jsonpath='{.items[0].metadata.name}' 2>/dev/null); \
-	if [ -z "$$POD" ]; then \
-		echo "ERROR: No dcgm-exporter pod found on $(GPU_NODE) in namespace $(DCGM_NS)."; \
-		exit 1; \
-	fi; \
-	echo "Using pod: $(DCGM_NS)/$$POD"; \
-	kubectl exec -n $(DCGM_NS) $$POD -- dcgmi test --inject --gpuid $(GPU_ID) -f $(DCGM_FIELD_XID) -v $(XID_VALUE)
+	@$(call SSM_CMD,dcgmi test --inject --gpuid $(GPU_ID) -f $(DCGM_FIELD_XID) -v $(XID_VALUE))
 	@echo ""
 	@echo "Xid $(XID_VALUE) injected. Next steps:"
 	@echo "  make check-plugin-logs    # Verify device plugin detected XidCriticalError"
@@ -122,13 +121,8 @@ inject-error:
 
 clear-error:
 	@echo "=== Clearing XID Error on GPU $(GPU_ID) @ $(GPU_NODE) ==="
-	@POD=$$(kubectl get pods -n $(DCGM_NS) -l $(DCGM_LABEL) --field-selector spec.nodeName=$(GPU_NODE) -o jsonpath='{.items[0].metadata.name}' 2>/dev/null); \
-	if [ -z "$$POD" ]; then \
-		echo "ERROR: No dcgm-exporter pod found on $(GPU_NODE) in namespace $(DCGM_NS)."; \
-		exit 1; \
-	fi; \
-	echo "Using pod: $(DCGM_NS)/$$POD"; \
-	kubectl exec -n $(DCGM_NS) $$POD -- dcgmi test --inject --gpuid $(GPU_ID) -f $(DCGM_FIELD_XID) -v 0
+	@echo "SSM Target: $(SSM_TARGET)"
+	@$(call SSM_CMD,dcgmi test --inject --gpuid $(GPU_ID) -f $(DCGM_FIELD_XID) -v 0)
 	@echo ""
 	@echo "XID error cleared. Next steps:"
 	@echo "  make check-plugin-logs    # Check if device plugin noticed the clear"
