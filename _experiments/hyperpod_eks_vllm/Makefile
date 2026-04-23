@@ -5,7 +5,7 @@ ECR_REPO := 842413447717.dkr.ecr.us-west-2.amazonaws.com/hyperpod-eks-vllm
 all:
 
 build:
-	docker build --tag hyperpod-eks-vllm .
+	docker build --platform linux/amd64 --tag hyperpod-eks-vllm .
 
 login:
 	aws ecr get-login-password --region us-west-2 | docker login --username AWS --password-stdin 842413447717.dkr.ecr.us-west-2.amazonaws.com
