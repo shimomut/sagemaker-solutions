@@ -78,16 +78,33 @@ This runs `kubectl port-forward svc/vllm-server 8000:8000`, making the API avail
 
 ## Client Usage
 
-With port-forwarding active, run the client script to send a chat completion request:
+Set up the Python virtual environment (one-time):
 
 ```bash
-python client.py
+make venv
 ```
 
-The script queries `/v1/models` to display the loaded model, then sends a chat completion request and prints the response. To connect to a different server URL:
+With port-forwarding active, run the client script:
 
 ```bash
-python client.py --url http://localhost:8000
+make test-inference
+```
+
+Pass a custom prompt:
+
+```bash
+make test-inference PROMPT="Explain transformers in deep learning"
+```
+
+The client automatically detects the API mode:
+- For instruction-tuned models (e.g., Mistral, Llama), it uses `/v1/chat/completions` which produces focused, conversational answers.
+- For base models without a chat template (e.g., `facebook/opt-1.3b`), it falls back to `/v1/completions` (text completion).
+
+You can also run the client directly:
+
+```bash
+.venv/bin/python client.py "Your prompt here"
+.venv/bin/python client.py --url http://localhost:8000 "Your prompt here"
 ```
 
 ## Configuration
@@ -118,51 +135,57 @@ GPU memory estimates are approximate and depend on context length and batch size
 
 ## Switching Models
 
-To serve a different model, follow these steps:
+The `deployment.yaml` has pre-configured model options. To switch, comment/uncomment the desired model line:
 
-1. Open `deployment.yaml` and change the `--model` argument to the desired Hugging Face model identifier:
+```yaml
+args:
+  - "--model"
+  ## --- Pick one model (uncomment one line) ---
+  #- "facebook/opt-1.3b"              # ~3 GB, no auth required
+  - "mistralai/Mistral-7B-Instruct-v0.3"  # ~15 GB, supports chat
+  #- "meta-llama/Llama-3.1-8B-Instruct"    # ~17 GB, requires HF token
+  ## -------------------------------------------
+```
 
-   ```yaml
-   args:
-     - "--model"
-     - "mistralai/Mistral-7B-Instruct-v0.3"
-   ```
+Then redeploy:
 
-2. If the model requires multiple GPUs, update `--tensor-parallel-size` and the GPU resource limit to match:
+```bash
+make deploy
+```
 
-   ```yaml
-   args:
-     - "--tensor-parallel-size"
-     - "2"
-   ```
+If the model requires multiple GPUs, also update `--tensor-parallel-size` and the GPU resource limit:
 
-   ```yaml
-   resources:
-     limits:
-       nvidia.com/gpu: 2
-   ```
+```yaml
+args:
+  - "--tensor-parallel-size"
+  - "2"
+```
 
-3. Redeploy:
+```yaml
+resources:
+  limits:
+    nvidia.com/gpu: 2
+```
 
-   ```bash
-   make deploy
-   ```
+Monitor startup and model download progress:
 
-4. Monitor startup and model download progress:
+```bash
+make watch-logs
+```
 
-   ```bash
-   make watch-logs
-   ```
-
-   The new model is downloaded from Hugging Face Hub on startup. Download time depends on model size and network speed.
+The new model is downloaded from Hugging Face Hub on startup. Download time depends on model size and network speed.
 
 ## Hugging Face Authentication
 
-Some models on Hugging Face Hub (e.g., `meta-llama/Llama-3.1-8B-Instruct`) are gated and require an access token. To use a gated model:
+Some models (e.g., `meta-llama/Llama-3.1-8B-Instruct`) are gated — you must accept the license on the model's Hugging Face page and provide an access token. Open models like `facebook/opt-1.3b` and `mistralai/Mistral-7B-Instruct-v0.3` don't require a token.
 
-1. Create a Hugging Face access token at [https://huggingface.co/settings/tokens](https://huggingface.co/settings/tokens).
+To use a gated model:
 
-2. Set the token in `deployment.yaml` by editing the `HUGGING_FACE_HUB_TOKEN` environment variable:
+1. Accept the model license on its Hugging Face page.
+
+2. Create an access token at [https://huggingface.co/settings/tokens](https://huggingface.co/settings/tokens).
+
+3. Set the token in `deployment.yaml`:
 
    ```yaml
    env:
@@ -170,9 +193,7 @@ Some models on Hugging Face Hub (e.g., `meta-llama/Llama-3.1-8B-Instruct`) are g
        value: "hf_your_token_here"
    ```
 
-   Alternatively, you can set the token as an environment variable before deploying and reference it through a Kubernetes Secret for better security.
-
-3. Redeploy:
+4. Redeploy:
 
    ```bash
    make deploy
