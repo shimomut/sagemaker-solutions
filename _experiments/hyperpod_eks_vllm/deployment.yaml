@@ -1,0 +1,62 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vllm-server
+  labels:
+    app: vllm-server
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: vllm-server
+  template:
+    metadata:
+      labels:
+        app: vllm-server
+    spec:
+      tolerations:
+        - key: nvidia.com/gpu
+          operator: Exists
+          effect: NoSchedule
+      containers:
+        - name: vllm-server
+          image: 842413447717.dkr.ecr.us-west-2.amazonaws.com/hyperpod-eks-vllm:latest
+          args:
+            - "--model"
+            - "facebook/opt-1.3b"
+            - "--tensor-parallel-size"
+            - "1"
+            - "--gpu-memory-utilization"
+            - "0.9"
+            - "--host"
+            - "0.0.0.0"
+            - "--port"
+            - "8000"
+          env:
+            - name: HUGGING_FACE_HUB_TOKEN
+              value: ""
+          resources:
+            limits:
+              nvidia.com/gpu: 1
+          volumeMounts:
+            - name: shm
+              mountPath: /dev/shm
+      volumes:
+        - name: shm
+          emptyDir:
+            medium: Memory
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vllm-server
+  labels:
+    app: vllm-server
+spec:
+  type: ClusterIP
+  selector:
+    app: vllm-server
+  ports:
+    - port: 8000
+      targetPort: 8000
+      protocol: TCP
