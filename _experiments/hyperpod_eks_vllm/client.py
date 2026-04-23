@@ -20,6 +20,22 @@ def get_model_name(base_url: str) -> str:
     return model_name
 
 
+def chat_completion(base_url: str, model: str, prompt: str) -> str:
+    """Send a chat completion request and return the response text."""
+    url = f"{base_url}/v1/chat/completions"
+    payload = {
+        "model": model,
+        "messages": [{"role": "user", "content": prompt}],
+        "max_tokens": 256,
+        "temperature": 0.7,
+    }
+    resp = requests.post(url, json=payload)
+    if resp.status_code != 200:
+        return None, resp
+    data = resp.json()
+    return data["choices"][0]["message"]["content"], resp
+
+
 def completion(base_url: str, model: str, prompt: str) -> str:
     """Send a text completion request and return the response text."""
     url = f"{base_url}/v1/completions"
@@ -59,9 +75,16 @@ def main():
     model_name = get_model_name(base_url)
     print(f"Model: {model_name}")
 
-    print("\nSending completion request...")
-    response_text = completion(base_url, model_name, args.prompt)
-    print(f"\nResponse:\n{response_text}")
+    # Try chat completion first (works with instruction-tuned models),
+    # fall back to text completion for base models without a chat template.
+    print("\nSending chat completion request...")
+    response_text, resp = chat_completion(base_url, model_name, args.prompt)
+    if response_text is not None:
+        print(f"\nResponse:\n{response_text}")
+    else:
+        print("Chat completion not supported, falling back to text completion...")
+        response_text = completion(base_url, model_name, args.prompt)
+        print(f"\nResponse:\n{response_text}")
 
 
 if __name__ == "__main__":

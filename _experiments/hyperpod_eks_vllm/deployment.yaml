@@ -24,8 +24,8 @@ spec:
           args:
             - "--model"
             ## --- Pick one model (uncomment one line) ---
-            - "facebook/opt-1.3b"              # ~3 GB, no auth required
-            #- "mistralai/Mistral-7B-Instruct-v0.3"  # ~15 GB, supports chat
+            #- "facebook/opt-1.3b"              # ~3 GB, no auth required
+            - "mistralai/Mistral-7B-Instruct-v0.3"  # ~15 GB, supports chat
             #- "meta-llama/Llama-3.1-8B-Instruct"    # ~17 GB, requires HF token
             ## -------------------------------------------
             - "--tensor-parallel-size"
