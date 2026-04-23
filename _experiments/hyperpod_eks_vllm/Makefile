@@ -1,17 +1,23 @@
 SHELL := /bin/bash
 
-ECR_REPO := 842413447717.dkr.ecr.us-west-2.amazonaws.com/hyperpod-eks-vllm
+AWS_ACCOUNT_ID := 842413447717
+AWS_REGION := us-west-2
+IMAGE_NAME := hyperpod-eks-vllm
+ECR_REPO := $(AWS_ACCOUNT_ID).dkr.ecr.$(AWS_REGION).amazonaws.com/$(IMAGE_NAME)
 
 all:
 
 build:
-	docker build --platform linux/amd64 --tag hyperpod-eks-vllm .
+	docker build --platform linux/amd64 --tag $(IMAGE_NAME) .
+
+create-repo:
+	aws ecr create-repository --repository-name $(IMAGE_NAME) --region $(AWS_REGION)
 
 login:
-	aws ecr get-login-password --region us-west-2 | docker login --username AWS --password-stdin 842413447717.dkr.ecr.us-west-2.amazonaws.com
+	aws ecr get-login-password --region $(AWS_REGION) | docker login --username AWS --password-stdin $(AWS_ACCOUNT_ID).dkr.ecr.$(AWS_REGION).amazonaws.com
 
 tag:
-	docker tag hyperpod-eks-vllm:latest $(ECR_REPO):latest
+	docker tag $(IMAGE_NAME):latest $(ECR_REPO):latest
 
 push:
 	docker push $(ECR_REPO):latest
