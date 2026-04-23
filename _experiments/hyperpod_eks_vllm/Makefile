@@ -29,6 +29,21 @@ push:
 deploy:
 	kubectl apply -f deployment.yaml
 
+create-secret:
+	kubectl create secret generic hf-token --from-env-file=.env --dry-run=client -o yaml | kubectl apply -f -
+
+create-env:
+	@if [ -f .env ]; then echo ".env already exists"; exit 1; fi
+	@read -p "Enter your Hugging Face token: " token; \
+	echo "HUGGING_FACE_HUB_TOKEN=$$token" > .env; \
+	echo ".env created"
+
+delete-secret:
+	kubectl delete secret hf-token --ignore-not-found
+
+check-secret:
+	kubectl get secret hf-token -o jsonpath='{.data.HUGGING_FACE_HUB_TOKEN}' | base64 --decode; echo
+
 delete:
 	kubectl delete -f deployment.yaml
 

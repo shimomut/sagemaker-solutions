@@ -14,4 +14,4 @@ RUN pip install --no-cache-dir vllm
 
 EXPOSE 8000
 
-ENTRYPOINT ["python3", "-m", "vllm.entrypoints.openai.api_server"]
+ENTRYPOINT ["vllm", "serve"]

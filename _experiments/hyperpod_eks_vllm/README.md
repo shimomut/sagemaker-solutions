@@ -185,18 +185,32 @@ To use a gated model:
 
 2. Create an access token at [https://huggingface.co/settings/tokens](https://huggingface.co/settings/tokens).
 
-3. Set the token in `deployment.yaml`:
+3. Create a `.env` file with your token (this file is gitignored):
 
-   ```yaml
-   env:
-     - name: HUGGING_FACE_HUB_TOKEN
-       value: "hf_your_token_here"
+   ```bash
+   make create-env
    ```
 
-4. Redeploy:
+   This prompts for your token and writes it to `.env`.
+
+4. Create the Kubernetes Secret from the `.env` file:
+
+   ```bash
+   make create-secret
+   ```
+
+5. Verify the secret was created:
+
+   ```bash
+   make check-secret
+   ```
+
+6. Redeploy:
 
    ```bash
    make deploy
    ```
 
-> **Tip:** Avoid committing your Hugging Face token to version control. For production use, store the token in a Kubernetes Secret and reference it via `secretKeyRef` in the deployment manifest.
+The deployment references the token via a Kubernetes Secret (`secretKeyRef`), so it never appears in `deployment.yaml`. The `.env` file is listed in `.gitignore` to prevent accidental commits.
+
+To update the token later, edit `.env` and re-run `make create-secret`. To remove it, run `make delete-secret`.
