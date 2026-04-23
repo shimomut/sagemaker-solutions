@@ -20,12 +20,12 @@ def get_model_name(base_url: str) -> str:
     return model_name
 
 
-def chat_completion(base_url: str, model: str) -> str:
-    """Send a chat completion request and return the response text."""
-    url = f"{base_url}/v1/chat/completions"
+def completion(base_url: str, model: str, prompt: str) -> str:
+    """Send a text completion request and return the response text."""
+    url = f"{base_url}/v1/completions"
     payload = {
         "model": model,
-        "messages": [{"role": "user", "content": "What is machine learning?"}],
+        "prompt": prompt,
         "max_tokens": 256,
         "temperature": 0.7,
     }
@@ -35,7 +35,7 @@ def chat_completion(base_url: str, model: str) -> str:
         print(resp.text, file=sys.stderr)
         sys.exit(1)
     data = resp.json()
-    return data["choices"][0]["message"]["content"]
+    return data["choices"][0]["text"]
 
 
 def main():
@@ -45,6 +45,12 @@ def main():
         default="http://localhost:8000",
         help="vLLM server base URL (default: http://localhost:8000)",
     )
+    parser.add_argument(
+        "prompt",
+        nargs="?",
+        default="What is machine learning?",
+        help="Prompt text (default: 'What is machine learning?')",
+    )
     args = parser.parse_args()
 
     base_url = args.url.rstrip("/")
@@ -53,8 +59,8 @@ def main():
     model_name = get_model_name(base_url)
     print(f"Model: {model_name}")
 
-    print("\nSending chat completion request...")
-    response_text = chat_completion(base_url, model_name)
+    print("\nSending completion request...")
+    response_text = completion(base_url, model_name, args.prompt)
     print(f"\nResponse:\n{response_text}")
 
 

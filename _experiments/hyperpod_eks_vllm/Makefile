@@ -7,6 +7,10 @@ ECR_REPO := $(AWS_ACCOUNT_ID).dkr.ecr.$(AWS_REGION).amazonaws.com/$(IMAGE_NAME)
 
 all:
 
+venv:
+	python3.14 -m venv .venv
+	.venv/bin/pip install -r requirements.txt
+
 build:
 	docker build --platform linux/amd64 --tag $(IMAGE_NAME) .
 
@@ -36,3 +40,8 @@ watch-logs:
 
 port-forward:
 	kubectl port-forward svc/vllm-server 8000:8000
+
+PROMPT ?= What is machine learning?
+
+test-inference:
+	.venv/bin/python client.py "$(PROMPT)"
