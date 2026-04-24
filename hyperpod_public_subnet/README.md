@@ -5,7 +5,7 @@
 
 Currently, HyperPod doesn't support creating a cluster in public subnet. 
 The [developer guide document](https://docs.aws.amazon.com/sagemaker/latest/dg/sagemaker-hyperpod-eks-prerequisites.html) also 
-states that “The type of the subnet in your VPC must be private for HyperPod clusters”.
+states that "The type of the subnet in your VPC must be private for HyperPod clusters".
 If you actually try to create a HyperPod cluster in a public subnet, the cluster creation will take a long time, 
 and it eventually fail. This is because EIPs are not automatically attached to ENIs.
 
@@ -26,7 +26,7 @@ Running these commands manually from your development machine (such as a local l
 1. Create a HyperPod EKS cluster
     > **Note:** This solution works only for HyperPod EKS. HyperPod Slurm is out-of-scope.
 1. Raise the quota for number of EIPs beforehand as-needed.
-    - “Service Quotas” > “Amazon Elastic Compute Cloud (Amazon EC2)” > “EC2-VPC Elastic IPs”
+    - "Service Quotas" > "Amazon Elastic Compute Cloud (Amazon EC2)" > "EC2-VPC Elastic IPs"
 1. Download [hyperpod_public_subnet.py](https://github.com/shimomut/sagemaker-solutions/blob/main/hyperpod_public_subnet/hyperpod_public_subnet.py) to your development machine
 1. Configure config.py, referring to the [sample config file](https://github.com/shimomut/sagemaker-solutions/blob/main/hyperpod_public_subnet/_config.py), and put it next to the downloaded hyperpod_public_subnet.py.
 
@@ -64,10 +64,34 @@ Running these commands manually from your development machine (such as a local l
 #### How to scale up the cluster
 
 1. Raise the quota for number of EIPs beforehand as-needed.
-    - “Service Quotas” > “Amazon Elastic Compute Cloud (Amazon EC2)” > “EC2-VPC Elastic IPs”
+    - "Service Quotas" > "Amazon Elastic Compute Cloud (Amazon EC2)" > "EC2-VPC Elastic IPs"
+1. Switch back to private subnet before triggering scaling
+
+    ``` bash
+    make switch-to-private
+    ```
+
+    > **Note:** While using the private subnet, internet traffic goes through the NAT Gateway which incurs cost. Avoid heavy internet access (e.g., downloading large datasets or container images) during this period.
+
 1. Trigger cluster scaling up
-1. While cluster scaling up is taking time and being blocked due to missing EIPs, run `create-and-attach-eips` command to create and attach EIPs to ENIs for the new instances.
-1. Wait until the cluster status changes to InService again.
+1. Wait until the cluster status changes to InService
+1. Create and attach EIPs to ENIs for the new instances
+
+    ``` bash
+    make create-and-attach-eips
+    ```
+
+1. Switch back to public subnet
+
+    ``` bash
+    make switch-to-public
+    ```
+
+1. Verify the setup
+
+    ``` bash
+    make verify-no-nat
+    ```
 
 
 #### How to replace instance

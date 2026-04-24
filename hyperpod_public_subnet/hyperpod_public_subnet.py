@@ -103,8 +103,8 @@ def create_missing_eips(args):
     eni_table = list_enis(ec2_client)
     eip_table = list_eips(ec2_client)
 
-    print("ENIs:", eni_table)
-    print("EIPs:", eip_table)
+    print(f"ENIs found: {len(eni_table)}")
+    print(f"EIPs found: {len(eip_table)}")
 
     missing_eip_keys = set(eni_table.keys()) - set(eip_table.keys())
 
