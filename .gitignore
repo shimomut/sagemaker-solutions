@@ -5,5 +5,7 @@ __pycache__
 .venv
 .vscode
 
+.env
+
 *.sqsh
 *.log
