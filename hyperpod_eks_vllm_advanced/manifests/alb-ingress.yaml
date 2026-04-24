@@ -1,0 +1,46 @@
+---
+# AWS ALB Ingress for vLLM Advanced Inference Server
+# Provisions an internal Application Load Balancer via the AWS Load Balancer Controller.
+# Routes HTTP/80 traffic to the vLLM service on port 8000 with /health checks.
+#
+# Prerequisites:
+#   - AWS Load Balancer Controller installed on the EKS cluster
+#   - vllm-service.yaml deployed (creates the vllm-advanced-server Service)
+#
+# Requirements: 6.1, 6.2, 6.3, 6.4, 6.7, 7.2, 7.3
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: vllm-advanced-server
+  labels:
+    app: vllm-advanced-server
+    component: ingress
+    part-of: hyperpod-eks-vllm-advanced
+  annotations:
+    # --- AWS Load Balancer Controller annotations ---
+    kubernetes.io/ingress.class: alb
+    alb.ingress.kubernetes.io/scheme: internal
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/healthcheck-path: /health
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}]'
+
+    # --- TLS / HTTPS (uncomment and set your ACM certificate ARN) ---
+    # alb.ingress.kubernetes.io/listen-ports: '[{"HTTPS": 443}]'
+    # alb.ingress.kubernetes.io/certificate-arn: arn:aws:acm:<region>:<account-id>:certificate/<certificate-id>
+    # alb.ingress.kubernetes.io/ssl-policy: ELBSecurityPolicy-TLS13-1-2-2021-06
+
+    # --- Sticky sessions / session affinity (uncomment to enable) ---
+    # Useful for multi-turn conversations to route to the same vLLM instance
+    # for KV cache reuse. Trade-off: better cache hits vs. less even distribution.
+    # alb.ingress.kubernetes.io/target-group-attributes: stickiness.enabled=true,stickiness.lb_cookie.duration_seconds=3600
+spec:
+  rules:
+    - http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: vllm-advanced-server
+                port:
+                  number: 8000

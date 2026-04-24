@@ -1,0 +1,124 @@
+---
+# vLLM Advanced Inference Server Deployment
+# Base deployment with commented arg blocks for each optimization feature.
+# Uncomment individual feature blocks to enable them independently.
+#
+# Requirements: 2.1, 2.4, 3.1, 3.2, 3.3, 3.5, 7.1, 7.5, 8.1, 10.1, 11.1, 11.2, 14.1, 16.1
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vllm-advanced-server
+  labels:
+    app: vllm-advanced-server
+    component: vllm
+    part-of: hyperpod-eks-vllm-advanced
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: vllm-advanced-server
+  template:
+    metadata:
+      labels:
+        app: vllm-advanced-server
+        component: vllm
+        part-of: hyperpod-eks-vllm-advanced
+    spec:
+      containers:
+        - name: vllm
+          image: 842413447717.dkr.ecr.us-west-2.amazonaws.com/hyperpod-eks-vllm-advanced:latest
+          args:
+            - "meta-llama/Llama-3.1-8B-Instruct"
+            - "--tensor-parallel-size"
+            - "1"                              # Change to 2/4/8 for multi-GPU
+            - "--gpu-memory-utilization"
+            - "0.9"
+            - "--host"
+            - "0.0.0.0"
+            - "--port"
+            - "8000"
+            ## --- Prefix Caching ---
+            ## Reuses KV cache entries for requests sharing common prompt prefixes.
+            ## Improves latency for repeated prompt patterns on the same instance.
+            # - "--enable-prefix-caching"
+
+            ## --- Chunked Prefill ---
+            ## Breaks long prompt prefill into smaller chunks interleaved with decode steps.
+            ## Improves time-to-first-token for long prompts under concurrent load.
+            # - "--enable-chunked-prefill"
+
+            ## --- Speculative Decoding ---
+            ## Uses a smaller draft model to generate candidate tokens verified by the main model.
+            ## Reduces per-token latency at the cost of additional GPU memory for the draft model.
+            # - "--speculative-model"
+            # - "meta-llama/Llama-3.2-1B"
+            # - "--num-speculative-tokens"
+            # - "5"
+
+            ## --- LoRA Adapters ---
+            ## Enables serving multiple fine-tuned LoRA adapters on a single base model.
+            ## Clients specify the adapter name in the "model" field of the API request.
+            # - "--enable-lora"
+            # - "--max-loras"
+            # - "4"
+            # - "--max-lora-rank"
+            # - "64"
+
+            ## --- FP8 Quantization ---
+            ## Reduces model weights to 8-bit floating point for lower memory usage.
+            ## Requires NVIDIA H100 or L40S GPUs. Minor quality trade-off.
+            # - "--quantization"
+            # - "fp8"
+
+            ## --- Pipeline Parallelism ---
+            ## Distributes model layers across multiple nodes (requires Ray cluster).
+            ## Total GPUs = pipeline-parallel-size × tensor-parallel-size.
+            ## Deploy ray-cluster.yaml first: make deploy-ray
+            # - "--pipeline-parallel-size"
+            # - "2"
+
+            ## --- Structured Output (enabled by default in vLLM) ---
+            ## No extra args needed. Clients use response_format or guided_json parameters.
+
+          ports:
+            - name: http
+              containerPort: 8000
+              protocol: TCP
+
+          env:
+            - name: HUGGING_FACE_HUB_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: hf-secret
+                  key: token
+                  optional: true
+
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+
+          resources:
+            limits:
+              nvidia.com/gpu: "1"              # Set to 2/4/8 to match tensor-parallel-size
+            requests:
+              nvidia.com/gpu: "1"
+
+          volumeMounts:
+            - name: dshm
+              mountPath: /dev/shm
+
+      volumes:
+        - name: dshm
+          emptyDir:
+            medium: Memory
+            sizeLimit: 16Gi                    # Scale with GPU count for IPC
+
+      tolerations:
+        - key: nvidia.com/gpu
+          operator: Exists
+          effect: NoSchedule

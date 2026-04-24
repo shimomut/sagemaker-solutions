@@ -1,0 +1,6 @@
+vllm==0.6.6.post1
+ray[default]==2.40.0
+redis==5.2.1
+aiohttp==3.11.11
+requests==2.32.3
+hypothesis==6.119.3

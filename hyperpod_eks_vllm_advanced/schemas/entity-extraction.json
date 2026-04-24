@@ -1,0 +1,48 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "EntityExtraction",
+  "description": "Schema for extracting named entities from text. Use with vLLM guided_json to constrain model output.",
+  "type": "object",
+  "properties": {
+    "entities": {
+      "type": "array",
+      "description": "List of entities extracted from the input text.",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "The entity text as it appears in the input."
+          },
+          "type": {
+            "type": "string",
+            "description": "The category of the entity.",
+            "enum": [
+              "PERSON",
+              "ORGANIZATION",
+              "LOCATION",
+              "DATE",
+              "EVENT",
+              "PRODUCT",
+              "OTHER"
+            ]
+          },
+          "description": {
+            "type": "string",
+            "description": "A brief description or context for the entity."
+          }
+        },
+        "required": [
+          "name",
+          "type",
+          "description"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": [
+    "entities"
+  ],
+  "additionalProperties": false
+}

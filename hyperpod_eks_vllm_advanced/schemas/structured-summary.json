@@ -1,0 +1,40 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "StructuredSummary",
+  "description": "Schema for structured text summarization output. Use with vLLM guided_json to constrain model output.",
+  "type": "object",
+  "properties": {
+    "title": {
+      "type": "string",
+      "description": "A concise title for the summarized content."
+    },
+    "summary": {
+      "type": "string",
+      "description": "A brief summary of the input text."
+    },
+    "key_points": {
+      "type": "array",
+      "description": "List of key points extracted from the text.",
+      "items": {
+        "type": "string"
+      }
+    },
+    "sentiment": {
+      "type": "string",
+      "description": "Overall sentiment of the text.",
+      "enum": [
+        "positive",
+        "negative",
+        "neutral",
+        "mixed"
+      ]
+    }
+  },
+  "required": [
+    "title",
+    "summary",
+    "key_points",
+    "sentiment"
+  ],
+  "additionalProperties": false
+}

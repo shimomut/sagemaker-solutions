@@ -1,0 +1,203 @@
+---
+# Prometheus Adapter for vLLM Custom Metrics Autoscaling
+# Bridges Prometheus metrics to the Kubernetes custom metrics API so that
+# HPA can scale vLLM replicas based on vllm:num_requests_waiting.
+# Requires: Prometheus deployed (make deploy-monitoring)
+#
+# Requirements: 13.4
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-adapter-config
+  labels:
+    app: vllm-advanced-server
+    component: prometheus-adapter
+    part-of: hyperpod-eks-vllm-advanced
+data:
+  config.yaml: |
+    rules:
+      # Map vllm:num_requests_waiting from Prometheus to the custom metrics API.
+      # HPA references this metric as type Pods → metric name vllm:num_requests_waiting.
+      - seriesQuery: 'vllm:num_requests_waiting{namespace!="",pod!=""}'
+        resources:
+          overrides:
+            namespace: {resource: "namespace"}
+            pod: {resource: "pod"}
+        name:
+          matches: "^(.*)$"
+          as: "${1}"
+        metricsQuery: 'sum(<<.Series>>{<<.LabelMatchers>>}) by (<<.GroupBy>>)'
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: prometheus-adapter
+  labels:
+    app: vllm-advanced-server
+    component: prometheus-adapter
+    part-of: hyperpod-eks-vllm-advanced
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: vllm-advanced-server
+      component: prometheus-adapter
+  template:
+    metadata:
+      labels:
+        app: vllm-advanced-server
+        component: prometheus-adapter
+        part-of: hyperpod-eks-vllm-advanced
+    spec:
+      serviceAccountName: prometheus-adapter
+      containers:
+        - name: prometheus-adapter
+          image: registry.k8s.io/prometheus-adapter/prometheus-adapter:v0.11.2
+          args:
+            - "--prometheus-url=http://prometheus:9090"
+            - "--metrics-relist-interval=30s"
+            - "--config=/etc/adapter/config.yaml"
+            - "--secure-port=6443"
+            - "--cert-dir=/tmp/certs"
+          ports:
+            - name: https
+              containerPort: 6443
+              protocol: TCP
+          resources:
+            limits:
+              memory: 256Mi
+            requests:
+              cpu: 100m
+              memory: 128Mi
+          volumeMounts:
+            - name: config
+              mountPath: /etc/adapter
+              readOnly: true
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: https
+              scheme: HTTPS
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: https
+              scheme: HTTPS
+            initialDelaySeconds: 15
+            periodSeconds: 20
+      volumes:
+        - name: config
+          configMap:
+            name: prometheus-adapter-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: prometheus-adapter
+  labels:
+    app: vllm-advanced-server
+    component: prometheus-adapter
+    part-of: hyperpod-eks-vllm-advanced
+spec:
+  selector:
+    app: vllm-advanced-server
+    component: prometheus-adapter
+  ports:
+    - name: https
+      port: 443
+      targetPort: 6443
+      protocol: TCP
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: prometheus-adapter
+  labels:
+    app: vllm-advanced-server
+    component: prometheus-adapter
+    part-of: hyperpod-eks-vllm-advanced
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: prometheus-adapter
+  labels:
+    app: vllm-advanced-server
+    component: prometheus-adapter
+    part-of: hyperpod-eks-vllm-advanced
+rules:
+  - apiGroups: [""]
+    resources: ["namespaces", "pods", "services"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: prometheus-adapter
+  labels:
+    app: vllm-advanced-server
+    component: prometheus-adapter
+    part-of: hyperpod-eks-vllm-advanced
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: prometheus-adapter
+subjects:
+  - kind: ServiceAccount
+    name: prometheus-adapter
+    namespace: default
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: prometheus-adapter:system:auth-delegator
+  labels:
+    app: vllm-advanced-server
+    component: prometheus-adapter
+    part-of: hyperpod-eks-vllm-advanced
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: system:auth-delegator
+subjects:
+  - kind: ServiceAccount
+    name: prometheus-adapter
+    namespace: default
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: prometheus-adapter-auth-reader
+  namespace: kube-system
+  labels:
+    app: vllm-advanced-server
+    component: prometheus-adapter
+    part-of: hyperpod-eks-vllm-advanced
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: extension-apiserver-authentication-reader
+subjects:
+  - kind: ServiceAccount
+    name: prometheus-adapter
+    namespace: default
+---
+apiVersion: apiregistration.k8s.io/v1
+kind: APIService
+metadata:
+  name: v1beta1.custom.metrics.k8s.io
+  labels:
+    app: vllm-advanced-server
+    component: prometheus-adapter
+    part-of: hyperpod-eks-vllm-advanced
+spec:
+  service:
+    name: prometheus-adapter
+    namespace: default
+  group: custom.metrics.k8s.io
+  version: v1beta1
+  insecureSkipTLSVerify: true
+  groupPriorityMinimum: 100
+  versionPriority: 100

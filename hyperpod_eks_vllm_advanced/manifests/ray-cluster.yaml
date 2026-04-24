@@ -1,0 +1,154 @@
+---
+# KubeRay RayCluster for Distributed vLLM Inference
+# Deploys a Ray head node (coordination only, no GPU) and a configurable
+# worker group for multi-node pipeline parallelism with vLLM.
+#
+# Prerequisites:
+#   - KubeRay operator installed on the EKS cluster
+#   - GPU nodes available with nvidia.com/gpu resources
+#   - vllm-deployment.yaml configured with --pipeline-parallel-size
+#
+# Usage:
+#   Deploy:  make deploy-ray
+#   Delete:  make delete-ray
+#
+# After deploying, uncomment the pipeline parallelism block in
+# vllm-deployment.yaml and set RAY_ADDRESS to the head service:
+#   RAY_ADDRESS=ray://vllm-ray-head-svc:10001
+#
+# Requirements: 4.1, 4.2, 4.3, 4.4, 4.5, 4.7
+apiVersion: ray.io/v1
+kind: RayCluster
+metadata:
+  name: vllm-ray-cluster
+  labels:
+    app: vllm-advanced-server
+    component: ray-cluster
+    part-of: hyperpod-eks-vllm-advanced
+spec:
+  rayVersion: "2.41.0"
+
+  # --- Head Node ---
+  # Coordination only — no GPU. Runs the Ray GCS and dashboard.
+  headGroupSpec:
+    rayStartParams:
+      dashboard-host: "0.0.0.0"
+      num-cpus: "0"
+    template:
+      metadata:
+        labels:
+          app: vllm-advanced-server
+          component: ray-head
+          part-of: hyperpod-eks-vllm-advanced
+      spec:
+        containers:
+          - name: ray-head
+            image: 842413447717.dkr.ecr.us-west-2.amazonaws.com/hyperpod-eks-vllm-advanced:latest
+            ports:
+              - name: gcs
+                containerPort: 6379
+                protocol: TCP
+              - name: client
+                containerPort: 10001
+                protocol: TCP
+              - name: dashboard
+                containerPort: 8265
+                protocol: TCP
+            env:
+              - name: RAY_ADDRESS
+                value: "ray://127.0.0.1:10001"
+              # NCCL tuning for GPU communication across nodes
+              - name: NCCL_SOCKET_IFNAME
+                value: "eth0"
+              - name: NCCL_DEBUG
+                value: "INFO"
+            resources:
+              limits:
+                cpu: "4"
+                memory: 8Gi
+              requests:
+                cpu: "2"
+                memory: 4Gi
+            volumeMounts:
+              - name: dshm
+                mountPath: /dev/shm
+        volumes:
+          - name: dshm
+            emptyDir:
+              medium: Memory
+              sizeLimit: 4Gi
+
+  # --- Worker Group ---
+  # GPU workers that run vLLM engine shards for pipeline parallelism.
+  # Default: 2 replicas, each with 1 GPU (adjust to match tensor-parallel-size).
+  workerGroupSpecs:
+    - groupName: gpu-workers
+      replicas: 2
+      minReplicas: 1
+      maxReplicas: 4
+      rayStartParams:
+        num-gpus: "1"
+      template:
+        metadata:
+          labels:
+            app: vllm-advanced-server
+            component: ray-worker
+            part-of: hyperpod-eks-vllm-advanced
+        spec:
+          containers:
+            - name: ray-worker
+              image: 842413447717.dkr.ecr.us-west-2.amazonaws.com/hyperpod-eks-vllm-advanced:latest
+              env:
+                - name: RAY_ADDRESS
+                  value: "ray://vllm-ray-head-svc:10001"
+                # NCCL tuning for GPU communication across nodes
+                - name: NCCL_SOCKET_IFNAME
+                  value: "eth0"
+                - name: NCCL_DEBUG
+                  value: "INFO"
+              resources:
+                limits:
+                  nvidia.com/gpu: "1"          # Match tensor-parallel-size per node
+                  cpu: "8"
+                  memory: 32Gi
+                requests:
+                  nvidia.com/gpu: "1"
+                  cpu: "4"
+                  memory: 16Gi
+              volumeMounts:
+                - name: dshm
+                  mountPath: /dev/shm
+          volumes:
+            - name: dshm
+              emptyDir:
+                medium: Memory
+                sizeLimit: 16Gi                # Scale with GPU count for IPC
+          tolerations:
+            - key: nvidia.com/gpu
+              operator: Exists
+              effect: NoSchedule
+---
+# Service for the Ray head node so workers and vLLM pods can connect.
+apiVersion: v1
+kind: Service
+metadata:
+  name: vllm-ray-head-svc
+  labels:
+    app: vllm-advanced-server
+    component: ray-head
+    part-of: hyperpod-eks-vllm-advanced
+spec:
+  selector:
+    component: ray-head
+    app: vllm-advanced-server
+  ports:
+    - name: gcs
+      port: 6379
+      targetPort: 6379
+    - name: client
+      port: 10001
+      targetPort: 10001
+    - name: dashboard
+      port: 8265
+      targetPort: 8265
+  type: ClusterIP

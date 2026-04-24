@@ -1,0 +1,28 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "TextClassification",
+  "description": "Schema for text classification output. Use with vLLM guided_json to constrain model output.",
+  "type": "object",
+  "properties": {
+    "label": {
+      "type": "string",
+      "description": "The predicted classification label."
+    },
+    "confidence": {
+      "type": "number",
+      "description": "Confidence score between 0 and 1.",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "reasoning": {
+      "type": "string",
+      "description": "Brief explanation of why this label was chosen."
+    }
+  },
+  "required": [
+    "label",
+    "confidence",
+    "reasoning"
+  ],
+  "additionalProperties": false
+}

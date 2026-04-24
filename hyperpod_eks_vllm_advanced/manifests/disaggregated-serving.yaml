@@ -1,0 +1,178 @@
+---
+# Disaggregated Serving: Separate Prefill and Decode Worker Pools
+#
+# EXPERIMENTAL: This manifest configures disaggregated serving, which separates
+# prompt processing (prefill) and token generation (decode) into distinct worker
+# pools. This allows each pool to be independently optimized and scaled.
+#
+# Minimum vLLM version required: v0.6.0+
+# Disaggregated serving support is experimental and may change in future releases.
+# Check vLLM release notes for the latest status and configuration options.
+#
+# Architecture:
+#   - Prefill workers: Handle prompt processing with higher batch sizes for throughput.
+#   - Decode workers: Handle token generation with lower latency settings.
+#   - Requests flow through prefill first, then hand off to decode workers.
+#
+# Requirements: 15.1, 15.5
+
+## ---------------------------------------------------------------------------
+## Prefill Workers — optimized for prompt processing (higher batch size)
+## ---------------------------------------------------------------------------
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vllm-prefill-worker
+  labels:
+    app: vllm-advanced-server
+    component: prefill-worker
+    part-of: hyperpod-eks-vllm-advanced
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: vllm-advanced-server
+      component: prefill-worker
+  template:
+    metadata:
+      labels:
+        app: vllm-advanced-server
+        component: prefill-worker
+        part-of: hyperpod-eks-vllm-advanced
+    spec:
+      containers:
+        - name: vllm-prefill
+          image: 842413447717.dkr.ecr.us-west-2.amazonaws.com/hyperpod-eks-vllm-advanced:latest
+          args:
+            - "meta-llama/Llama-3.1-8B-Instruct"
+            - "--tensor-parallel-size"
+            - "1"
+            - "--gpu-memory-utilization"
+            - "0.9"
+            - "--host"
+            - "0.0.0.0"
+            - "--port"
+            - "8000"
+            ## Prefill-optimized settings:
+            ## Higher max-num-seqs allows larger batch sizes for prompt processing.
+            - "--max-num-seqs"
+            - "512"
+            ## Enable chunked prefill to interleave long prompts efficiently.
+            - "--enable-chunked-prefill"
+            ## Enable prefix caching to reuse KV cache for shared prompt prefixes.
+            - "--enable-prefix-caching"
+          ports:
+            - name: http
+              containerPort: 8000
+              protocol: TCP
+          env:
+            - name: HUGGING_FACE_HUB_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: hf-secret
+                  key: token
+                  optional: true
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            limits:
+              nvidia.com/gpu: "1"
+            requests:
+              nvidia.com/gpu: "1"
+          volumeMounts:
+            - name: dshm
+              mountPath: /dev/shm
+      volumes:
+        - name: dshm
+          emptyDir:
+            medium: Memory
+            sizeLimit: 16Gi
+      tolerations:
+        - key: nvidia.com/gpu
+          operator: Exists
+          effect: NoSchedule
+
+---
+## ---------------------------------------------------------------------------
+## Decode Workers — optimized for token generation (lower latency)
+## ---------------------------------------------------------------------------
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vllm-decode-worker
+  labels:
+    app: vllm-advanced-server
+    component: decode-worker
+    part-of: hyperpod-eks-vllm-advanced
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: vllm-advanced-server
+      component: decode-worker
+  template:
+    metadata:
+      labels:
+        app: vllm-advanced-server
+        component: decode-worker
+        part-of: hyperpod-eks-vllm-advanced
+    spec:
+      containers:
+        - name: vllm-decode
+          image: 842413447717.dkr.ecr.us-west-2.amazonaws.com/hyperpod-eks-vllm-advanced:latest
+          args:
+            - "meta-llama/Llama-3.1-8B-Instruct"
+            - "--tensor-parallel-size"
+            - "1"
+            - "--gpu-memory-utilization"
+            - "0.9"
+            - "--host"
+            - "0.0.0.0"
+            - "--port"
+            - "8000"
+            ## Decode-optimized settings:
+            ## Lower max-num-seqs reduces batch size for faster per-token latency.
+            - "--max-num-seqs"
+            - "64"
+          ports:
+            - name: http
+              containerPort: 8000
+              protocol: TCP
+          env:
+            - name: HUGGING_FACE_HUB_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: hf-secret
+                  key: token
+                  optional: true
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            limits:
+              nvidia.com/gpu: "1"
+            requests:
+              nvidia.com/gpu: "1"
+          volumeMounts:
+            - name: dshm
+              mountPath: /dev/shm
+      volumes:
+        - name: dshm
+          emptyDir:
+            medium: Memory
+            sizeLimit: 16Gi
+      tolerations:
+        - key: nvidia.com/gpu
+          operator: Exists
+          effect: NoSchedule

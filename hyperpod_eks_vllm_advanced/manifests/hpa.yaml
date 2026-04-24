@@ -1,0 +1,42 @@
+---
+# Horizontal Pod Autoscaler for vLLM Advanced Inference Server
+# Scales vLLM replicas based on pending request queue depth via Prometheus Adapter.
+# Requires: Prometheus + Prometheus Adapter deployed (make deploy-monitoring, make deploy-hpa)
+#
+# Requirements: 13.1, 13.2, 13.3
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: vllm-advanced-server
+  labels:
+    app: vllm-advanced-server
+    component: hpa
+    part-of: hyperpod-eks-vllm-advanced
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: vllm-advanced-server
+  minReplicas: 1
+  maxReplicas: 4
+  metrics:
+    - type: Pods
+      pods:
+        metric:
+          name: vllm:num_requests_waiting
+        target:
+          type: AverageValue
+          averageValue: "5"
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 60
+      policies:
+        - type: Pods
+          value: 1
+          periodSeconds: 60
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+        - type: Pods
+          value: 1
+          periodSeconds: 120
