@@ -73,6 +73,8 @@ Running these commands manually from your development machine (such as a local l
 
     > **Note:** While using the private subnet, internet traffic goes through the NAT Gateway which incurs cost. Avoid heavy internet access (e.g., downloading large datasets or container images) during this period.
 
+    > **Technical note:** Switching to private is required because the script cannot reliably distinguish primary ENIs from non-primary ENIs (e.g., EFA ENIs for cross-node networking) during instance creation. EIPs should only be attached to primary ENIs, but the number of secondary private IP addresses — which was previously used to identify primary ENIs — is not yet populated when new ENIs are being provisioned. By keeping the subnet private during scaling, new instances can come up using the NAT Gateway, and EIPs are attached afterwards once ENIs are fully provisioned.
+
 1. Trigger cluster scaling up
 1. Wait until the cluster status changes to InService
 1. Create and attach EIPs to ENIs for the new instances
