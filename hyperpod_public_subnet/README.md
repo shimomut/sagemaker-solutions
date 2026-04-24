@@ -52,8 +52,13 @@ Running these commands manually from your development machine (such as a local l
     kubectl get nodes
     ```
 
-1. Confirm your job runs
-1. Check the NAT Gateway usage metrics and confirm it is not being used.
+1. Verify that nodes are using EIPs and not the NAT Gateway
+
+    ``` bash
+    make verify-no-nat
+    ```
+
+    This runs a temporary pod on each node to check its outbound IP, and compares it against the EIPs attached by the script. You should see `(matches EIP - OK)` for every node.
 
 
 #### How to scale up the cluster
