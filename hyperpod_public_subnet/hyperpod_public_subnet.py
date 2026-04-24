@@ -60,10 +60,13 @@ def list_enis(ec2_client):
 
         return network_interfaces
 
+    eni_description_prefix = f"{Config.account}_{Config.cluster_id}_"
+
     eni_table = {}
     enis = _describe_network_interfaces_all(ec2_client)
+
     for eni in enis:
-        if eni["Description"].startswith(Config.hyperpod_cluster_arn):
+        if eni["Description"].startswith(eni_description_prefix):
             
             num_secondary_addr = 0
             for private_addr in eni["PrivateIpAddresses"]:
@@ -78,6 +81,8 @@ def list_enis(ec2_client):
 
 def list_eips(ec2_client):
 
+    eni_description_prefix = f"{Config.account}_{Config.cluster_id}_"
+
     # FIXME: Don't I have to handle pagenation?
     response = ec2_client.describe_addresses()
     eip_table = {}
@@ -85,7 +90,7 @@ def list_eips(ec2_client):
         if "Tags" in eip:
             tags = tags_as_dict(eip["Tags"])
             if "HyperPodEni" in tags:
-                if tags["HyperPodEni"].startswith(Config.hyperpod_cluster_arn):
+                if tags["HyperPodEni"].startswith(eni_description_prefix):
                     eip_table[ tags["HyperPodEni"] ] = eip
 
     return eip_table
@@ -97,6 +102,9 @@ def create_missing_eips(args):
 
     eni_table = list_enis(ec2_client)
     eip_table = list_eips(ec2_client)
+
+    print("ENIs:", eni_table)
+    print("EIPs:", eip_table)
 
     missing_eip_keys = set(eni_table.keys()) - set(eip_table.keys())
 
@@ -194,18 +202,18 @@ def cmd_delete_unused_eips(args):
             print(response)
 
 
-def switch_route(public_or_private):
+def switch_route(args, public_or_private):
 
     assert public_or_private in ["public", "private"]
 
     ec2_client = boto3.client("ec2", region_name=Config.region)
 
     route_tables = ec2_client.describe_route_tables( RouteTableIds=[Config.route_table_for_public] )
-    assert len(route_tables["RouteTables"])==1, f"Route table not found - {route_table_id}"
+    assert len(route_tables["RouteTables"])==1, f"Route table not found - {Config.route_table_for_public}"
     public_route_table = route_tables["RouteTables"][0]
 
     route_tables = ec2_client.describe_route_tables( RouteTableIds=[Config.route_table_for_private] )
-    assert len(route_tables["RouteTables"])==1, f"Route table not found - {route_table_id}"
+    assert len(route_tables["RouteTables"])==1, f"Route table not found - {Config.route_table_for_private}"
     private_route_table = route_tables["RouteTables"][0]
 
     if public_or_private=="public":
@@ -242,11 +250,11 @@ def switch_route(public_or_private):
 
 
 def cmd_switch_to_public(args):
-    switch_route("public")
+    switch_route(args, "public")
 
 
 def cmd_switch_to_private(args):
-    switch_route("private")
+    switch_route(args, "private")
 
 
 def cmd_clean(args):
