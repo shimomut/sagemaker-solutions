@@ -13,6 +13,7 @@ GPU ?= 0
 METHOD ?= hang
 NVCC ?= nvcc
 NVCC_FLAGS ?= -O2
+PYTHON ?= .venv/bin/python
 
 .PHONY: help crash crash-all crash-memfault crash-c build clean check check-dmesg
 
@@ -38,13 +39,13 @@ help:
 # --- Python version ---
 
 crash:
-	python3 crash_gpu.py --gpu $(GPU) --method $(METHOD)
+	$(PYTHON) crash_gpu.py --gpu $(GPU) --method $(METHOD)
 
 crash-all:
-	python3 crash_gpu.py --gpu all --method $(METHOD)
+	$(PYTHON) crash_gpu.py --gpu all --method $(METHOD)
 
 crash-memfault:
-	python3 crash_gpu.py --gpu $(GPU) --method memfault
+	$(PYTHON) crash_gpu.py --gpu $(GPU) --method memfault
 
 # --- C/CUDA version ---
 
@@ -68,6 +69,16 @@ check:
 check-dmesg:
 	@echo "=== Recent GPU/NVIDIA kernel messages ==="
 	@dmesg 2>/dev/null | grep -iE "(nvidia|xid|nvrm|gpu|pci.*10de)" | tail -40 || echo "(no relevant messages or dmesg not accessible)"
+
+# --- Setup ---
+
+venv:
+	python3.12 -m venv .venv
+	.venv/bin/pip install --upgrade pip
+	@echo "Virtual environment created. Activate with: source .venv/bin/activate"
+
+install: venv
+	.venv/bin/pip install pycuda
 
 # --- Cleanup ---
 
