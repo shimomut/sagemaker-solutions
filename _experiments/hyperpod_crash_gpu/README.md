@@ -41,6 +41,33 @@ These simulate real hardware failures at the driver or bus level. They require `
 
 The `pci-remove` method is the closest simulation to a real hardware failure. The GPU disappears from `nvidia-smi` and `lspci` as if it physically fell off the bus. This is the recommended method for testing HyperPod resiliency.
 
+### DCGM Error Injection
+
+These inject fake errors into DCGM's monitoring cache. The GPU itself is unaffected, but any monitoring system polling DCGM (including HyperPod's health checks) will see the errors as real. Requires `dcgmi` and the `nvidia-dcgm` service running.
+
+| Method | Make target | DCGM field | DCGM reports |
+|--------|------------|------------|--------------|
+| **Double-bit ECC** | `make inject-dbe` | 319 | Failure — ECC DBE count |
+| **XID error** | `make inject-xid` | 230 | Failure — "Detected XID 94" |
+| **PCIe replays** | `make inject-pcie` | 202 | Warning — PCIe replay count |
+| **Thermal** | `make inject-thermal` | 140 | Warning — temperature excursion |
+
+The XID injection is the most useful for HyperPod testing — `make inject-xid` injects XID 94 (contained ECC error) by default, which is a common real-world GPU failure that HyperPod should detect and respond to. You can inject any XID code:
+
+```bash
+make inject-xid               # Inject XID 94 (default)
+make inject-xid XID=95        # Inject XID 95 (uncontained ECC error)
+make inject-xid XID=48        # Inject XID 48 (double-bit ECC)
+```
+
+Before injecting, enable DCGM health watches:
+
+```bash
+dcgmi health -g 0 -s a        # Enable all watches
+make inject-dbe                # Inject an error
+make dcgm-health               # Check the health report
+```
+
 ## Usage
 
 ### Software-Level Crashes
@@ -78,12 +105,32 @@ make pci-rescan               # Rescan PCIe bus + rebind driver
 make recover                  # Full recovery: undrain + rescan + rebind + persistence mode
 ```
 
+### DCGM Error Injection
+
+All DCGM injection targets accept `GPU=N` (default: 0).
+
+```bash
+# Enable DCGM health watches first
+dcgmi health -g 0 -s a
+
+# Inject errors
+make inject-dbe               # Double-bit ECC error
+make inject-xid               # XID 94 (contained ECC error)
+make inject-xid XID=95        # XID 95 (uncontained ECC error)
+make inject-pcie              # PCIe replay errors
+make inject-thermal           # Thermal violation (110°C)
+
+# Check results
+make dcgm-health              # DCGM health report
+```
+
 ## Diagnostics
 
 ```bash
 make check          # GPU health + recent Xid errors
 make check-dmesg    # Recent NVIDIA kernel messages
 make watch-dmesg    # Follow dmesg live for GPU messages (Ctrl+C to stop)
+make dcgm-health    # DCGM health report (shows injected + real errors)
 ```
 
 After a crash, you should see:
@@ -108,6 +155,14 @@ After a crash, you should see:
 3. `lspci` no longer lists the GPU
 4. HyperPod's health monitoring should detect the missing GPU
 5. Recovery requires a node reboot (PCIe rescan alone may not rebind the driver)
+
+### DCGM Injection (inject-xid, inject-dbe, etc.)
+
+1. Error is injected into DCGM's monitoring cache
+2. `make dcgm-health` shows "Failure" or "Warning" with error details
+3. The GPU itself is unaffected — `nvidia-smi` still shows it as healthy
+4. Any monitoring system polling DCGM will see the injected errors
+5. Injected values expire from the cache after ~10 minutes (configurable)
 
 ## Recovery
 
