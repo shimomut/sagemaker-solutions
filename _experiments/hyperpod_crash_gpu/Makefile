@@ -96,17 +96,22 @@ pci-rescan:
 	@echo "=== Rescanning PCIe bus to rediscover GPUs ==="
 	sudo bash -c 'echo 1 > /sys/bus/pci/rescan'
 	@sleep 2
+	@echo "--- Rebinding NVIDIA driver ---"
+	-sudo bash -c 'echo 0000:00:1e.0 > /sys/bus/pci/drivers/nvidia/bind' 2>/dev/null
+	@sleep 1
 	@echo "PCIe rescan complete. Current GPUs:"
-	@nvidia-smi --query-gpu=index,name,pci.bus_id --format=csv 2>/dev/null || echo "nvidia-smi failed — driver may need reload"
+	@nvidia-smi --query-gpu=index,name,pci.bus_id --format=csv 2>/dev/null || echo "nvidia-smi failed — reboot may be required"
 
 recover:
 	@echo "=== Full GPU recovery ==="
 	-sudo nvidia-smi drain -p $(PCI_BUS_ID) -m 0 2>/dev/null
 	sudo bash -c 'echo 1 > /sys/bus/pci/rescan'
 	@sleep 2
+	-sudo bash -c 'echo 0000:00:1e.0 > /sys/bus/pci/drivers/nvidia/bind' 2>/dev/null
+	@sleep 1
 	-sudo nvidia-smi -pm 1 -i $(GPU) 2>/dev/null
 	@echo "Recovery complete. Current GPUs:"
-	@nvidia-smi --query-gpu=index,name,pci.bus_id --format=csv 2>/dev/null || echo "nvidia-smi failed — driver may need reload"
+	@nvidia-smi --query-gpu=index,name,pci.bus_id --format=csv 2>/dev/null || echo "nvidia-smi failed — reboot may be required"
 
 # --- Diagnostics ---
 
