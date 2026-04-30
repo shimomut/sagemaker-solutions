@@ -5,6 +5,9 @@ Intentionally crashes GPU(s) at the driver level to test how HyperPod's resilien
 ## Quick Start
 
 ```bash
+# Set up the environment and install dependencies
+make install          # Creates .venv with Python 3.12 and installs pycuda
+
 # Python version (recommended — no build step)
 make crash            # Crash GPU 0
 
@@ -92,8 +95,25 @@ After crashing a GPU, recovery typically requires:
 
 ## Prerequisites
 
-**Python version** — one of:
+### Python version
+
+Set up the virtual environment and install dependencies:
+
 ```bash
+make venv             # Create .venv with Python 3.12 and upgrade pip
+make install          # Create .venv (if needed) and install pycuda
+```
+
+`make install` depends on `make venv`, so running `make install` alone is sufficient. All Python make targets (`crash`, `crash-all`, `crash-memfault`) use `.venv/bin/python` by default. You can override this with:
+
+```bash
+make crash PYTHON=/usr/bin/python3
+```
+
+Alternatively, install a CUDA library manually into the venv:
+
+```bash
+source .venv/bin/activate
 pip install pycuda
 # or
 pip install cupy-cuda12x   # match your CUDA version
@@ -101,7 +121,8 @@ pip install cupy-cuda12x   # match your CUDA version
 pip install numba
 ```
 
-**C version**:
+### C version
+
 ```bash
 # CUDA toolkit with nvcc
 which nvcc

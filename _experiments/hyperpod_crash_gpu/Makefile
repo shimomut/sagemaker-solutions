@@ -38,13 +38,13 @@ help:
 
 # --- Python version ---
 
-crash:
+crash: .venv/.installed
 	$(PYTHON) crash_gpu.py --gpu $(GPU) --method $(METHOD)
 
-crash-all:
+crash-all: .venv/.installed
 	$(PYTHON) crash_gpu.py --gpu all --method $(METHOD)
 
-crash-memfault:
+crash-memfault: .venv/.installed
 	$(PYTHON) crash_gpu.py --gpu $(GPU) --method memfault
 
 # --- C/CUDA version ---
@@ -72,15 +72,19 @@ check-dmesg:
 
 # --- Setup ---
 
-venv:
+venv: .venv/.done
+.venv/.done:
 	python3.12 -m venv .venv
 	.venv/bin/pip install --upgrade pip
-	@echo "Virtual environment created. Activate with: source .venv/bin/activate"
+	@touch $@
 
-install: venv
-	.venv/bin/pip install pycuda
+install: .venv/.installed
+.venv/.installed: .venv/.done
+	.venv/bin/pip install numpy pycuda
+	@touch $@
 
 # --- Cleanup ---
 
 clean:
 	rm -f crash_gpu_c
+	rm -rf .venv
