@@ -15,8 +15,10 @@ NVCC ?= nvcc
 NVCC_FLAGS ?= -O2
 PYTHON ?= .venv/bin/python
 
-# Resolve GPU index to PCI bus ID (e.g. 00000000:00:1E.0)
-PCI_BUS_ID = $(shell nvidia-smi --query-gpu=pci.bus_id --format=csv,noheader -i $(GPU) 2>/dev/null)
+# Resolve GPU index to PCI bus ID in short form for nvidia-smi drain (e.g. 0000:00:1E.0)
+PCI_BUS_ID = $(shell nvidia-smi --query-gpu=pci.bus_id --format=csv,noheader -i $(GPU) 2>/dev/null | sed 's/^0000//')
+# Lowercase version for sysfs paths (e.g. 0000:00:1e.0)
+PCI_SYSFS_ID = $(shell echo $(PCI_BUS_ID) | tr 'A-Z' 'a-z')
 
 .PHONY: help crash crash-all crash-memfault crash-c build clean check check-dmesg \
         drain undrain pci-remove pci-rescan recover watch-dmesg
@@ -87,7 +89,7 @@ pci-remove:
 	@echo "=== Removing GPU $(GPU) [$(PCI_BUS_ID)] from PCIe bus ==="
 	@echo "⚠️  This simulates a hardware failure. The GPU will disappear from the system."
 	@echo "    Recovery: make pci-rescan"
-	sudo bash -c 'echo 1 > /sys/bus/pci/devices/$(PCI_BUS_ID)/remove'
+	sudo bash -c 'echo 1 > /sys/bus/pci/devices/$(PCI_SYSFS_ID)/remove'
 	@echo "GPU $(GPU) removed from PCIe bus."
 
 pci-rescan:
