@@ -15,8 +15,9 @@ NVCC ?= nvcc
 NVCC_FLAGS ?= -O2
 PYTHON ?= .venv/bin/python
 
-# Resolve GPU index to PCI bus ID in short form for nvidia-smi drain (e.g. 0000:00:1E.0)
-PCI_BUS_ID = $(shell nvidia-smi --query-gpu=pci.bus_id --format=csv,noheader -i $(GPU) 2>/dev/null | sed 's/^0000//')
+# Resolve GPU index to PCI bus ID in short form (e.g. 0000:00:1E.0)
+# Uses lspci as the source since it works even when GPU is drained/removed.
+PCI_BUS_ID = $(shell lspci -D | grep -i nvidia | awk 'NR==$(GPU)+1 {print $$1}')
 # Lowercase version for sysfs paths (e.g. 0000:00:1e.0)
 PCI_SYSFS_ID = $(shell echo $(PCI_BUS_ID) | tr 'A-Z' 'a-z')
 
