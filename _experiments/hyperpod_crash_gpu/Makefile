@@ -22,7 +22,8 @@ PCI_BUS_ID = $(shell lspci -D | grep -i nvidia | awk 'NR==$(GPU)+1 {print $$1}')
 PCI_SYSFS_ID = $(shell echo $(PCI_BUS_ID) | tr 'A-Z' 'a-z')
 
 .PHONY: help crash crash-all crash-memfault crash-c build clean check check-dmesg \
-        drain undrain pci-remove pci-rescan recover watch-dmesg
+        drain undrain pci-remove pci-rescan recover watch-dmesg \
+        inject-dbe inject-xid inject-pcie inject-thermal dcgm-health
 
 help:
 	@echo "GPU Crash Test — HyperPod Resiliency Testing"
@@ -44,6 +45,13 @@ help:
 	@echo "  make pci-remove         Remove GPU 0 from PCIe bus (simulates HW failure)"
 	@echo "  make pci-rescan         Rescan PCIe bus to rediscover removed GPU"
 	@echo "  make recover            Full recovery: undrain + PCIe rescan"
+	@echo ""
+	@echo "DCGM error injection (fake errors for monitoring/alerting tests):"
+	@echo "  make inject-dbe         Inject double-bit ECC error (field 319)"
+	@echo "  make inject-xid         Inject XID error (field 230, default: 94)"
+	@echo "  make inject-pcie        Inject PCIe replay errors (field 202)"
+	@echo "  make inject-thermal     Inject thermal violation (field 140)"
+	@echo "  make dcgm-health        Show DCGM health report"
 	@echo ""
 	@echo "Diagnostics:"
 	@echo "  make check              Show GPU health status"
@@ -89,9 +97,20 @@ undrain:
 pci-remove:
 	@echo "=== Removing GPU $(GPU) [$(PCI_BUS_ID)] from PCIe bus ==="
 	@echo "⚠️  This simulates a hardware failure. The GPU will disappear from the system."
-	@echo "    Recovery: make pci-rescan"
-	sudo bash -c 'echo 1 > /sys/bus/pci/devices/$(PCI_SYSFS_ID)/remove'
-	@echo "GPU $(GPU) removed from PCIe bus."
+	@echo "    Recovery: make recover"
+	sudo nvidia-smi -pm 0 -i $(GPU)
+	sudo nvidia-smi drain -p $(PCI_BUS_ID) -m 1
+	sudo nvidia-smi drain -p $(PCI_BUS_ID) -r \
+		|| (echo ""; echo "nvidia-smi drain -r failed."; \
+		    echo "Trying sysfs remove..."; \
+		    sudo sh -c 'echo 1 > /sys/bus/pci/devices/$(PCI_SYSFS_ID)/remove') \
+		|| (echo ""; echo "ERROR: PCIe remove not supported on this instance (likely virtualized EC2)."; \
+		    echo "This method requires bare-metal instances (e.g. p4d.24xlarge, p5.48xlarge)."; \
+		    echo "Use 'make drain' instead to simulate GPU unavailability."; \
+		    sudo nvidia-smi drain -p $(PCI_BUS_ID) -m 0; \
+		    sudo nvidia-smi -pm 1 -i $(GPU); \
+		    exit 1)
+	@echo "GPU $(GPU) removed."
 
 pci-rescan:
 	@echo "=== Rescanning PCIe bus to rediscover GPUs ==="
@@ -113,6 +132,34 @@ recover:
 	-sudo nvidia-smi -pm 1 -i $(GPU) 2>/dev/null
 	@echo "Recovery complete. Current GPUs:"
 	@nvidia-smi --query-gpu=index,name,pci.bus_id --format=csv 2>/dev/null || echo "nvidia-smi failed — reboot may be required"
+
+# --- DCGM error injection (fake errors into DCGM cache) ---
+
+XID ?= 94
+
+inject-dbe:
+	@echo "=== Injecting double-bit ECC error on GPU $(GPU) ==="
+	dcgmi test --inject --gpuid $(GPU) -f 319 -v 4
+	@echo "Injected DBE count=4. Check with: make dcgm-health"
+
+inject-xid:
+	@echo "=== Injecting XID $(XID) error on GPU $(GPU) ==="
+	dcgmi test --inject --gpuid $(GPU) -f 230 -v $(XID)
+	@echo "Injected XID $(XID). Check with: make dcgm-health"
+
+inject-pcie:
+	@echo "=== Injecting PCIe replay errors on GPU $(GPU) ==="
+	dcgmi test --inject --gpuid $(GPU) -f 202 -v 99999
+	@echo "Injected PCIe replay count=99999. Check with: make dcgm-health"
+
+inject-thermal:
+	@echo "=== Injecting thermal violation on GPU $(GPU) ==="
+	dcgmi test --inject --gpuid $(GPU) -f 140 -v 110
+	@echo "Injected temperature=110C. Check with: make dcgm-health"
+
+dcgm-health:
+	@echo "=== DCGM Health Report ==="
+	dcgmi health -g 0 -c
 
 # --- Diagnostics ---
 
