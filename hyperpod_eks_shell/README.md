@@ -36,6 +36,9 @@ make all IMAGE=nccl-tools
 # Deploy a shell pod using the last-built image
 make deploy-shell IMAGE=nccl-tools
 
+# Optional: pin the pod to a specific EC2 instance type
+make deploy-shell IMAGE=nccl-tools INSTANCE_TYPE=ml.g5.8xlarge
+
 # Connect to the shell
 make shell
 
@@ -44,6 +47,40 @@ make delete-shell
 ```
 
 `IMAGE` defaults to `shell-tools`. All image-aware targets (`build`, `tag`, `push`, `create-ecr-repo`, `deploy-shell`, `all`) honor it.
+
+### Targeting a specific instance type
+
+The deploy targets accept an `INSTANCE_TYPE` variable. When set, the pod spec gets a `nodeSelector` of `node.kubernetes.io/instance-type: <value>`. When unset, the scheduler picks any eligible node.
+
+```bash
+# List what's available on your cluster
+kubectl get nodes -L node.kubernetes.io/instance-type
+
+# Pin the nccl-tools pod to a GPU node
+make deploy-shell IMAGE=nccl-tools INSTANCE_TYPE=ml.g5.8xlarge
+
+# Pin the default shell to a CPU node
+make deploy-shell-default INSTANCE_TYPE=ml.m5.xlarge
+```
+
+### Requesting GPUs and EFA devices
+
+`GPU_COUNT` and `EFA_COUNT` control the `resources.limits` entries on the container. Both default to `0` (no request, no device plugin reservation).
+
+```bash
+# GPU-only shell
+make deploy-shell IMAGE=nccl-tools INSTANCE_TYPE=ml.g5.8xlarge GPU_COUNT=1
+
+# GPU + EFA for multi-node NCCL work
+make deploy-shell IMAGE=nccl-tools INSTANCE_TYPE=ml.p5.48xlarge GPU_COUNT=8 EFA_COUNT=32
+```
+
+Setting `GPU_COUNT>0` adds `nvidia.com/gpu: "<n>"` so the NVIDIA device plugin reserves the GPU(s) for your pod (with proper scheduler isolation). Setting `EFA_COUNT>0` adds `vpc.amazonaws.com/efa: "<n>"` so the AWS EFA device plugin maps `/dev/infiniband/*` and the EFA userspace into the container.
+
+Notes:
+- NVIDIA CUDA base images set `NVIDIA_VISIBLE_DEVICES=all`, so a pod on a GPU node sees GPUs even without `GPU_COUNT` — but without the request, the scheduler won't reserve them and another pod can co-schedule on top of yours. Always set `GPU_COUNT` when you actually need the device.
+- EFA has no equivalent auto-inject. Without `EFA_COUNT`, `/dev/infiniband` is absent and `fi_info -p efa` returns no providers.
+- You still pass `INSTANCE_TYPE` if you want to pin to a specific node family.
 
 ### Target architecture (Apple Silicon users)
 

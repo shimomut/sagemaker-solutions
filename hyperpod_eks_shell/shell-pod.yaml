@@ -17,6 +17,8 @@ spec:
       limits:
         memory: "2Gi"
         cpu: "1"
+        ${GPU_LIMIT}
+        ${EFA_LIMIT}
     env:
     - name: DEBIAN_FRONTEND
       value: "noninteractive"
@@ -38,3 +40,4 @@ spec:
     persistentVolumeClaim:
       claimName: fsx-claim
   restartPolicy: Never
+  ${NODE_SELECTOR}
