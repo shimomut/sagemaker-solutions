@@ -1,4 +1,18 @@
-IMAGE_NAME=shell-tools
+# Select which image to build/push/deploy. Each image lives under images/<IMAGE>/Dockerfile
+# Example: make build IMAGE=nccl-tools
+IMAGE ?= shell-tools
+IMAGE_DIR = images/$(IMAGE)
+ECR_URI = $(ACCOUNT).dkr.ecr.$(REGION).amazonaws.com/$(IMAGE)
+
+# Target platform for the built image. HyperPod EKS GPU nodes are x86_64,
+# so we pin this to linux/amd64 even when building on Apple Silicon (arm64).
+# Override with: make build PLATFORM=linux/arm64
+PLATFORM ?= linux/amd64
+
+# List the images available in this repo
+list-images:
+	@echo "Available images (set with IMAGE=<name>):"
+	@ls -1 images
 
 # Check required environment variables
 check-env:
@@ -13,25 +27,31 @@ check-env:
 		echo "Please set it with: export ACCOUNT=your-account-id"; \
 		exit 1; \
 	fi
-	@echo "Environment variables are set: REGION=$(REGION), ACCOUNT=$(ACCOUNT)"
+	@if [ ! -f "$(IMAGE_DIR)/Dockerfile" ]; then \
+		echo "Error: $(IMAGE_DIR)/Dockerfile does not exist"; \
+		echo "Available images:"; \
+		ls -1 images; \
+		exit 1; \
+	fi
+	@echo "Environment variables are set: REGION=$(REGION), ACCOUNT=$(ACCOUNT), IMAGE=$(IMAGE)"
 
 create-ecr-repo: check-env
-	aws ecr create-repository --repository-name ${IMAGE_NAME} --region ${REGION} || true
+	aws ecr create-repository --repository-name $(IMAGE) --region $(REGION) || true
 
-build:
-	docker build --tag ${IMAGE_NAME} .
+build: check-env
+	docker build --platform $(PLATFORM) --tag $(IMAGE) $(IMAGE_DIR)
 
 login: check-env
-	aws ecr get-login-password --region ${REGION} | docker login --username AWS --password-stdin ${ACCOUNT}.dkr.ecr.${REGION}.amazonaws.com
+	aws ecr get-login-password --region $(REGION) | docker login --username AWS --password-stdin $(ACCOUNT).dkr.ecr.$(REGION).amazonaws.com
 
 tag: check-env
-	docker tag ${IMAGE_NAME}:latest ${ACCOUNT}.dkr.ecr.${REGION}.amazonaws.com/${IMAGE_NAME}:latest
+	docker tag $(IMAGE):latest $(ECR_URI):latest
 
 push: check-env
-	docker push ${ACCOUNT}.dkr.ecr.${REGION}.amazonaws.com/${IMAGE_NAME}:latest
+	docker push $(ECR_URI):latest
 
 deploy-shell: check-env
-	SHELL_IMAGE=${ACCOUNT}.dkr.ecr.${REGION}.amazonaws.com/${IMAGE_NAME}:latest envsubst < shell-pod.yaml | kubectl apply -f -
+	SHELL_IMAGE=$(ECR_URI):latest envsubst < shell-pod.yaml | kubectl apply -f -
 
 deploy-shell-default:
 	SHELL_IMAGE=ubuntu:22.04 envsubst < shell-pod.yaml | kubectl apply -f -
