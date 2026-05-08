@@ -8,6 +8,76 @@ Running llama.cpp in a container on macOS keeps the host clean, which is the who
 
 If performance becomes the bottleneck, switch to a native build later.
 
+## How the pieces fit together
+
+There is only **one container** in this setup. The model is not a separate container; it's a file on your Mac that gets bind-mounted into the server container at runtime. That's why the first `make download-model` writes into `./models/` on the host, and every subsequent run reuses it without re-pulling anything.
+
+```
+┌─────────────────────────── macOS host ────────────────────────────┐
+│                                                                   │
+│   ./models/qwen2.5-1.5b-instruct-q4_k_m.gguf   (GGUF file, ~1 GB) │
+│                     │                                             │
+│                     │  bind mount (-v ./models:/models)           │
+│                     ▼                                             │
+│   ┌───────────── Docker Desktop Linux VM ──────────────────────┐  │
+│   │                                                            │  │
+│   │   ┌────────── container: ghcr.io/.../llama.cpp ─────────┐  │  │
+│   │   │                                                     │  │  │
+│   │   │   /app/llama-server                                 │  │  │
+│   │   │     │                                               │  │  │
+│   │   │     ├─ mmap /models/*.gguf                          │  │  │
+│   │   │     ├─ CPU backend (libggml-cpu-armv8.2_2.so)       │  │  │
+│   │   │     └─ HTTP listener on 0.0.0.0:8080                │  │  │
+│   │   │                   ▲                                 │  │  │
+│   │   └───────────────────┼─────────────────────────────────┘  │  │
+│   │                       │ -p 8080:8080                       │  │
+│   └───────────────────────┼────────────────────────────────────┘  │
+│                           │                                       │
+│                           ▼                                       │
+│   curl / browser / openai SDK  ──►  http://localhost:8080         │
+│                                                                   │
+└───────────────────────────────────────────────────────────────────┘
+```
+
+Key points:
+
+- **Model file is on the host.** Docker doesn't copy it into the container; `mmap` reads it directly from the bind-mounted path. Deleting `./models/*.gguf` frees space immediately.
+- **Same image for CLI and server.** `make cli` and `make server` launch different binaries (`llama-cli` vs `llama-server`) from the same image, each as its own short-lived container. Quit one and the other is unaffected.
+- **One port exposed.** `-p 8080:8080` maps the host port to the container port. Nothing else is exposed.
+
+## Threading model
+
+llama.cpp is not a multi-process server. One `llama-server` process handles everything. The `-t N` flag controls how many OS threads the model does its matrix math on.
+
+```
+                 llama-server process (single container)
+ ┌───────────────────────────────────────────────────────────────────┐
+ │                                                                   │
+ │   HTTP / event loop              Inference loop                   │
+ │   (1 main thread)                                                 │
+ │                                                                   │
+ │   ┌─────────────┐  request queue  ┌────────────────────────────┐  │
+ │   │ accept conn │────────────────▶│   for each token step:     │  │
+ │   │ parse JSON  │                 │    fan out matmul across   │  │
+ │   │ stream out  │◀──tokens────────│    N ggml worker threads   │  │
+ │   └─────────────┘                 │                            │  │
+ │                                   │   ┌──┐ ┌──┐ ┌──┐ ┌──┐      │  │
+ │                                   │   │T1│ │T2│ │T3│ │T4│  (-t 4) │
+ │                                   │   └──┘ └──┘ └──┘ └──┘      │  │
+ │                                   └────────────────────────────┘  │
+ │                                                                   │
+ └───────────────────────────────────────────────────────────────────┘
+```
+
+What that means in practice:
+
+- **`-t N` = parallelism within one token step.** Each layer's matmul is split across N threads, then they join, then the next token starts. Going from `-t 1` to `-t 4` on a 4-core machine usually roughly quadruples tokens/sec; going from `-t 4` to `-t 8` on that same machine doesn't help and can hurt.
+- **Set N to physical cores, not logical.** Hyperthreaded siblings contend for the same vector units and usually slow things down. A MacBook Air M1/M2/M3 has 4 performance cores; `THREADS=4` is the right default, try `THREADS=6` or `THREADS=8` only if you have an M-series Pro/Max.
+- **Concurrent HTTP requests are serialized** by default. The server accepts multiple connections but processes one inference at a time on the same pool of N threads. For batched parallel decoding you'd need `--parallel M` and a larger `--ctx-size`, which splits the KV cache into M slots. Worth exploring once the single-request path feels familiar.
+- **More threads ≠ more memory.** The model weights are memory-mapped once and shared across all threads. RAM scales with model size and context length, not with `-t`.
+
+A rough rule of thumb on a MacBook Air via Docker: start with `THREADS=4`, watch `tok/s` in the server logs, then try `THREADS=2` and `THREADS=6` to see the curve flatten or dip. Don't forget Docker Desktop has its own CPU limit under Settings → Resources; if you set `-t 8` but gave Docker only 4 CPUs, llama.cpp will still only get 4.
+
 ## Prerequisites
 
 - Docker Desktop for Mac, running
