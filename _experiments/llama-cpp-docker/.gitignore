@@ -1,0 +1,6 @@
+# Downloaded GGUF model files can be multiple GB, never commit them
+models/
+*.gguf
+
+# macOS
+.DS_Store
