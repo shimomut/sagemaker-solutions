@@ -133,18 +133,18 @@ Resources:
   #       - Key: Name
   #         Value: !Sub '${AWS::StackName}-vpce-sg'
 
-  # # VPC Endpoints
-  #
-  # S3GatewayEndpoint:
-  #   Type: AWS::EC2::VPCEndpoint
-  #   Properties:
-  #     VpcId: !Ref VPC
-  #     ServiceName: !Sub 'com.amazonaws.${AWS::Region}.s3'
-  #     VpcEndpointType: Gateway
-  #     RouteTableIds:
-  #       - !Ref HyperPodRouteTable
-  #       - !Ref EksRouteTable
-  #
+  # VPC Endpoints
+
+  S3GatewayEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      VpcId: !Ref VPC
+      ServiceName: !Sub 'com.amazonaws.${AWS::Region}.s3'
+      VpcEndpointType: Gateway
+      RouteTableIds:
+        - !Ref HyperPodRouteTable
+        - !Ref EksRouteTable
+
   # LambdaEndpoint:
   #   Type: AWS::EC2::VPCEndpoint
   #   Properties:
