@@ -1,0 +1,219 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  VPC with 3 subnets and VPC endpoints for HyperPod EKS cluster with RIG.
+  No Internet Gateway or NAT Gateway - verifying RIG works without internet access.
+
+Parameters:
+  VpcCidr:
+    Type: String
+    Default: 10.0.0.0/16
+    Description: CIDR block for the VPC
+
+  HyperPodSubnetCidr:
+    Type: String
+    Default: 10.0.0.0/21
+    Description: CIDR block for the HyperPod nodes subnet (/21 = 2046 hosts)
+
+  EksSubnet1Cidr:
+    Type: String
+    Default: 10.0.8.0/28
+    Description: CIDR block for EKS cluster subnet 1 (/28 = 14 hosts)
+
+  EksSubnet2Cidr:
+    Type: String
+    Default: 10.0.8.16/28
+    Description: CIDR block for EKS cluster subnet 2 (/28 = 14 hosts)
+
+  HyperPodSubnetAz:
+    Type: String
+    Description: Availability zone ID for the HyperPod nodes subnet (e.g., usw2-az3)
+
+  EksSubnet1Az:
+    Type: String
+    Description: Availability zone ID for EKS cluster subnet 1 (e.g., usw2-az3)
+
+  EksSubnet2Az:
+    Type: String
+    Description: Availability zone ID for EKS cluster subnet 2 (e.g., usw2-az1)
+
+Resources:
+
+  # VPC
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref VpcCidr
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-vpc'
+
+  # Subnets
+  HyperPodSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !Ref HyperPodSubnetCidr
+      AvailabilityZoneId: !Ref HyperPodSubnetAz
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-hyperpod-subnet'
+
+  EksSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !Ref EksSubnet1Cidr
+      AvailabilityZoneId: !Ref EksSubnet1Az
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-eks-subnet-1'
+
+  EksSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !Ref EksSubnet2Cidr
+      AvailabilityZoneId: !Ref EksSubnet2Az
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-eks-subnet-2'
+
+  # Route Tables
+  HyperPodRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-hyperpod-rt'
+
+  EksRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-eks-rt'
+
+  HyperPodSubnetRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref HyperPodSubnet
+      RouteTableId: !Ref HyperPodRouteTable
+
+  EksSubnet1RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref EksSubnet1
+      RouteTableId: !Ref EksRouteTable
+
+  EksSubnet2RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref EksSubnet2
+      RouteTableId: !Ref EksRouteTable
+
+  # # Security Group for VPC Endpoints
+  # VpcEndpointSecurityGroup:
+  #   Type: AWS::EC2::SecurityGroup
+  #   Properties:
+  #     GroupDescription: Security group for VPC endpoints
+  #     VpcId: !Ref VPC
+  #     SecurityGroupIngress:
+  #       - IpProtocol: tcp
+  #         FromPort: 443
+  #         ToPort: 443
+  #         CidrIp: !Ref VpcCidr
+  #     Tags:
+  #       - Key: Name
+  #         Value: !Sub '${AWS::StackName}-vpce-sg'
+
+  # # VPC Endpoints
+  #
+  # S3GatewayEndpoint:
+  #   Type: AWS::EC2::VPCEndpoint
+  #   Properties:
+  #     VpcId: !Ref VPC
+  #     ServiceName: !Sub 'com.amazonaws.${AWS::Region}.s3'
+  #     VpcEndpointType: Gateway
+  #     RouteTableIds:
+  #       - !Ref HyperPodRouteTable
+  #       - !Ref EksRouteTable
+  #
+  # LambdaEndpoint:
+  #   Type: AWS::EC2::VPCEndpoint
+  #   Properties:
+  #     VpcId: !Ref VPC
+  #     ServiceName: !Sub 'com.amazonaws.${AWS::Region}.lambda'
+  #     VpcEndpointType: Interface
+  #     PrivateDnsEnabled: true
+  #     SubnetIds:
+  #       - !Ref EksSubnet1
+  #       - !Ref EksSubnet2
+  #     SecurityGroupIds:
+  #       - !Ref VpcEndpointSecurityGroup
+  #
+  # SqsEndpoint:
+  #   Type: AWS::EC2::VPCEndpoint
+  #   Properties:
+  #     VpcId: !Ref VPC
+  #     ServiceName: !Sub 'com.amazonaws.${AWS::Region}.sqs'
+  #     VpcEndpointType: Interface
+  #     PrivateDnsEnabled: true
+  #     SubnetIds:
+  #       - !Ref EksSubnet1
+  #       - !Ref EksSubnet2
+  #     SecurityGroupIds:
+  #       - !Ref VpcEndpointSecurityGroup
+  #
+  # ApsWorkspacesEndpoint:
+  #   Type: AWS::EC2::VPCEndpoint
+  #   Properties:
+  #     VpcId: !Ref VPC
+  #     ServiceName: !Sub 'com.amazonaws.${AWS::Region}.aps-workspaces'
+  #     VpcEndpointType: Interface
+  #     PrivateDnsEnabled: true
+  #     SubnetIds:
+  #       - !Ref EksSubnet1
+  #       - !Ref EksSubnet2
+  #     SecurityGroupIds:
+  #       - !Ref VpcEndpointSecurityGroup
+  #
+  # GrafanaWorkspaceEndpoint:
+  #   Type: AWS::EC2::VPCEndpoint
+  #   Properties:
+  #     VpcId: !Ref VPC
+  #     ServiceName: !Sub 'com.amazonaws.${AWS::Region}.grafana-workspace'
+  #     VpcEndpointType: Interface
+  #     PrivateDnsEnabled: true
+  #     SubnetIds:
+  #       - !Ref EksSubnet1
+  #       - !Ref EksSubnet2
+  #     SecurityGroupIds:
+  #       - !Ref VpcEndpointSecurityGroup
+
+Outputs:
+  VpcId:
+    Description: VPC ID
+    Value: !Ref VPC
+
+  HyperPodSubnetId:
+    Description: Subnet ID for HyperPod nodes
+    Value: !Ref HyperPodSubnet
+
+  EksSubnet1Id:
+    Description: Subnet ID for EKS cluster (AZ1)
+    Value: !Ref EksSubnet1
+
+  EksSubnet2Id:
+    Description: Subnet ID for EKS cluster (AZ2)
+    Value: !Ref EksSubnet2
+
+  # VpcEndpointSecurityGroupId:
+  #   Description: Security group ID for VPC endpoints
+  #   Value: !Ref VpcEndpointSecurityGroup
