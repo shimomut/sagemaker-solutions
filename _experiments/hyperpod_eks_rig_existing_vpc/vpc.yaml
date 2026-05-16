@@ -36,6 +36,22 @@ Parameters:
     Type: String
     Description: Availability zone ID for EKS cluster subnet 2 (e.g., usw2-az1)
 
+  EnableInternetAccess:
+    Type: String
+    Default: 'false'
+    AllowedValues:
+      - 'true'
+      - 'false'
+    Description: Enable internet access via Internet Gateway and NAT Gateway
+
+  PublicSubnetCidr:
+    Type: String
+    Default: 10.0.9.0/28
+    Description: CIDR block for the public subnet (used for NAT Gateway)
+
+Conditions:
+  InternetAccessEnabled: !Equals [!Ref EnableInternetAccess, 'true']
+
 Resources:
 
   # VPC
@@ -117,6 +133,95 @@ Resources:
     Properties:
       SubnetId: !Ref EksSubnet2
       RouteTableId: !Ref EksRouteTable
+
+  # Internet Access (conditional)
+
+  PublicSubnet:
+    Type: AWS::EC2::Subnet
+    Condition: InternetAccessEnabled
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !Ref PublicSubnetCidr
+      AvailabilityZoneId: !Ref EksSubnet1Az
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-public-subnet'
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Condition: InternetAccessEnabled
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-igw'
+
+  InternetGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Condition: InternetAccessEnabled
+    Properties:
+      VpcId: !Ref VPC
+      InternetGatewayId: !Ref InternetGateway
+
+  NatGatewayEip:
+    Type: AWS::EC2::EIP
+    Condition: InternetAccessEnabled
+    Properties:
+      Domain: vpc
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-nat-eip'
+
+  NatGateway:
+    Type: AWS::EC2::NatGateway
+    Condition: InternetAccessEnabled
+    Properties:
+      AllocationId: !GetAtt NatGatewayEip.AllocationId
+      SubnetId: !Ref PublicSubnet
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-nat-gw'
+
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Condition: InternetAccessEnabled
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-public-rt'
+
+  PublicRoute:
+    Type: AWS::EC2::Route
+    Condition: InternetAccessEnabled
+    DependsOn: InternetGatewayAttachment
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  PublicSubnetRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Condition: InternetAccessEnabled
+    Properties:
+      SubnetId: !Ref PublicSubnet
+      RouteTableId: !Ref PublicRouteTable
+
+  HyperPodNatRoute:
+    Type: AWS::EC2::Route
+    Condition: InternetAccessEnabled
+    Properties:
+      RouteTableId: !Ref HyperPodRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NatGateway
+
+  EksNatRoute:
+    Type: AWS::EC2::Route
+    Condition: InternetAccessEnabled
+    Properties:
+      RouteTableId: !Ref EksRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NatGateway
 
   # # Security Group for VPC Endpoints
   # VpcEndpointSecurityGroup:

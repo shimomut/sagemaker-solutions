@@ -5,16 +5,15 @@ This solution demonstrates how to set up an existing VPC/Subnets for a HyperPod 
 ## Architecture
 
 - **VPC** with DNS support and DNS hostnames enabled
-- **3 Subnets:**
+- **3 Private Subnets:**
   - 1x HyperPod nodes subnet (`/21` - 2046 usable IPs)
   - 2x EKS cluster subnets (`/28` - 14 usable IPs each, in separate AZs)
-- **VPC Endpoints** (to allow AWS service access without internet):
+- **VPC Endpoints:**
   - S3 (Gateway type)
-  - Lambda (Interface type)
-  - SQS (Interface type)
-  - APS Workspaces (Interface type)
-  - Grafana Workspace (Interface type)
-- **No Internet Gateway or NAT Gateway** - verifying RIG works in a fully private network
+- **Optional Internet Access** (disabled by default):
+  - 1x Public subnet with Internet Gateway
+  - NAT Gateway for private subnet outbound traffic
+  - When disabled, verifies RIG works in a fully private network
 
 ## Usage
 
@@ -26,9 +25,23 @@ aws cloudformation deploy \
     --stack-name hyperpod-eks-rig-vpc \
     --region <your-region> \
     --parameter-overrides \
-        HyperPodSubnetAz=<az-for-hyperpod> \
-        EksSubnet1Az=<az-for-eks-1> \
-        EksSubnet2Az=<az-for-eks-2>
+        HyperPodSubnetAz=<az-id-for-hyperpod> \
+        EksSubnet1Az=<az-id-for-eks-1> \
+        EksSubnet2Az=<az-id-for-eks-2>
+```
+
+To enable internet access (creates public subnet, Internet Gateway, and NAT Gateway):
+
+```bash
+aws cloudformation deploy \
+    --template-file vpc.yaml \
+    --stack-name hyperpod-eks-rig-vpc \
+    --region <your-region> \
+    --parameter-overrides \
+        HyperPodSubnetAz=<az-id-for-hyperpod> \
+        EksSubnet1Az=<az-id-for-eks-1> \
+        EksSubnet2Az=<az-id-for-eks-2> \
+        EnableInternetAccess=true
 ```
 
 ### 2. Get the outputs
