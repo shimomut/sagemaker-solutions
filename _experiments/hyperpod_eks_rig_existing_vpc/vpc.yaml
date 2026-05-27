@@ -16,13 +16,13 @@ Parameters:
 
   EksSubnet1Cidr:
     Type: String
-    Default: 10.0.8.0/28
-    Description: CIDR block for EKS cluster subnet 1 (/28 = 14 hosts)
+    Default: 10.0.8.0/26
+    Description: CIDR block for EKS cluster subnet 1 (/26 = 62 hosts)
 
   EksSubnet2Cidr:
     Type: String
-    Default: 10.0.8.16/28
-    Description: CIDR block for EKS cluster subnet 2 (/28 = 14 hosts)
+    Default: 10.0.8.64/26
+    Description: CIDR block for EKS cluster subnet 2 (/26 = 62 hosts)
 
   HyperPodSubnetAz:
     Type: String
@@ -35,6 +35,11 @@ Parameters:
   EksSubnet2Az:
     Type: String
     Description: Availability zone ID for EKS cluster subnet 2 (e.g., usw2-az1)
+
+  KubernetesVersion:
+    Type: String
+    Default: '1.32'
+    Description: Kubernetes version for the EKS cluster
 
   EnableInternetAccess:
     Type: String
@@ -223,20 +228,38 @@ Resources:
       DestinationCidrBlock: 0.0.0.0/0
       NatGatewayId: !Ref NatGateway
 
-  # # Security Group for VPC Endpoints
-  # VpcEndpointSecurityGroup:
-  #   Type: AWS::EC2::SecurityGroup
-  #   Properties:
-  #     GroupDescription: Security group for VPC endpoints
-  #     VpcId: !Ref VPC
-  #     SecurityGroupIngress:
-  #       - IpProtocol: tcp
-  #         FromPort: 443
-  #         ToPort: 443
-  #         CidrIp: !Ref VpcCidr
-  #     Tags:
-  #       - Key: Name
-  #         Value: !Sub '${AWS::StackName}-vpce-sg'
+  # Shared Security Group for VPC endpoints and HyperPod/EKS nodes
+  SecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Shared security group for VPC endpoints and HyperPod/EKS nodes
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-sg'
+
+  SecurityGroupIngressSelf:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref SecurityGroup
+      IpProtocol: '-1'
+      SourceSecurityGroupId: !Ref SecurityGroup
+
+  SecurityGroupEgressSelf:
+    Type: AWS::EC2::SecurityGroupEgress
+    Properties:
+      GroupId: !Ref SecurityGroup
+      IpProtocol: '-1'
+      DestinationSecurityGroupId: !Ref SecurityGroup
+
+  SecurityGroupIngressVpcEndpoints:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref SecurityGroup
+      IpProtocol: tcp
+      FromPort: 443
+      ToPort: 443
+      CidrIp: !Ref VpcCidr
 
   # VPC Endpoints
 
@@ -250,57 +273,168 @@ Resources:
         - !Ref HyperPodRouteTable
         - !Ref EksRouteTable
 
-  # LambdaEndpoint:
-  #   Type: AWS::EC2::VPCEndpoint
-  #   Properties:
-  #     VpcId: !Ref VPC
-  #     ServiceName: !Sub 'com.amazonaws.${AWS::Region}.lambda'
-  #     VpcEndpointType: Interface
-  #     PrivateDnsEnabled: true
-  #     SubnetIds:
-  #       - !Ref EksSubnet1
-  #       - !Ref EksSubnet2
-  #     SecurityGroupIds:
-  #       - !Ref VpcEndpointSecurityGroup
-  #
-  # SqsEndpoint:
-  #   Type: AWS::EC2::VPCEndpoint
-  #   Properties:
-  #     VpcId: !Ref VPC
-  #     ServiceName: !Sub 'com.amazonaws.${AWS::Region}.sqs'
-  #     VpcEndpointType: Interface
-  #     PrivateDnsEnabled: true
-  #     SubnetIds:
-  #       - !Ref EksSubnet1
-  #       - !Ref EksSubnet2
-  #     SecurityGroupIds:
-  #       - !Ref VpcEndpointSecurityGroup
-  #
-  # ApsWorkspacesEndpoint:
-  #   Type: AWS::EC2::VPCEndpoint
-  #   Properties:
-  #     VpcId: !Ref VPC
-  #     ServiceName: !Sub 'com.amazonaws.${AWS::Region}.aps-workspaces'
-  #     VpcEndpointType: Interface
-  #     PrivateDnsEnabled: true
-  #     SubnetIds:
-  #       - !Ref EksSubnet1
-  #       - !Ref EksSubnet2
-  #     SecurityGroupIds:
-  #       - !Ref VpcEndpointSecurityGroup
-  #
-  # GrafanaWorkspaceEndpoint:
-  #   Type: AWS::EC2::VPCEndpoint
-  #   Properties:
-  #     VpcId: !Ref VPC
-  #     ServiceName: !Sub 'com.amazonaws.${AWS::Region}.grafana-workspace'
-  #     VpcEndpointType: Interface
-  #     PrivateDnsEnabled: true
-  #     SubnetIds:
-  #       - !Ref EksSubnet1
-  #       - !Ref EksSubnet2
-  #     SecurityGroupIds:
-  #       - !Ref VpcEndpointSecurityGroup
+  EcrApiEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      VpcId: !Ref VPC
+      ServiceName: !Sub 'com.amazonaws.${AWS::Region}.ecr.api'
+      VpcEndpointType: Interface
+      PrivateDnsEnabled: true
+      SubnetIds:
+        - !Ref EksSubnet1
+        - !Ref EksSubnet2
+      SecurityGroupIds:
+        - !Ref SecurityGroup
+
+  EcrDkrEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      VpcId: !Ref VPC
+      ServiceName: !Sub 'com.amazonaws.${AWS::Region}.ecr.dkr'
+      VpcEndpointType: Interface
+      PrivateDnsEnabled: true
+      SubnetIds:
+        - !Ref EksSubnet1
+        - !Ref EksSubnet2
+      SecurityGroupIds:
+        - !Ref SecurityGroup
+
+  SsmEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      VpcId: !Ref VPC
+      ServiceName: !Sub 'com.amazonaws.${AWS::Region}.ssm'
+      VpcEndpointType: Interface
+      PrivateDnsEnabled: true
+      SubnetIds:
+        - !Ref EksSubnet1
+        - !Ref EksSubnet2
+      SecurityGroupIds:
+        - !Ref SecurityGroup
+
+  Ec2MessagesEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      VpcId: !Ref VPC
+      ServiceName: !Sub 'com.amazonaws.${AWS::Region}.ec2messages'
+      VpcEndpointType: Interface
+      PrivateDnsEnabled: true
+      SubnetIds:
+        - !Ref EksSubnet1
+        - !Ref EksSubnet2
+      SecurityGroupIds:
+        - !Ref SecurityGroup
+
+  SsmMessagesEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      VpcId: !Ref VPC
+      ServiceName: !Sub 'com.amazonaws.${AWS::Region}.ssmmessages'
+      VpcEndpointType: Interface
+      PrivateDnsEnabled: true
+      SubnetIds:
+        - !Ref EksSubnet1
+        - !Ref EksSubnet2
+      SecurityGroupIds:
+        - !Ref SecurityGroup
+
+  Ec2Endpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      VpcId: !Ref VPC
+      ServiceName: !Sub 'com.amazonaws.${AWS::Region}.ec2'
+      VpcEndpointType: Interface
+      PrivateDnsEnabled: true
+      SubnetIds:
+        - !Ref EksSubnet1
+        - !Ref EksSubnet2
+      SecurityGroupIds:
+        - !Ref SecurityGroup
+
+  StsEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      VpcId: !Ref VPC
+      ServiceName: !Sub 'com.amazonaws.${AWS::Region}.sts'
+      VpcEndpointType: Interface
+      PrivateDnsEnabled: true
+      SubnetIds:
+        - !Ref EksSubnet1
+        - !Ref EksSubnet2
+      SecurityGroupIds:
+        - !Ref SecurityGroup
+
+  LogsEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      VpcId: !Ref VPC
+      ServiceName: !Sub 'com.amazonaws.${AWS::Region}.logs'
+      VpcEndpointType: Interface
+      PrivateDnsEnabled: true
+      SubnetIds:
+        - !Ref EksSubnet1
+        - !Ref EksSubnet2
+      SecurityGroupIds:
+        - !Ref SecurityGroup
+
+  MonitoringEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      VpcId: !Ref VPC
+      ServiceName: !Sub 'com.amazonaws.${AWS::Region}.monitoring'
+      VpcEndpointType: Interface
+      PrivateDnsEnabled: true
+      SubnetIds:
+        - !Ref EksSubnet1
+        - !Ref EksSubnet2
+      SecurityGroupIds:
+        - !Ref SecurityGroup
+
+  EksAuthEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      VpcId: !Ref VPC
+      ServiceName: !Sub 'com.amazonaws.${AWS::Region}.eks-auth'
+      VpcEndpointType: Interface
+      PrivateDnsEnabled: true
+      SubnetIds:
+        - !Ref EksSubnet1
+        - !Ref EksSubnet2
+      SecurityGroupIds:
+        - !Ref SecurityGroup
+
+  # EKS Cluster
+
+  EksClusterRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${AWS::StackName}-eks-cluster-role'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: eks.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonEKSClusterPolicy
+
+  EksCluster:
+    Type: AWS::EKS::Cluster
+    Properties:
+      Name: !Sub '${AWS::StackName}-eks'
+      Version: !Ref KubernetesVersion
+      RoleArn: !GetAtt EksClusterRole.Arn
+      AccessConfig:
+        AuthenticationMode: API_AND_CONFIG_MAP
+      ResourcesVpcConfig:
+        SubnetIds:
+          - !Ref EksSubnet1
+          - !Ref EksSubnet2
+        SecurityGroupIds:
+          - !Ref SecurityGroup
+        EndpointPublicAccess: true
+        EndpointPrivateAccess: true
 
 Outputs:
   VpcId:
@@ -319,6 +453,14 @@ Outputs:
     Description: Subnet ID for EKS cluster (AZ2)
     Value: !Ref EksSubnet2
 
-  # VpcEndpointSecurityGroupId:
-  #   Description: Security group ID for VPC endpoints
-  #   Value: !Ref VpcEndpointSecurityGroup
+  SecurityGroupId:
+    Description: Shared security group ID for VPC endpoints and HyperPod/EKS nodes
+    Value: !Ref SecurityGroup
+
+  EksClusterName:
+    Description: EKS cluster name
+    Value: !Ref EksCluster
+
+  EksClusterArn:
+    Description: EKS cluster ARN
+    Value: !GetAtt EksCluster.Arn
