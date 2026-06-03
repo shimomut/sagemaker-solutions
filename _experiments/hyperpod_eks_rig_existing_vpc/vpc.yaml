@@ -258,6 +258,18 @@ Resources:
       IpProtocol: '-1'
       DestinationSecurityGroupId: !Ref SecurityGroup
 
+  # Likely redundant since SecurityGroupEgress already allows 0.0.0.0/0,
+  # but keeping it to verify whether the cluster creation issue still reproduces.
+  SecurityGroupEgressS3:
+    Type: AWS::EC2::SecurityGroupEgress
+    Properties:
+      GroupId: !Ref SecurityGroup
+      IpProtocol: tcp
+      FromPort: 443
+      ToPort: 443
+      DestinationPrefixListId: pl-68a54001  # com.amazonaws.us-west-2.s3
+      Description: Allow HTTPS egress to S3 via gateway endpoint
+
   SecurityGroupIngressVpcEndpoints:
     Type: AWS::EC2::SecurityGroupIngress
     Properties:
