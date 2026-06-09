@@ -1,0 +1,19 @@
+# Pod requests 999 nvidia.com/gpu — far more than any node can satisfy. The
+# scheduler can never bind it; the pod sits Pending with a FailedScheduling
+# event mentioning "Insufficient nvidia.com/gpu".
+apiVersion: v1
+kind: Pod
+metadata:
+  name: pending-gpu-pod
+  labels:
+    app: hp-troubleshoot
+    case: pending
+spec:
+  restartPolicy: Never
+  containers:
+    - name: app
+      image: nvidia/cuda:12.4.1-base-ubuntu22.04
+      command: ["sleep", "3600"]
+      resources:
+        limits:
+          nvidia.com/gpu: 999

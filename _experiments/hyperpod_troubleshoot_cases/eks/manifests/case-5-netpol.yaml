@@ -1,0 +1,95 @@
+# Default-deny NetworkPolicy on the namespace plus two pods that try to talk
+# to each other. Pod-to-pod TCP is blocked, so torch rendezvous (or any
+# socket-level NCCL handshake) never completes.
+#
+# Note: only takes effect if the cluster runs a NetworkPolicy-capable CNI
+# (e.g. Calico, Cilium). On VPC-CNI without policy enforcement, this case is
+# a no-op — useful for testing whether the agent notices that.
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-all
+  labels:
+    app: nccl-netpol
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: nccl-netpol-svc
+  labels:
+    app: nccl-netpol
+spec:
+  clusterIP: None
+  selector:
+    app: nccl-netpol
+  ports:
+    - port: 29500
+      name: torch
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: nccl-netpol-rank0
+  labels:
+    app: nccl-netpol
+    rank: "0"
+spec:
+  hostname: nccl-netpol-rank0
+  subdomain: nccl-netpol-svc
+  restartPolicy: Never
+  containers:
+    - name: torch
+      image: pytorch/pytorch:2.4.0-cuda12.1-cudnn9-runtime
+      env:
+        - name: MASTER_ADDR
+          value: "nccl-netpol-rank0.nccl-netpol-svc"
+        - name: MASTER_PORT
+          value: "29500"
+        - name: WORLD_SIZE
+          value: "2"
+        - name: RANK
+          value: "0"
+      command: ["python", "-c"]
+      args:
+        - |
+          import os, datetime, torch.distributed as dist
+          dist.init_process_group(backend="gloo", init_method="env://",
+              timeout=datetime.timedelta(minutes=5))
+          print("rendezvous done", flush=True)
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: nccl-netpol-rank1
+  labels:
+    app: nccl-netpol
+    rank: "1"
+spec:
+  hostname: nccl-netpol-rank1
+  subdomain: nccl-netpol-svc
+  restartPolicy: Never
+  containers:
+    - name: torch
+      image: pytorch/pytorch:2.4.0-cuda12.1-cudnn9-runtime
+      env:
+        - name: MASTER_ADDR
+          value: "nccl-netpol-rank0.nccl-netpol-svc"
+        - name: MASTER_PORT
+          value: "29500"
+        - name: WORLD_SIZE
+          value: "2"
+        - name: RANK
+          value: "1"
+      command: ["python", "-c"]
+      args:
+        - |
+          import os, datetime, torch.distributed as dist
+          dist.init_process_group(backend="gloo", init_method="env://",
+              timeout=datetime.timedelta(minutes=5))
+          print("rendezvous done", flush=True)

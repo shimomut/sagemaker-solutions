@@ -1,0 +1,91 @@
+# Two pods running torch.distributed AllReduce. MASTER_ADDR points at a host
+# that does not exist, so init_process_group blocks until NCCL_TIMEOUT fires.
+# This reproduces the classic "training hangs at NCCL init" symptom.
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: nccl-hang-svc
+  labels:
+    app: nccl-hang
+spec:
+  clusterIP: None
+  selector:
+    app: nccl-hang
+  ports:
+    - port: 29500
+      name: torch
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: nccl-hang-rank0
+  labels:
+    app: nccl-hang
+    rank: "0"
+spec:
+  hostname: nccl-hang-rank0
+  subdomain: nccl-hang-svc
+  restartPolicy: Never
+  containers:
+    - name: torch
+      image: pytorch/pytorch:2.4.0-cuda12.1-cudnn9-runtime
+      env:
+        - name: MASTER_ADDR
+          value: "this-host-does-not-exist.cluster.local"
+        - name: MASTER_PORT
+          value: "29500"
+        - name: WORLD_SIZE
+          value: "2"
+        - name: RANK
+          value: "0"
+        - name: NCCL_DEBUG
+          value: "INFO"
+      command: ["python", "-c"]
+      args:
+        - |
+          import os, datetime, torch, torch.distributed as dist
+          print("starting rank", os.environ["RANK"], flush=True)
+          dist.init_process_group(
+              backend="gloo",
+              init_method="env://",
+              timeout=datetime.timedelta(minutes=10),
+          )
+          print("rendezvous done", flush=True)
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: nccl-hang-rank1
+  labels:
+    app: nccl-hang
+    rank: "1"
+spec:
+  hostname: nccl-hang-rank1
+  subdomain: nccl-hang-svc
+  restartPolicy: Never
+  containers:
+    - name: torch
+      image: pytorch/pytorch:2.4.0-cuda12.1-cudnn9-runtime
+      env:
+        - name: MASTER_ADDR
+          value: "this-host-does-not-exist.cluster.local"
+        - name: MASTER_PORT
+          value: "29500"
+        - name: WORLD_SIZE
+          value: "2"
+        - name: RANK
+          value: "1"
+        - name: NCCL_DEBUG
+          value: "INFO"
+      command: ["python", "-c"]
+      args:
+        - |
+          import os, datetime, torch, torch.distributed as dist
+          print("starting rank", os.environ["RANK"], flush=True)
+          dist.init_process_group(
+              backend="gloo",
+              init_method="env://",
+              timeout=datetime.timedelta(minutes=10),
+          )
+          print("rendezvous done", flush=True)
