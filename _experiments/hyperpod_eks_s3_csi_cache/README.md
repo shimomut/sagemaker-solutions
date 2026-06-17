@@ -22,7 +22,7 @@ This guide demonstrates how to configure the **Mountpoint for Amazon S3 CSI driv
         │
         ▼
 ┌─────────────────────────────────────────────────────────┐
-│  Mountpoint for S3 CSI Driver (s3.csi.aws.com)         │
+│  Mountpoint for S3 CSI Driver (s3.csi.aws.com)          │
 │  ┌───────────────────────────────────────────────────┐  │
 │  │  Local Cache: emptyDir or ephemeral volume        │  │
 │  │  Backed by: NVMe instance store                   │  │
@@ -31,7 +31,7 @@ This guide demonstrates how to configure the **Mountpoint for Amazon S3 CSI driv
         │
         ▼
 ┌─────────────────────────────────────────────────────────┐
-│  Amazon S3 (same region/AZ as compute)                 │
+│  Amazon S3 (same region/AZ as compute)                  │
 └─────────────────────────────────────────────────────────┘
 ```
 
@@ -355,7 +355,7 @@ Mountpoint Pod uses the NVMe-backed volume as local cache
 
 Same as Option A, Step 1 (the driver install is identical).
 
-### Step 2: Deploy the setup DaemonSet + provisioner
+### Step 2: Deploy the setup DaemonSet + provisioner + cleanup controller
 
 ```bash
 # Adjust the nodeSelector in nvme-cache-setup-daemonset.yaml to your NVMe instance type first.
@@ -363,13 +363,20 @@ make install-nvme-cache
 # equivalent to:
 #   kubectl apply -f manifests/nvme-cache-setup-daemonset.yaml
 #   kubectl apply -f manifests/nvme-cache-provisioner.yaml
+#   kubectl apply -f manifests/nvme-cache-node-cleanup.yaml
 ```
+
+This deploys three things:
+- **`nvme-cache-setup`** DaemonSet — bind-mounts cache directories on `/opt/dlami/nvme`.
+- **Local Volume Static Provisioner** — publishes those as `nvme-cache` PVs.
+- **Local Volume Node Cleanup Controller** (`registry.k8s.io/sig-storage/local-volume-node-cleanup:v2.8.0`) — automatically deletes orphaned `nvme-cache` PVs when a node is removed, so stale PVs don't accumulate (see Known limitations).
 
 Verify the local PVs were published (one per `vol` per node):
 
 ```bash
 kubectl -n kube-system get pods -l app=nvme-cache-setup
 kubectl -n kube-system get pods -l app.kubernetes.io/name=local-static-provisioner
+kubectl -n kube-system get pods -l app=local-volume-node-cleanup
 kubectl get pv | grep nvme-cache   # expect Available PVs in StorageClass nvme-cache
 ```
 

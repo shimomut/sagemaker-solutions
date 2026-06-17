@@ -73,7 +73,7 @@ help:
 	@echo "  delete-a              Delete PV + PVC"
 	@echo ""
 	@echo "Option B — ephemeral cache on the DLAMI NVMe (no lifecycle edit / node recreation):"
-	@echo "  install-nvme-cache         Deploy setup DaemonSet + Local Volume Static Provisioner (nvme-cache SC)"
+	@echo "  install-nvme-cache         Deploy setup DaemonSet + provisioner + node-cleanup controller (nvme-cache SC)"
 	@echo "  delete-nvme-cache          Remove the provisioner + setup DaemonSet"
 	@echo "  list-orphaned-pvs          List orphaned nvme-cache PVs (node no longer exists)"
 	@echo "  prune-orphaned-pvs         Delete orphaned nvme-cache PVs"
@@ -165,11 +165,13 @@ delete-a:
 install-nvme-cache:
 	kubectl apply -f $(MANIFESTS)/nvme-cache-setup-daemonset.yaml
 	kubectl apply -f $(MANIFESTS)/nvme-cache-provisioner.yaml
+	kubectl apply -f $(MANIFESTS)/nvme-cache-node-cleanup.yaml
 	@echo "Deployed. Once the setup DaemonSet and provisioner are running, verify PVs with:"
 	@echo "  kubectl get pv | grep $(NVME_STORAGE_CLASS)"
 
 .PHONY: delete-nvme-cache
 delete-nvme-cache:
+	kubectl delete -f $(MANIFESTS)/nvme-cache-node-cleanup.yaml --ignore-not-found
 	kubectl delete -f $(MANIFESTS)/nvme-cache-provisioner.yaml --ignore-not-found
 	kubectl delete -f $(MANIFESTS)/nvme-cache-setup-daemonset.yaml --ignore-not-found
 

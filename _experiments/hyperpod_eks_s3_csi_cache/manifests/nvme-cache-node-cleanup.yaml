@@ -1,0 +1,91 @@
+# Option B — optional but recommended.
+#
+# Local Volume Node Cleanup Controller (part of the sig-storage-local-static-provisioner
+# project). It watches for Node deletions and removes the now-orphaned local PVs
+# (and any bound PVCs) that were pinned to those nodes, scoped to the nvme-cache
+# StorageClass. This automates what `make prune-orphaned-pvs` does manually.
+#
+# Image is the promoted stable release (matches the provisioner version v2.8.0):
+#   registry.k8s.io/sig-storage/local-volume-node-cleanup:v2.8.0
+#
+# Note: it only deletes PV/PVC API objects, not on-disk data (instance-store data
+# is assumed lost when the node is deleted, which is true for HyperPod NVMe).
+#
+# Reference:
+#   https://github.com/kubernetes-sigs/sig-storage-local-static-provisioner/blob/master/docs/node-cleanup-controller.md
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: local-volume-node-cleanup-controller
+  namespace: kube-system
+  labels:
+    app: local-volume-node-cleanup
+---
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: local-volume-node-cleanup-controller-runner
+  labels:
+    app: local-volume-node-cleanup
+rules:
+  - apiGroups: [""]
+    resources: ["persistentvolumes"]
+    verbs: ["get", "list", "watch", "delete"]
+  - apiGroups: [""]
+    resources: ["persistentvolumeclaims"]
+    verbs: ["get", "list", "watch", "delete"]
+  - apiGroups: [""]
+    resources: ["nodes"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["create"]
+---
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: local-volume-node-cleanup-controller-role
+  labels:
+    app: local-volume-node-cleanup
+subjects:
+  - kind: ServiceAccount
+    name: local-volume-node-cleanup-controller
+    namespace: kube-system
+roleRef:
+  kind: ClusterRole
+  name: local-volume-node-cleanup-controller-runner
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: local-volume-node-cleanup-controller
+  namespace: kube-system
+  labels:
+    app: local-volume-node-cleanup
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: local-volume-node-cleanup
+  template:
+    metadata:
+      labels:
+        app: local-volume-node-cleanup
+    spec:
+      serviceAccountName: local-volume-node-cleanup-controller
+      nodeSelector:
+        kubernetes.io/os: linux
+      tolerations:
+        - operator: Exists
+      containers:
+        - name: local-volume-node-cleanup-controller
+          image: registry.k8s.io/sig-storage/local-volume-node-cleanup:v2.8.0
+          args:
+            - "--storageclass-names=nvme-cache"
+            - "--pvc-deletion-delay=60s"
+            - "--stale-pv-discovery-interval=10s"
+          ports:
+            - name: metrics
+              containerPort: 8080
