@@ -461,10 +461,12 @@ For both options the warm reads were served from the instance-local NVMe cache (
 
 A scaled-up node runs the identical bootstrap path (same `on_create.sh` + DaemonSets schedule onto it), so it configures the same way. (A literal scale-up test was blocked only by an `ml.g6.8xlarge` account quota of 2, so a node replacement was used to exercise the same new-node path.)
 
-### Known limitations
+### Known limitations (Option B)
 
-- **Option B `nodeSelector` is instance-type-specific.** `manifests/nvme-cache-setup-daemonset.yaml` targets `node.kubernetes.io/instance-type: ml.g6.8xlarge`. Scaling up a *different* NVMe instance type won't auto-configure Option B until you broaden that selector (or switch to a label-based selector covering all your NVMe instance types). Option A has no such limitation — its lifecycle logic auto-detects NVMe on any instance type.
-- **Stale local PVs on node turnover.** When a node is replaced/removed, its `nvme-cache` PVs remain `Available` with node-affinity to a node that no longer exists. They're harmless but accumulate; delete the orphaned `Available` PVs (or recreate the provisioner) to tidy up.
+Both of the following apply to Option B only; Option A is unaffected.
+
+- **`nodeSelector` is instance-type-specific.** `manifests/nvme-cache-setup-daemonset.yaml` targets `node.kubernetes.io/instance-type: ml.g6.8xlarge`. Scaling up a *different* NVMe instance type won't auto-configure Option B until you broaden that selector (or switch to a label-based selector covering all your NVMe instance types). Option A has no such limitation — its lifecycle logic auto-detects NVMe on any instance type.
+- **Stale local PVs on node turnover.** Option B's Local Volume Static Provisioner creates cluster-scoped `PersistentVolume` objects pinned to a node. When that node is replaced/removed, its `nvme-cache` PVs remain `Available` with node-affinity to a node that no longer exists — the provisioner only cleans up PVs when a *bound* PVC is released, so never-bound PVs linger. They're harmless (a stale PV's node-affinity prevents the scheduler from ever binding to it) but accumulate over time. Remediate by deploying the provisioner's [Node Cleanup Controller](https://github.com/kubernetes-sigs/sig-storage-local-static-provisioner/blob/master/docs/node-cleanup-controller.md), or periodically deleting the orphaned `Available` PVs. Option A's `emptyDir` cache is a pod-scoped volume with no PV object, so nothing lingers when a node goes away. (The cached *data* itself is ephemeral in both options regardless.)
 
 ---
 
