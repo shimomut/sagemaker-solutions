@@ -1,0 +1,37 @@
+# Test pod that mounts the S3-backed PVC at /data and stays alive for inspection.
+# Rendered by scripts/render.py (placeholders come from the Makefile / environment).
+apiVersion: v1
+kind: Pod
+metadata:
+  name: ${TEST_POD_NAME}
+  namespace: ${NAMESPACE}
+  labels:
+    app: ${TEST_POD_NAME}
+spec:
+  restartPolicy: Never
+  # Schedule onto the GPU/NVMe nodes. Adjust or remove for your cluster.
+  nodeSelector:
+    node.kubernetes.io/instance-type: ${TEST_INSTANCE_TYPE}
+  tolerations:
+    - operator: Exists
+  containers:
+    - name: app
+      image: ${TEST_IMAGE}
+      command:
+        - /bin/sh
+        - -c
+        - |
+          echo "Contents of /data:"
+          ls -la /data | head -n 20
+          echo "Filesystem view:"
+          df -h /data || true
+          echo "Ready. Sleeping for inspection..."
+          tail -f /dev/null
+      volumeMounts:
+        - name: training-data
+          mountPath: /data
+          readOnly: true
+  volumes:
+    - name: training-data
+      persistentVolumeClaim:
+        claimName: ${PVC_NAME}

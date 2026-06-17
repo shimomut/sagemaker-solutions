@@ -1,0 +1,15 @@
+# Shared PVC for both Option A and Option B (statically bound to the PV above).
+# Rendered by scripts/render.py (placeholders come from the Makefile / environment).
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: ${PVC_NAME}
+  namespace: ${NAMESPACE}
+spec:
+  accessModes:
+    - ReadOnlyMany
+  storageClassName: ""        # required for static provisioning
+  resources:
+    requests:
+      storage: 1200Gi         # ignored by the CSI driver, required by Kubernetes
+  volumeName: ${PV_NAME}

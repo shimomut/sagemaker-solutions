@@ -1,0 +1,28 @@
+# Option A: emptyDir local cache backed by NVMe (via the HyperPod kubelet symlink).
+# Rendered by scripts/render.py (placeholders come from the Makefile / environment).
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: ${PV_NAME}
+spec:
+  capacity:
+    storage: 1200Gi          # ignored by the CSI driver, required by Kubernetes
+  accessModes:
+    - ReadOnlyMany
+  mountOptions:
+    - region ${AWS_REGION}
+    - read-only
+    - metadata-ttl indefinite # cache metadata indefinitely for repeated reads
+  storageClassName: ""
+  claimRef:
+    namespace: ${NAMESPACE}
+    name: ${PVC_NAME}
+  csi:
+    driver: s3.csi.aws.com
+    volumeHandle: ${VOLUME_HANDLE}   # must be unique per PV
+    volumeAttributes:
+      bucketName: ${S3_BUCKET_NAME}
+      # --- Local cache configuration ---
+      cache: emptyDir
+      cacheEmptyDirSizeLimit: ${CACHE_SIZE_LIMIT}  # set a limit to avoid filling the node
+      # cacheEmptyDirMedium: Memory  # uncomment to use a tmpfs ramdisk instead of disk/NVMe

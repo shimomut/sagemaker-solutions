@@ -1,0 +1,32 @@
+# Option B: ephemeral local cache backed by a DEDICATED NVMe device, provisioned
+# by the Local Volume Static Provisioner (StorageClass: ${NVME_STORAGE_CLASS}).
+# Rendered by scripts/render.py (placeholders come from the Makefile / environment).
+#
+# Requires an instance type with a free NVMe instance-store disk (see
+# scripts/lifecycle_nvme_udev_snippet.sh and the README caveat).
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: ${PV_NAME}
+spec:
+  capacity:
+    storage: 1200Gi          # ignored by the CSI driver, required by Kubernetes
+  accessModes:
+    - ReadOnlyMany
+  mountOptions:
+    - region ${AWS_REGION}
+    - read-only
+    - metadata-ttl indefinite
+  storageClassName: ""
+  claimRef:
+    namespace: ${NAMESPACE}
+    name: ${PVC_NAME}
+  csi:
+    driver: s3.csi.aws.com
+    volumeHandle: ${VOLUME_HANDLE}
+    volumeAttributes:
+      bucketName: ${S3_BUCKET_NAME}
+      # --- Ephemeral cache backed by dedicated local NVMe ---
+      cache: ephemeral
+      cacheEphemeralStorageClassName: ${NVME_STORAGE_CLASS}
+      cacheEphemeralStorageResourceRequest: ${CACHE_EPHEMERAL_REQUEST}

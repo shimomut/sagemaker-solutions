@@ -68,6 +68,14 @@ python batch_transform.py --job-name my-transform-job
 aws sagemaker describe-transform-job --transform-job-name my-job
 ```
 
+## Script Conventions
+
+- Do NOT set executable file permissions (`chmod +x`) on scripts. Keep them at default `644`.
+- Always invoke scripts through their interpreter explicitly:
+  - Shell scripts: `bash script.sh`
+  - Python scripts: `python3 script.py`
+- Makefiles and docs should call scripts the same way (e.g. `bash scripts/setup.sh`), not as `./script.sh`.
+
 ## Development Patterns
 
 - Use Makefiles for common operations (especially HyperPod solutions)
