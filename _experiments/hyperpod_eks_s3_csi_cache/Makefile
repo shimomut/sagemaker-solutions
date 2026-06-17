@@ -28,8 +28,8 @@ VOLUME_HANDLE    ?= s3-training-data-volume
 # --- Option A: emptyDir cache (NVMe via kubelet symlink) ---
 CACHE_SIZE_LIMIT ?= 100Gi
 
-# --- Option B: ephemeral cache on dedicated NVMe ---
-NVME_STORAGE_CLASS      ?= nvme-ssd
+# --- Option B: ephemeral cache on the DLAMI NVMe filesystem (hostDir mode) ---
+NVME_STORAGE_CLASS      ?= nvme-cache
 CACHE_EPHEMERAL_REQUEST ?= 100Gi
 
 # --- Test pod ---
@@ -64,9 +64,9 @@ help:
 	@echo "  deploy-a              Apply PV (emptyDir cache) + PVC"
 	@echo "  delete-a              Delete PV + PVC"
 	@echo ""
-	@echo "Option B — ephemeral cache on dedicated NVMe (multi-NVMe instances):"
-	@echo "  install-nvme-provisioner   Deploy Local Volume Static Provisioner + nvme-ssd StorageClass"
-	@echo "  delete-nvme-provisioner    Remove the provisioner"
+	@echo "Option B — ephemeral cache on the DLAMI NVMe (no lifecycle edit / node recreation):"
+	@echo "  install-nvme-cache         Deploy setup DaemonSet + Local Volume Static Provisioner (nvme-cache SC)"
+	@echo "  delete-nvme-cache          Remove the provisioner + setup DaemonSet"
 	@echo "  deploy-b                   Apply PV (ephemeral cache) + PVC"
 	@echo "  delete-b                   Delete PV + PVC"
 	@echo ""
@@ -125,17 +125,19 @@ delete-a:
 	-$(RENDER) $(MANIFESTS)/pv-option-a.yaml | kubectl delete -f - --ignore-not-found
 
 # =============================================================================
-# Option B — ephemeral cache on dedicated NVMe
+# Option B — ephemeral cache on the DLAMI NVMe filesystem (hostDir mode)
 # =============================================================================
-.PHONY: install-nvme-provisioner
-install-nvme-provisioner:
-	kubectl apply -f $(MANIFESTS)/local-static-provisioner-nvme.yaml
-	@echo "Provisioner deployed. Verify discovered NVMe PVs with:"
+.PHONY: install-nvme-cache
+install-nvme-cache:
+	kubectl apply -f $(MANIFESTS)/nvme-cache-setup-daemonset.yaml
+	kubectl apply -f $(MANIFESTS)/nvme-cache-provisioner.yaml
+	@echo "Deployed. Once the setup DaemonSet and provisioner are running, verify PVs with:"
 	@echo "  kubectl get pv | grep $(NVME_STORAGE_CLASS)"
 
-.PHONY: delete-nvme-provisioner
-delete-nvme-provisioner:
-	kubectl delete -f $(MANIFESTS)/local-static-provisioner-nvme.yaml --ignore-not-found
+.PHONY: delete-nvme-cache
+delete-nvme-cache:
+	kubectl delete -f $(MANIFESTS)/nvme-cache-provisioner.yaml --ignore-not-found
+	kubectl delete -f $(MANIFESTS)/nvme-cache-setup-daemonset.yaml --ignore-not-found
 
 .PHONY: deploy-b
 deploy-b: guard-bucket

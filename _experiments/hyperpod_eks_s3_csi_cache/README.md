@@ -37,28 +37,65 @@ This guide demonstrates how to configure the **Mountpoint for Amazon S3 CSI driv
 
 ## Background: How NVMe is Configured on HyperPod EKS
 
-The HyperPod EKS lifecycle script (`on_create_main.sh`) relocates kubelet's data root to NVMe or secondary EBS at node creation time:
+The HyperPod EKS lifecycle script (`on_create_main.sh`) relocates kubelet's (and containerd's) data root to a chosen disk at node creation time. The disk is selected at the **top of the script**:
 
 ```bash
-# From the default lifecycle script (lines ~118-133):
-DISK_FOR_CONTAINERD_KUBELET="/opt/dlami/nvme"  # or "/opt/sagemaker"
+# From the default lifecycle script (lines ~8-9):
+DISK_FOR_CONTAINERD_KUBELET="/opt/sagemaker"      # DEFAULT: secondary EBS volume
+#DISK_FOR_CONTAINERD_KUBELET="/opt/dlami/nvme"    # alternative: local NVMe instance store
+```
 
+Later in the script, kubelet's data root is symlinked onto that disk:
+
+```bash
 mkdir -p "$DISK_FOR_CONTAINERD_KUBELET/kubelet"
 mv /var/lib/kubelet/* "$DISK_FOR_CONTAINERD_KUBELET/kubelet/"
 rmdir /var/lib/kubelet
 ln -s "$DISK_FOR_CONTAINERD_KUBELET/kubelet" /var/lib/
 ```
 
-This means all Kubernetes `emptyDir` volumes physically reside on the NVMe-backed path, since emptyDir is stored under `/var/lib/kubelet/pods/<pod-id>/volumes/kubernetes.io~empty-dir/`.
+> **Important:** By **default** this points at `/opt/sagemaker`, which is the **secondary EBS volume — not NVMe**. Because Kubernetes `emptyDir` volumes live under `/var/lib/kubelet/pods/<pod-id>/volumes/kubernetes.io~empty-dir/`, an `emptyDir` cache lands on **whatever disk `DISK_FOR_CONTAINERD_KUBELET` points to**. To back the cache with local NVMe (Option A), you must edit the script to use `/opt/dlami/nvme` (see Option A, Step 0).
+>
+> **Node recreation required:** The lifecycle script only runs when a node is **created**. After editing it, you must **recreate / replace the affected nodes** for the change to take effect — **rebooting an existing node is not sufficient**, since the script does not re-run on reboot.
 
 Reference: [HyperPod EKS Lifecycle Script](https://github.com/awslabs/awsome-distributed-ai/blob/main/1.architectures/7.sagemaker-hyperpod-eks/LifecycleScripts/base-config/on_create_main.sh)
+
+### How the DLAMI exposes the instance-store NVMe
+
+Observed on an `ml.g6.8xlarge` node (verify yours via SSM with `lsblk` / `mount`):
+
+- The instance has **two** local NVMe instance-store disks (model `Amazon EC2 NVMe Instance Storage`).
+- The DLAMI's `dlami-nvme.service` aggregates them with **LVM** into one volume group (`vg.01` → `lv_ephemeral`) formatted **ext4** and mounted at **`/opt/dlami/nvme`** (≈838 GB).
+- Under the default lifecycle config, kubelet/containerd live on `/opt/sagemaker` (EBS), so **`/opt/dlami/nvme` is essentially empty and available**.
+
+Two consequences shape the options below:
+
+1. The NVMe disks are **not raw block devices** — they are LVM members inside a mounted filesystem. So the Local Volume Static Provisioner's *device/raw* mode (and udev symlinks under `/dev/disk/kubernetes`) **does not apply** to the HyperPod DLAMI. Option B therefore uses the provisioner's **filesystem / `hostDir`** mode against `/opt/dlami/nvme`.
+2. The DLAMI already gives you a ready-to-use NVMe filesystem, so **Option B needs no lifecycle-script change and no node recreation** — it only adds Kubernetes-side components.
 
 ## Approach Options
 
 | Option | Cache Type | Backing Storage | Pros | Cons |
 |--------|-----------|-----------------|------|------|
-| **A** | `emptyDir` | NVMe via kubelet symlink | Simple; survives auto-recovery; no extra provisioner | Shares NVMe with containerd/other pods; no size guarantee |
-| **B** | `ephemeral` + Local Volume Static Provisioner | Dedicated NVMe partition | Isolated cache volume; predictable performance | Requires provisioner + udev rules + StorageClass |
+| **A** | `emptyDir` | NVMe via kubelet data-root relocation | Simplest architecture; no extra cluster components | Requires editing the lifecycle script + **node recreation**; shares NVMe with kubelet/containerd/all `emptyDir`s |
+| **B** | `ephemeral` + Local Volume Static Provisioner (`hostDir` mode) | A bind-mounted directory on the DLAMI NVMe (`/opt/dlami/nvme`) | **No lifecycle edit / no node recreation**; kubelet stays on EBS; cache isolated to its own PVs | More moving parts (privileged setup DaemonSet + provisioner + StorageClass); no hard capacity isolation on the shared filesystem |
+
+### Which option is easier?
+
+It depends on whether you can recreate nodes:
+
+| Aspect | Option A (`emptyDir`) | Option B (`hostDir` ephemeral) |
+|--------|-----------------------|--------------------------------|
+| Lifecycle script edit | Required (`DISK_FOR_CONTAINERD_KUBELET`) | Not required |
+| Node recreation | **Required** (reboot is not enough) | Not required |
+| Extra cluster components | None | Setup DaemonSet + provisioner + StorageClass |
+| kubelet/containerd storage | Moves onto NVMe | Stays on EBS |
+| Failure surface | Minimal | Higher (privileged bind-mounting DaemonSet) |
+
+- **Choose Option A** if you recreate/reprovision nodes routinely and want the simplest possible architecture (one config line, no add-on controllers).
+- **Choose Option B** if you cannot disrupt running nodes (no recreation), or want kubelet/containerd to stay on EBS while the cache uses NVMe.
+
+> **NVMe is a shared pool.** On instances whose instance store is aggregated into a single `/opt/dlami/nvme` filesystem (the DLAMI default), Option A and Option B both draw from that one NVMe pool. Option A gives the whole pool to kubelet (cache included); Option B keeps kubelet on EBS and dedicates `/opt/dlami/nvme` to the cache. Pick one per node group.
 
 ## Prerequisites
 
@@ -71,7 +108,24 @@ Reference: [HyperPod EKS Lifecycle Script](https://github.com/awslabs/awsome-dis
 
 ## Option A: `emptyDir` Cache (Recommended Starting Point)
 
-This is the simplest approach. It leverages the existing HyperPod lifecycle script that already symlinks kubelet to NVMe.
+This is the simplest approach: an `emptyDir` cache backed by local NVMe. It does not need a provisioner, but it **does require the kubelet data root to live on NVMe**, which is *not* the default (see Background).
+
+### Step 0: Point kubelet's data root at NVMe (lifecycle script)
+
+In your HyperPod EKS lifecycle script (`on_create_main.sh`), select the NVMe instance store:
+
+```bash
+# Edit lines ~8-9 of on_create_main.sh
+#DISK_FOR_CONTAINERD_KUBELET="/opt/sagemaker"     # comment out the EBS default
+DISK_FOR_CONTAINERD_KUBELET="/opt/dlami/nvme"     # use local NVMe instead
+```
+
+Then **recreate the affected nodes** so the updated script runs:
+
+- The lifecycle script executes **only at node creation**. Rebooting an existing node does **not** re-run it.
+- Replace/recreate the nodes (e.g. scale the instance group down and back up, or update the cluster software so nodes are reprovisioned). After recreation, verify on a node via SSM that `/var/lib/kubelet` is a symlink onto `/opt/dlami/nvme`.
+
+> Skip Step 0 only if you intentionally want the cache on the secondary EBS volume. On instances **without** NVMe instance store, `/opt/dlami/nvme` does not exist — use a different instance type (or accept the EBS-backed `emptyDir` cache).
 
 ### Step 1: Install Mountpoint S3 CSI Driver
 
@@ -192,7 +246,7 @@ spec:
       # Local cache configuration
       cache: emptyDir
       cacheEmptyDirSizeLimit: 500Gi  # IMPORTANT: set a limit to avoid filling the node
-      # cacheEmptyDirMedium: ""      # default = disk (NVMe via lifecycle script symlink)
+      # cacheEmptyDirMedium: ""      # default = disk; NVMe only if Step 0 set /opt/dlami/nvme
 ```
 
 ### Step 3: Create PersistentVolumeClaim
@@ -248,121 +302,87 @@ kubectl exec -it training-job -- ls /data/
 kubectl exec -it training-job -- df -h
 
 # On the node (via SSM), verify NVMe is backing kubelet
-ls -la /var/lib/kubelet  # should be a symlink to NVMe path
+ls -la /var/lib/kubelet  # should be a symlink to /opt/dlami/nvme/kubelet (after Step 0)
 df -h | grep nvme
 ```
 
 ---
 
-## Option B: `ephemeral` Cache with Local Volume Static Provisioner (Dedicated NVMe)
+## Option B: `ephemeral` Cache on the DLAMI NVMe (hostDir mode)
 
-Use this when you need an isolated, dedicated NVMe volume for S3 caching — separate from kubelet and containerd storage.
+Use this when you **can't recreate nodes** or want kubelet/containerd to stay on EBS while the S3 cache uses NVMe. It requires **no lifecycle-script change and no node recreation** — everything is deployed into the cluster.
 
-### Step 1: Add udev Rules to Lifecycle Script
+Because the DLAMI aggregates the instance-store NVMe into a single ext4 filesystem at `/opt/dlami/nvme` (see Background), this option uses the Local Volume Static Provisioner in **filesystem / `hostDir` mode**, not raw-device mode. The flow is:
 
-Add the following to your HyperPod lifecycle script (`on_create_main.sh`):
+```
+/opt/dlami/nvme (DLAMI NVMe fs)
+   └── s3-cache-src/vol1..N        (subdirectories)
+         │  bind-mounted by the setup DaemonSet
+         ▼
+/mnt/s3-cache-disks/vol1..N        (discovery dir, one mount point per PV)
+         │  discovered by the Local Volume Static Provisioner
+         ▼
+PersistentVolumes in StorageClass "nvme-cache"
+         │  bound to the S3 CSI driver's ephemeral cache PVC
+         ▼
+Mountpoint Pod uses the NVMe-backed volume as local cache
+```
+
+> **Why a setup DaemonSet?** The provisioner only discovers *mount points* in filesystem mode. A privileged DaemonSet (`nvme-cache-setup`) creates subdirectories on `/opt/dlami/nvme` and **bind-mounts** them into the discovery directory at runtime — so you avoid editing the lifecycle script. The pod re-creates the bind mounts on restart, so they survive reboots.
+
+### Step 1: Install the CSI driver
+
+Same as Option A, Step 1 (the driver install is identical).
+
+### Step 2: Deploy the setup DaemonSet + provisioner
 
 ```bash
-# === Dedicated NVMe for S3 Cache ===
-# Create udev rules to discover NVMe instance store devices
-cat << 'EOF' > /etc/udev/rules.d/90-kubernetes-discovery.rules
-KERNEL=="nvme[0-9]*n[0-9]*", ENV{DEVTYPE}=="disk", ATTRS{model}=="Amazon EC2 NVMe Instance Storage", SYMLINK+="disk/kubernetes/nvme%n"
-EOF
-
-udevadm control --reload-rules
-udevadm trigger
-
-# Format and mount a dedicated NVMe device for cache
-# NOTE: Adjust the device path based on your instance type.
-# Use `lsblk` and check model strings to identify instance store vs EBS NVMe.
-CACHE_DEVICE="/dev/disk/kubernetes/nvme1"  # adjust as needed
-CACHE_MOUNT="/mnt/disks/nvme-cache"
-
-if [ -b "$CACHE_DEVICE" ]; then
-    mkdir -p "$CACHE_MOUNT"
-    mkfs.xfs -f "$CACHE_DEVICE"
-    mount "$CACHE_DEVICE" "$CACHE_MOUNT"
-    echo "$CACHE_DEVICE $CACHE_MOUNT xfs defaults,noatime 0 0" >> /etc/fstab
-fi
+# Adjust the nodeSelector in nvme-cache-setup-daemonset.yaml to your NVMe instance type first.
+make install-nvme-cache
+# equivalent to:
+#   kubectl apply -f manifests/nvme-cache-setup-daemonset.yaml
+#   kubectl apply -f manifests/nvme-cache-provisioner.yaml
 ```
 
-### Step 2: Install Local Volume Static Provisioner
+Verify the local PVs were published (one per `vol` per node):
 
 ```bash
-helm repo add sig-storage-local-static-provisioner \
-  https://kubernetes-sigs.github.io/sig-storage-local-static-provisioner
-
-helm install local-static-provisioner \
-  sig-storage-local-static-provisioner/local-static-provisioner \
-  --namespace kube-system \
-  --set classes[0].name=local-nvme-sc \
-  --set classes[0].hostDir=/mnt/disks \
-  --set classes[0].volumeMode=Filesystem
+kubectl -n kube-system get pods -l app=nvme-cache-setup
+kubectl -n kube-system get pods -l app.kubernetes.io/name=local-static-provisioner
+kubectl get pv | grep nvme-cache   # expect Available PVs in StorageClass nvme-cache
 ```
 
-### Step 3: Create StorageClass
+### Step 3: Create the PV (ephemeral cache) + PVC
 
-```yaml
-# storageclass-local-nvme.yaml
-apiVersion: storage.k8s.io/v1
-kind: StorageClass
-metadata:
-  name: local-nvme-sc
-provisioner: kubernetes.io/no-provisioner
-volumeBindingMode: WaitForFirstConsumer
-reclaimPolicy: Delete
+```bash
+make deploy-b S3_BUCKET_NAME=<your-bucket>
 ```
 
-### Step 4: Create PersistentVolume with Ephemeral Cache
+This renders `manifests/pv-option-b.yaml` and `manifests/pvc.yaml`. The PV's cache attributes are:
 
 ```yaml
-# pv-s3-ephemeral-cache.yaml
-apiVersion: v1
-kind: PersistentVolume
-metadata:
-  name: s3-training-data-pv
-spec:
-  capacity:
-    storage: 1200Gi
-  accessModes:
-    - ReadOnlyMany
-  mountOptions:
-    - region <REGION>
-    - read-only
-    - metadata-ttl indefinite
-  storageClassName: ""
-  claimRef:
-    namespace: default
-    name: s3-training-data-pvc
-  csi:
-    driver: s3.csi.aws.com
-    volumeHandle: s3-training-data-volume
     volumeAttributes:
       bucketName: <YOUR-BUCKET-NAME>
-
-      # Ephemeral cache backed by local NVMe
       cache: ephemeral
-      cacheEphemeralStorageClassName: local-nvme-sc
-      cacheEphemeralStorageResourceRequest: 1000Gi
+      cacheEphemeralStorageClassName: nvme-cache
+      cacheEphemeralStorageResourceRequest: 100Gi
 ```
 
-### Step 5: Verify udev Rules on Node (via SSM)
+When a workload mounts the PVC, the S3 CSI driver creates an ephemeral PVC in `nvme-cache`; with `WaitForFirstConsumer` it binds to a local PV on the node where the Mountpoint Pod is scheduled.
+
+### Step 4: Verify on the node (via SSM)
 
 ```bash
-# Check udev rules are in place
-cat /etc/udev/rules.d/90-kubernetes-discovery.rules
+# The setup DaemonSet's bind mounts
+mount | grep s3-cache-disks
+ls -la /mnt/s3-cache-disks/
 
-# Check discovery symlinks
-ls -la /dev/disk/kubernetes/
-
-# Check NVMe devices and identify instance store vs EBS
-for dev in /dev/nvme*n1; do
-    echo "$dev: $(cat /sys/block/$(basename $dev)/device/model 2>/dev/null)"
-done
-
-# Check dedicated cache mount
-df -h | grep nvme-cache
+# The backing NVMe filesystem
+df -h /opt/dlami/nvme
 ```
+
+> **Capacity note:** All PVs that share the `/opt/dlami/nvme` filesystem report the full filesystem size and have **no hard capacity isolation** between them. The cache footprint is still bounded by `cacheEphemeralStorageResourceRequest` and Mountpoint's own cache management, but sizing should assume the volumes share one pool. For true isolation you would need separate partitions/LVs, which means lifecycle-script surgery (defeating Option B's no-recreation benefit).
+
 
 ---
 
@@ -371,11 +391,11 @@ df -h | grep nvme-cache
 | Component | Survives Node Replacement? | Why |
 |-----------|---------------------------|-----|
 | Mountpoint CSI driver | ✅ | Installed as EKS add-on (cluster-level) |
-| kubelet NVMe symlink | ✅ | Lifecycle script re-runs on new node |
-| emptyDir cache data | ❌ (cold start) | Cache is ephemeral — rebuilds on first access |
-| udev rules (Option B) | ✅ | Lifecycle script re-creates them |
-| NVMe format/mount (Option B) | ✅ | Lifecycle script re-formats on new node |
-| Static Provisioner PVs (Option B) | ✅ | DaemonSet auto-discovers new NVMe mounts |
+| kubelet NVMe symlink (Option A) | ✅ | Lifecycle script (with Step 0 edit) re-runs on new node |
+| `emptyDir` / `ephemeral` cache data | ❌ (cold start) | Cache is ephemeral — rebuilds on first access |
+| DLAMI `/opt/dlami/nvme` mount | ✅ | `dlami-nvme.service` re-creates the LVM mount at boot |
+| Bind mounts (Option B) | ✅ | `nvme-cache-setup` DaemonSet re-creates them on the new node |
+| Static Provisioner PVs (Option B) | ✅ | DaemonSet re-discovers the bind-mounted dirs |
 
 **Key point:** The cache data itself is always ephemeral — after a node replacement, the first read from S3 populates the cache. Subsequent reads are served from local storage. This is expected behavior and does not require manual intervention.
 
@@ -411,6 +431,11 @@ ls -la /var/lib/kubelet  # should be symlink
 # Check cache usage (Option A - emptyDir)
 du -sh /var/lib/kubelet/pods/*/volumes/kubernetes.io~empty-dir/
 
+# Check cache setup (Option B - hostDir bind mounts)
+kubectl -n kube-system logs -l app=nvme-cache-setup --tail=20
+mount | grep s3-cache-disks          # on the node, via SSM
+kubectl get pv | grep nvme-cache     # expect Available/Bound PVs
+
 # Check Mountpoint logs
 kubectl logs <mountpoint-pod-name> -n kube-system
 ```
@@ -424,4 +449,5 @@ kubectl logs <mountpoint-pod-name> -n kube-system
 - [HyperPod EKS — Set up an Amazon S3 Mountpoint](https://awslabs.github.io/ai-on-sagemaker-hyperpod/docs/eks-orchestration/getting-started/Set%20up%20an%20Amazon%20S3%20mountpoint)
 - [HyperPod EKS Lifecycle Script](https://github.com/awslabs/awsome-distributed-ai/blob/main/1.architectures/7.sagemaker-hyperpod-eks/LifecycleScripts/base-config/on_create_main.sh)
 - [Local Volume Static Provisioner](https://github.com/kubernetes-sigs/sig-storage-local-static-provisioner)
+- [Local Volume Static Provisioner — Operations (hostDir / bind-mount mechanics)](https://github.com/kubernetes-sigs/sig-storage-local-static-provisioner/blob/master/docs/operations.md)
 - [Mountpoint for Amazon S3 — Open Source File Client](https://aws.amazon.com/s3/features/mountpoint/)

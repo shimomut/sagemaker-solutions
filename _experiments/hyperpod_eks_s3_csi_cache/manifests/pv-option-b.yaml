@@ -1,9 +1,11 @@
-# Option B: ephemeral local cache backed by a DEDICATED NVMe device, provisioned
-# by the Local Volume Static Provisioner (StorageClass: ${NVME_STORAGE_CLASS}).
+# Option B: ephemeral local cache backed by the DLAMI NVMe filesystem
+# (/opt/dlami/nvme), exposed as local PVs by the Local Volume Static Provisioner
+# in hostDir mode (StorageClass: ${NVME_STORAGE_CLASS}).
 # Rendered by scripts/render.py (placeholders come from the Makefile / environment).
 #
-# Requires an instance type with a free NVMe instance-store disk (see
-# scripts/lifecycle_nvme_udev_snippet.sh and the README caveat).
+# Prerequisites (see README Option B):
+#   1. manifests/nvme-cache-setup-daemonset.yaml  (bind-mounts dirs on /opt/dlami/nvme)
+#   2. manifests/nvme-cache-provisioner.yaml      (publishes them as ${NVME_STORAGE_CLASS} PVs)
 apiVersion: v1
 kind: PersistentVolume
 metadata:

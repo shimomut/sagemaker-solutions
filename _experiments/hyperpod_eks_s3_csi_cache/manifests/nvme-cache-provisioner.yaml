@@ -1,49 +1,42 @@
-# Option B only.
+# Option B — step 2 of 2.
 #
-# Vendored copy of the upstream Local Volume Static Provisioner example for EKS
-# NVMe instance store (local-static-provisioner v2.8.0):
-#   https://raw.githubusercontent.com/kubernetes-sigs/sig-storage-local-static-provisioner/master/helm/generated_examples/eks-nvme-ssd.yaml
+# Local Volume Static Provisioner (v2.8.0) configured in Filesystem / hostDir mode.
+# It discovers the bind-mounted directories created by nvme-cache-setup-daemonset
+# under /mnt/s3-cache-disks and publishes them as PersistentVolumes in the
+# StorageClass "nvme-cache".
 #
-# Creates:
-#   - StorageClass "nvme-ssd" (no-provisioner, WaitForFirstConsumer)
-#   - DaemonSet that discovers block devices symlinked under /dev/disk/kubernetes
-#     and publishes them as PersistentVolumes.
-#
-# Pair this with scripts/lifecycle_nvme_udev_snippet.sh on the nodes.
+# This is a hostDir-mode adaptation of the upstream example; it does NOT use raw
+# block devices (the DLAMI already owns the NVMe disks via LVM).
 ---
 apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: local-static-provisioner
-  namespace: default
+  namespace: kube-system
   labels:
     app.kubernetes.io/name: local-static-provisioner
-    app.kubernetes.io/managed-by: Helm
-    app.kubernetes.io/instance: local-static-provisioner
 ---
 apiVersion: v1
 kind: ConfigMap
 metadata:
   name: local-static-provisioner-config
-  namespace: default
+  namespace: kube-system
   labels:
     app.kubernetes.io/name: local-static-provisioner
-    app.kubernetes.io/managed-by: Helm
-    app.kubernetes.io/instance: local-static-provisioner
 data:
   storageClassMap: |
-    nvme-ssd:
-      hostDir: /dev/disk/kubernetes
-      mountDir: /dev/disk/kubernetes
+    nvme-cache:
+      hostDir: /mnt/s3-cache-disks
+      mountDir: /mnt/s3-cache-disks
+      volumeMode: Filesystem
+      fsType: ext4
 ---
 apiVersion: storage.k8s.io/v1
 kind: StorageClass
 metadata:
-  name: nvme-ssd
+  name: nvme-cache
   labels:
     app.kubernetes.io/name: local-static-provisioner
-    app.kubernetes.io/managed-by: Helm
-    app.kubernetes.io/instance: local-static-provisioner
 provisioner: kubernetes.io/no-provisioner
 volumeBindingMode: WaitForFirstConsumer
 reclaimPolicy: Delete
@@ -54,8 +47,6 @@ metadata:
   name: local-static-provisioner-node-clusterrole
   labels:
     app.kubernetes.io/name: local-static-provisioner
-    app.kubernetes.io/managed-by: Helm
-    app.kubernetes.io/instance: local-static-provisioner
 rules:
 - apiGroups: [""]
   resources: ["persistentvolumes"]
@@ -63,12 +54,9 @@ rules:
 - apiGroups: ["storage.k8s.io"]
   resources: ["storageclasses"]
   verbs: ["get", "list", "watch"]
-- apiGroups: [""]
-  resources: ["events"]
-  verbs: ["watch"]
 - apiGroups: ["", "events.k8s.io"]
   resources: ["events"]
-  verbs: ["create", "update", "patch"]
+  verbs: ["watch", "create", "update", "patch"]
 - apiGroups: [""]
   resources: ["nodes"]
   verbs: ["get", "update"]
@@ -79,12 +67,10 @@ metadata:
   name: local-static-provisioner-node-binding
   labels:
     app.kubernetes.io/name: local-static-provisioner
-    app.kubernetes.io/managed-by: Helm
-    app.kubernetes.io/instance: local-static-provisioner
 subjects:
 - kind: ServiceAccount
   name: local-static-provisioner
-  namespace: default
+  namespace: kube-system
 roleRef:
   kind: ClusterRole
   name: local-static-provisioner-node-clusterrole
@@ -94,16 +80,13 @@ apiVersion: apps/v1
 kind: DaemonSet
 metadata:
   name: local-static-provisioner
-  namespace: default
+  namespace: kube-system
   labels:
     app.kubernetes.io/name: local-static-provisioner
-    app.kubernetes.io/managed-by: Helm
-    app.kubernetes.io/instance: local-static-provisioner
 spec:
   selector:
     matchLabels:
       app.kubernetes.io/name: local-static-provisioner
-      app.kubernetes.io/instance: local-static-provisioner
   updateStrategy:
     rollingUpdate:
       maxUnavailable: 1
@@ -112,9 +95,7 @@ spec:
     metadata:
       labels:
         app.kubernetes.io/name: local-static-provisioner
-        app.kubernetes.io/instance: local-static-provisioner
     spec:
-      hostPID: false
       serviceAccountName: local-static-provisioner
       nodeSelector:
         kubernetes.io/os: linux
@@ -136,13 +117,6 @@ spec:
                 fieldPath: metadata.namespace
           - name: JOB_CONTAINER_IMAGE
             value: registry.k8s.io/sig-storage/local-volume-provisioner:v2.8.0
-          livenessProbe:
-            failureThreshold: 3
-            initialDelaySeconds: 10
-            periodSeconds: 60
-            tcpSocket:
-              port: metrics
-            timeoutSeconds: 5
           ports:
           - name: metrics
             containerPort: 8080
@@ -150,18 +124,14 @@ spec:
             - name: provisioner-config
               mountPath: /etc/provisioner/config
               readOnly: true
-            - name: provisioner-dev
-              mountPath: /dev
-            - name: nvme-ssd
-              mountPath: /dev/disk/kubernetes
+            - name: cache-disks
+              mountPath: /mnt/s3-cache-disks
               mountPropagation: HostToContainer
       volumes:
         - name: provisioner-config
           configMap:
             name: local-static-provisioner-config
-        - name: provisioner-dev
+        - name: cache-disks
           hostPath:
-            path: /dev
-        - name: nvme-ssd
-          hostPath:
-            path: /dev/disk/kubernetes
+            path: /mnt/s3-cache-disks
+            type: DirectoryOrCreate
