@@ -466,7 +466,25 @@ A scaled-up node runs the identical bootstrap path (same `on_create.sh` + Daemon
 Both of the following apply to Option B only; Option A is unaffected.
 
 - **`nodeSelector` is instance-type-specific.** `manifests/nvme-cache-setup-daemonset.yaml` targets `node.kubernetes.io/instance-type: ml.g6.8xlarge`. Scaling up a *different* NVMe instance type won't auto-configure Option B until you broaden that selector (or switch to a label-based selector covering all your NVMe instance types). Option A has no such limitation — its lifecycle logic auto-detects NVMe on any instance type.
-- **Stale local PVs on node turnover.** Option B's Local Volume Static Provisioner creates cluster-scoped `PersistentVolume` objects pinned to a node. When that node is replaced/removed, its `nvme-cache` PVs remain `Available` with node-affinity to a node that no longer exists — the provisioner only cleans up PVs when a *bound* PVC is released, so never-bound PVs linger. They're harmless (a stale PV's node-affinity prevents the scheduler from ever binding to it) but accumulate over time. Remediate by deploying the provisioner's [Node Cleanup Controller](https://github.com/kubernetes-sigs/sig-storage-local-static-provisioner/blob/master/docs/node-cleanup-controller.md), or periodically deleting the orphaned `Available` PVs. Option A's `emptyDir` cache is a pod-scoped volume with no PV object, so nothing lingers when a node goes away. (The cached *data* itself is ephemeral in both options regardless.)
+- **Stale local PVs on node turnover.** Option B's Local Volume Static Provisioner creates cluster-scoped `PersistentVolume` objects pinned to a node. When that node is replaced/removed, its `nvme-cache` PVs remain `Available` with node-affinity to a node that no longer exists — the provisioner only cleans up PVs when a *bound* PVC is released, so never-bound PVs linger. They're harmless (a stale PV's node-affinity prevents the scheduler from ever binding to it) but accumulate over time. Option A's `emptyDir` cache is a pod-scoped volume with no PV object, so nothing lingers when a node goes away. (The cached *data* itself is ephemeral in both options regardless.)
+
+  Remediate with the provided make targets (a PV is treated as orphaned only when it is in the `nvme-cache` StorageClass, `Available`, and pinned to a node that no longer exists):
+
+  ```bash
+  make list-orphaned-pvs    # dry run — list orphaned nvme-cache PVs
+  make prune-orphaned-pvs   # delete them
+  ```
+
+  Example:
+
+  ```text
+  $ make list-orphaned-pvs
+  Orphaned 'nvme-cache' PVs (Available, node no longer exists):
+    - local-pv-1fbd28fc  (pinned to: hyperpod-i-0d5bb72197277da19)
+  1 orphan(s). Re-run with --delete to remove them.
+  ```
+
+  For a hands-off setup, deploy the provisioner's [Node Cleanup Controller](https://github.com/kubernetes-sigs/sig-storage-local-static-provisioner/blob/master/docs/node-cleanup-controller.md) instead.
 
 ---
 

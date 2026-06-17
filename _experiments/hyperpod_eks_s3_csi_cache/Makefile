@@ -75,6 +75,8 @@ help:
 	@echo "Option B — ephemeral cache on the DLAMI NVMe (no lifecycle edit / node recreation):"
 	@echo "  install-nvme-cache         Deploy setup DaemonSet + Local Volume Static Provisioner (nvme-cache SC)"
 	@echo "  delete-nvme-cache          Remove the provisioner + setup DaemonSet"
+	@echo "  list-orphaned-pvs          List orphaned nvme-cache PVs (node no longer exists)"
+	@echo "  prune-orphaned-pvs         Delete orphaned nvme-cache PVs"
 	@echo "  deploy-b                   Apply PV (ephemeral cache) + PVC"
 	@echo "  delete-b                   Delete PV + PVC"
 	@echo ""
@@ -170,6 +172,14 @@ install-nvme-cache:
 delete-nvme-cache:
 	kubectl delete -f $(MANIFESTS)/nvme-cache-provisioner.yaml --ignore-not-found
 	kubectl delete -f $(MANIFESTS)/nvme-cache-setup-daemonset.yaml --ignore-not-found
+
+.PHONY: list-orphaned-pvs
+list-orphaned-pvs:
+	python3 scripts/prune_orphaned_cache_pvs.py --storage-class $(NVME_STORAGE_CLASS)
+
+.PHONY: prune-orphaned-pvs
+prune-orphaned-pvs:
+	python3 scripts/prune_orphaned_cache_pvs.py --storage-class $(NVME_STORAGE_CLASS) --delete
 
 .PHONY: deploy-b
 deploy-b: guard-bucket
