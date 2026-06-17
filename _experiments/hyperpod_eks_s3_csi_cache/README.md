@@ -77,8 +77,8 @@ Two consequences shape the options below:
 
 | Option | Cache Type | Backing Storage | Pros | Cons |
 |--------|-----------|-----------------|------|------|
-| **A** | `emptyDir` | NVMe via kubelet data-root relocation | Simplest architecture; no extra cluster components | Requires editing the lifecycle script + **node recreation**; shares NVMe with kubelet/containerd/all `emptyDir`s |
-| **B** | `ephemeral` + Local Volume Static Provisioner (`hostDir` mode) | A bind-mounted directory on the DLAMI NVMe (`/opt/dlami/nvme`) | **No lifecycle edit / no node recreation**; kubelet stays on EBS; cache isolated to its own PVs | More moving parts (privileged setup DaemonSet + provisioner + StorageClass); no hard capacity isolation on the shared filesystem |
+| **A** | `emptyDir` | NVMe via kubelet data-root relocation | Simplest architecture; no extra cluster components | Requires a lifecycle-script change + a one-time node recreation; the cache shares the NVMe pool with kubelet, containerd, and every other `emptyDir` |
+| **B** | `ephemeral` + Local Volume Static Provisioner (`hostDir` mode) | A bind-mounted directory on the DLAMI NVMe (`/opt/dlami/nvme`) | **No lifecycle edit / no node recreation**; kubelet/containerd stay on EBS so the NVMe is dedicated to caching | More moving parts (privileged setup DaemonSet + provisioner + StorageClass + cleanup controller) |
 
 ### Which option is easier?
 
@@ -92,10 +92,10 @@ It depends on whether you can recreate nodes:
 | kubelet/containerd storage | Moves onto NVMe | Stays on EBS |
 | Failure surface | Minimal | Higher (privileged bind-mounting DaemonSet) |
 
-- **Choose Option A** if you recreate/reprovision nodes routinely and want the simplest possible architecture (one config line, no add-on controllers).
-- **Choose Option B** if you cannot disrupt running nodes (no recreation), or want kubelet/containerd to stay on EBS while the cache uses NVMe.
+- **Choose Option A** if you're willing to recreate the affected nodes at least once (it needn't be a routine practice). It has the simplest runtime architecture — no add-on controllers — in exchange for a lifecycle-script change plus a one-time node recreation.
+- **Choose Option B** if you cannot disrupt running nodes, or want kubelet/containerd to stay on EBS while the cache uses NVMe.
 
-> **NVMe is a shared pool.** On instances whose instance store is aggregated into a single `/opt/dlami/nvme` filesystem (the DLAMI default), Option A and Option B both draw from that one NVMe pool. Option A gives the whole pool to kubelet (cache included); Option B keeps kubelet on EBS and dedicates `/opt/dlami/nvme` to the cache. Pick one per node group.
+> **NVMe is a shared pool with no hard capacity isolation.** The DLAMI aggregates a node's instance-store NVMe into a single `/opt/dlami/nvme` filesystem. Everything that uses it — kubelet, containerd, `emptyDir` caches (Option A), or the Option B cache PVs — draws from that one pool, and there's no enforced per-consumer quota, so any single consumer can fill it. Decide per instance group which option that group uses: on one NVMe pool, use **either** Option A **or** Option B, not both, since they would contend for the same space. (Option A's `cacheEmptyDirSizeLimit` and Option B's ephemeral storage request set *soft* caps on the cache itself, but they don't hard-partition the filesystem.)
 
 ## Prerequisites
 
@@ -150,7 +150,7 @@ Then **recreate the affected nodes** so the updated script runs:
 
 ### Step 1: Install Mountpoint S3 CSI Driver
 
-These steps follow the official [HyperPod EKS — Set up an Amazon S3 Mountpoint](https://awslabs.github.io/ai-on-sagemaker-hyperpod/docs/eks-orchestration/getting-started/Set%20up%20an%20Amazon%20S3%20mountpoint) guide. The CSI driver supports **static provisioning only** — it does not create buckets.
+These steps follow the [Set up an Amazon S3 mountpoint](https://awslabs.github.io/ai-on-sagemaker-hyperpod/docs/eks-orchestration/getting-started/Set%20up%20an%20Amazon%20S3%20mountpoint) walkthrough on the *AI on SageMaker HyperPod* workshop site. The CSI driver supports **static provisioning only** — it does not create buckets.
 
 ```bash
 export EKS_CLUSTER_NAME=<your-cluster-name>
@@ -237,95 +237,39 @@ kubectl get pods -n kube-system -l app=s3-csi-node
 kubectl get csidrivers | grep s3
 ```
 
-### Step 2: Create PersistentVolume with emptyDir Cache
-
-```yaml
-# pv-s3-cached.yaml
-apiVersion: v1
-kind: PersistentVolume
-metadata:
-  name: s3-training-data-pv
-spec:
-  capacity:
-    storage: 1200Gi  # ignored, required by K8s
-  accessModes:
-    - ReadOnlyMany
-  mountOptions:
-    - region <REGION>
-    - read-only
-    - metadata-ttl indefinite  # cache metadata indefinitely for repeated reads
-  storageClassName: ""
-  claimRef:
-    namespace: default
-    name: s3-training-data-pvc
-  csi:
-    driver: s3.csi.aws.com
-    volumeHandle: s3-training-data-volume  # must be unique per PV
-    volumeAttributes:
-      bucketName: <YOUR-BUCKET-NAME>
-
-      # Local cache configuration
-      cache: emptyDir
-      cacheEmptyDirSizeLimit: 500Gi  # IMPORTANT: set a limit to avoid filling the node
-      # cacheEmptyDirMedium: ""      # default = disk; NVMe only if Step 0 set /opt/dlami/nvme
-```
-
-### Step 3: Create PersistentVolumeClaim
-
-```yaml
-# pvc-s3-cached.yaml
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: s3-training-data-pvc
-spec:
-  accessModes:
-    - ReadOnlyMany
-  storageClassName: ""
-  resources:
-    requests:
-      storage: 1200Gi  # ignored, required by K8s
-  volumeName: s3-training-data-pv
-```
-
-### Step 4: Mount in Training Pod
-
-```yaml
-# training-pod.yaml
-apiVersion: v1
-kind: Pod
-metadata:
-  name: training-job
-spec:
-  containers:
-    - name: trainer
-      image: <YOUR-TRAINING-IMAGE>
-      command: ["python", "train.py", "--data-dir", "/data"]
-      volumeMounts:
-        - name: training-data
-          mountPath: /data
-          readOnly: true
-  volumes:
-    - name: training-data
-      persistentVolumeClaim:
-        claimName: s3-training-data-pvc
-```
-
-### Step 5: Apply and Verify
+### Step 2: Create the PV (emptyDir cache) + PVC
 
 ```bash
-kubectl apply -f pv-s3-cached.yaml
-kubectl apply -f pvc-s3-cached.yaml
-kubectl apply -f training-pod.yaml
-
-# Verify the mount and cache are working
-kubectl exec -it training-job -- ls /data/
-kubectl exec -it training-job -- df -h
-
-# On the node (via SSM), verify NVMe is backing kubelet
-ls -la /var/lib/kubelet  # should be a symlink to /opt/dlami/nvme/kubelet (after Step 0)
-df -h | grep nvme
+make deploy-a S3_BUCKET_NAME=<your-bucket>
 ```
+
+This renders `manifests/pv-option-a.yaml` and `manifests/pvc.yaml` and applies them. The PV's cache attributes are:
+
+```yaml
+    volumeAttributes:
+      bucketName: <YOUR-BUCKET-NAME>
+      cache: emptyDir
+      cacheEmptyDirSizeLimit: 100Gi   # soft cap — set this to avoid filling the node's NVMe
+      # cacheEmptyDirMedium: ""       # default = disk; NVMe only when Step 0 put kubelet on /opt/dlami/nvme
+```
+
+Bucket, cache size, PV/PVC names, namespace, etc. are Makefile variables (see the top of the `Makefile`).
+
+### Step 3: Launch a test pod and verify
+
+```bash
+make deploy-test-pod S3_BUCKET_NAME=<your-bucket>
+make verify-mount      # ls + df of /data inside the pod
+```
+
+To confirm the cache is NVMe-backed, on the node (via SSM):
+
+```bash
+ls -la /var/lib/kubelet     # should be a symlink to /opt/dlami/nvme/kubelet (after Step 0)
+df -h /opt/dlami/nvme       # usage rises as the cache fills during reads
+```
+
+To mount the bucket in your own workload, reference the PVC (`s3-training-data-pvc` by default) as a read-only volume — see `manifests/test-pod.yaml` for a template.
 
 ---
 
@@ -434,30 +378,27 @@ df -h /opt/dlami/nvme
 This guide was validated end-to-end on a live SageMaker HyperPod EKS cluster.
 
 **Environment**
-- HyperPod cluster `k8-1` (EKS `sagemaker-k8-1-1bd2626f-eks`), `us-west-2`.
-- GPU group `worker3`: 2× `ml.g6.8xlarge` — each has **two** instance-store NVMe disks that the DLAMI's `dlami-nvme.service` aggregates via LVM into one ext4 filesystem (~824 GB) at `/opt/dlami/nvme`.
-- CPU group `worker1`: 1× `ml.m5.xlarge` — **no** instance-store NVMe (EBS only).
-- Mountpoint for S3 CSI driver `v2.6.0`; test bucket with a 1 GiB object plus smaller files.
+- GPU instances (e.g. `ml.g6.8xlarge`): instance-store NVMe disk(s) that the DLAMI's `dlami-nvme.service` aggregates via LVM into one ext4 filesystem at `/opt/dlami/nvme`.
+- CPU instances (e.g. `ml.m5.xlarge`): no instance-store NVMe (EBS only).
+- Mountpoint for Amazon S3 CSI driver add-on; a test bucket containing a large object plus smaller files.
 
-**Lifecycle `auto` script** (`scripts/update_lifecycle_nvme.py --target auto`) — verified by replacing all nodes via `BatchReplaceClusterNodes`:
+**Lifecycle `auto` script** (`scripts/update_lifecycle_nvme.py --target auto`) — verified by replacing nodes via `BatchReplaceClusterNodes`:
 
 | Node type | Instance-store NVMe? | Result after recreation |
 |-----------|----------------------|--------------------------|
-| `ml.g6.8xlarge` (g6) | Yes | `/var/lib/kubelet -> /opt/dlami/nvme/kubelet`; containerd data-root + pod volumes on NVMe |
-| `ml.m5.xlarge` (m5) | No | fell back to `/var/lib/kubelet -> /opt/sagemaker/kubelet` (EBS) |
+| GPU (e.g. `ml.g6.8xlarge`) | Yes | `/var/lib/kubelet -> /opt/dlami/nvme/kubelet`; containerd data-root + pod volumes on NVMe |
+| CPU (e.g. `ml.m5.xlarge`) | No | fell back to `/var/lib/kubelet -> /opt/sagemaker/kubelet` (EBS) |
 
 All nodes rejoined `Ready` with no lifecycle errors, confirming the same script is safe on both NVMe and non-NVMe instance types.
 
-**Cache performance** — repeated reads of the 1 GiB object from a pod (`cat` to `/dev/null`):
+**Cache behavior** — repeated reads of the same object from a pod:
 
-| Option | Cold read (from S3) | Warm read (from NVMe cache) | Speedup | Cache location (verified) |
-|--------|---------------------|-----------------------------|---------|---------------------------|
-| **A** (`emptyDir`) | 2.39 s | ~0.62 s | ~3.8× | `/local-cache` (1.1 GB) on `/dev/mapper/vg.01-lv_ephemeral` (NVMe) |
-| **B** (`ephemeral` / hostDir) | 2.31 s | 0.69 s | ~3.3× | `/local-cache` (1.1 GB) on `/dev/mapper/vg.01-lv_ephemeral` (NVMe); PVC bound to a `nvme-cache` local PV |
+| Option | Cache location (verified) |
+|--------|---------------------------|
+| **A** (`emptyDir`) | the Mountpoint pod's `--cache=/local-cache` resolved onto the node's kubelet dir on `/opt/dlami/nvme` (NVMe) |
+| **B** (`ephemeral` / hostDir) | `/local-cache` backed by an `nvme-cache` local PV on `/opt/dlami/nvme` (NVMe) |
 
-For both options the warm reads were served from the instance-local NVMe cache (confirmed on-node: `df -h /opt/dlami/nvme` rose by ~1.1 GB during the read and the Mountpoint pod's `--cache=/local-cache` was backed by the NVMe LVM volume).
-
-> Absolute timings depend on instance type, network, and object layout — treat them as a relative cold-vs-warm comparison, not a benchmark.
+In both cases the first (cold) read populated the cache and subsequent (warm) reads were served from local NVMe — verified on-node by watching `/opt/dlami/nvme` usage grow as the cache filled.
 
 **Auto-configuration on new nodes** — verified by replacing a g6 node (with both solutions deployed) and inspecting the brand-new instance. With no manual steps it came up fully configured:
 
@@ -466,32 +407,40 @@ For both options the warm reads were served from the instance-local NVMe cache (
 | **A** | The `auto` lifecycle script ran and relocated kubelet onto NVMe (`/var/lib/kubelet -> /opt/dlami/nvme/kubelet`) |
 | **B** | `nvme-cache-setup` + `local-static-provisioner` DaemonSets scheduled onto it, bind mounts were created, and the provisioner published fresh `nvme-cache` PVs for the node |
 
-A scaled-up node runs the identical bootstrap path (same `on_create.sh` + DaemonSets schedule onto it), so it configures the same way. (A literal scale-up test was blocked only by an `ml.g6.8xlarge` account quota of 2, so a node replacement was used to exercise the same new-node path.)
+A scaled-up node runs the identical bootstrap path (same `on_create.sh` + DaemonSets schedule onto it), so it configures the same way. (A literal scale-up was constrained by instance-type quota in the test account, so a node replacement was used to exercise the same new-node path.)
+
+**Node Cleanup Controller on real node replacement (Option B)** — with the provisioner, setup DaemonSet, and Node Cleanup Controller deployed, one g6 node was replaced:
+
+- Baseline 8 `nvme-cache` PVs (4 per g6 node).
+- When the replaced node left the cluster, the controller **automatically deleted its 4 orphaned PVs** (logs: `Attempting to delete PV that has NodeAffinity to deleted Node`) → 4 PVs remained, no manual prune.
+- The new node joined and the provisioner published 4 fresh PVs → back to 8, zero orphans.
+- The new node also confirmed the EBS lifecycle mode (`/var/lib/kubelet -> /opt/sagemaker/kubelet`).
 
 ### Known limitations (Option B)
 
-Both of the following apply to Option B only; Option A is unaffected.
+Applies to Option B only; Option A is unaffected.
 
 - **`nodeSelector` is instance-type-specific.** `manifests/nvme-cache-setup-daemonset.yaml` targets `node.kubernetes.io/instance-type: ml.g6.8xlarge`. Scaling up a *different* NVMe instance type won't auto-configure Option B until you broaden that selector (or switch to a label-based selector covering all your NVMe instance types). Option A has no such limitation — its lifecycle logic auto-detects NVMe on any instance type.
-- **Stale local PVs on node turnover.** Option B's Local Volume Static Provisioner creates cluster-scoped `PersistentVolume` objects pinned to a node. When that node is replaced/removed, its `nvme-cache` PVs remain `Available` with node-affinity to a node that no longer exists — the provisioner only cleans up PVs when a *bound* PVC is released, so never-bound PVs linger. They're harmless (a stale PV's node-affinity prevents the scheduler from ever binding to it) but accumulate over time. Option A's `emptyDir` cache is a pod-scoped volume with no PV object, so nothing lingers when a node goes away. (The cached *data* itself is ephemeral in both options regardless.)
 
-  Remediate with the provided make targets (a PV is treated as orphaned only when it is in the `nvme-cache` StorageClass, `Available`, and pinned to a node that no longer exists):
+### Orphaned PV cleanup (Option B)
 
-  ```bash
-  make list-orphaned-pvs    # dry run — list orphaned nvme-cache PVs
-  make prune-orphaned-pvs   # delete them
-  ```
+The static provisioner creates cluster-scoped `PersistentVolume` objects pinned to a node. Left unmanaged, a replaced/removed node would leave its `nvme-cache` PVs behind as `Available` with node-affinity to a node that no longer exists (the provisioner only reclaims a PV when its *bound* PVC is released). This is handled automatically: `make install-nvme-cache` deploys the **Local Volume Node Cleanup Controller** (`manifests/nvme-cache-node-cleanup.yaml`), which on each node deletion removes that node's orphaned `nvme-cache` PVs. It deletes only the PV/PVC API objects, not data — instance-store data is already lost when the node goes away. (Option A has no PV objects, so there's nothing to clean up.)
 
-  Example:
+If you opt not to run the controller, clean up on demand instead (a PV is treated as orphaned only when it is in the `nvme-cache` StorageClass, `Available`, and pinned to a node that no longer exists):
 
-  ```text
-  $ make list-orphaned-pvs
-  Orphaned 'nvme-cache' PVs (Available, node no longer exists):
-    - local-pv-1fbd28fc  (pinned to: hyperpod-i-0d5bb72197277da19)
-  1 orphan(s). Re-run with --delete to remove them.
-  ```
+```bash
+make list-orphaned-pvs    # dry run — list orphaned nvme-cache PVs
+make prune-orphaned-pvs   # delete them
+```
 
-  For a hands-off setup, deploy the provisioner's [Node Cleanup Controller](https://github.com/kubernetes-sigs/sig-storage-local-static-provisioner/blob/master/docs/node-cleanup-controller.md) instead.
+Example:
+
+```text
+$ make list-orphaned-pvs
+Orphaned 'nvme-cache' PVs (Available, node no longer exists):
+  - local-pv-1fbd28fc  (pinned to: <node-that-was-removed>)
+1 orphan(s). Re-run with --delete to remove them.
+```
 
 ---
 
@@ -540,7 +489,7 @@ kubectl logs <mountpoint-pod-name> -n kube-system
 
 - [Mountpoint S3 CSI Driver — Caching Configuration](https://github.com/awslabs/mountpoint-s3-csi-driver/blob/main/docs/CACHING.md)
 - [Mountpoint S3 CSI Driver — General Configuration](https://github.com/awslabs/mountpoint-s3-csi-driver/blob/main/docs/CONFIGURATION.md)
-- [HyperPod EKS — Set up an Amazon S3 Mountpoint](https://awslabs.github.io/ai-on-sagemaker-hyperpod/docs/eks-orchestration/getting-started/Set%20up%20an%20Amazon%20S3%20mountpoint)
+- [AI on SageMaker HyperPod workshop — Set up an Amazon S3 mountpoint](https://awslabs.github.io/ai-on-sagemaker-hyperpod/docs/eks-orchestration/getting-started/Set%20up%20an%20Amazon%20S3%20mountpoint)
 - [HyperPod EKS Lifecycle Script](https://github.com/awslabs/awsome-distributed-ai/blob/main/1.architectures/7.sagemaker-hyperpod-eks/LifecycleScripts/base-config/on_create_main.sh)
 - [Local Volume Static Provisioner](https://github.com/kubernetes-sigs/sig-storage-local-static-provisioner)
 - [Local Volume Static Provisioner — Operations (hostDir / bind-mount mechanics)](https://github.com/kubernetes-sigs/sig-storage-local-static-provisioner/blob/master/docs/operations.md)
