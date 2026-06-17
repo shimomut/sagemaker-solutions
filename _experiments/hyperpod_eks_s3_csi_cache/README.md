@@ -452,6 +452,20 @@ For both options the warm reads were served from the instance-local NVMe cache (
 
 > Absolute timings depend on instance type, network, and object layout — treat them as a relative cold-vs-warm comparison, not a benchmark.
 
+**Auto-configuration on new nodes** — verified by replacing a g6 node (with both solutions deployed) and inspecting the brand-new instance. With no manual steps it came up fully configured:
+
+| Solution | What happened automatically on the new node |
+|----------|----------------------------------------------|
+| **A** | The `auto` lifecycle script ran and relocated kubelet onto NVMe (`/var/lib/kubelet -> /opt/dlami/nvme/kubelet`) |
+| **B** | `nvme-cache-setup` + `local-static-provisioner` DaemonSets scheduled onto it, bind mounts were created, and the provisioner published fresh `nvme-cache` PVs for the node |
+
+A scaled-up node runs the identical bootstrap path (same `on_create.sh` + DaemonSets schedule onto it), so it configures the same way. (A literal scale-up test was blocked only by an `ml.g6.8xlarge` account quota of 2, so a node replacement was used to exercise the same new-node path.)
+
+### Known limitations
+
+- **Option B `nodeSelector` is instance-type-specific.** `manifests/nvme-cache-setup-daemonset.yaml` targets `node.kubernetes.io/instance-type: ml.g6.8xlarge`. Scaling up a *different* NVMe instance type won't auto-configure Option B until you broaden that selector (or switch to a label-based selector covering all your NVMe instance types). Option A has no such limitation — its lifecycle logic auto-detects NVMe on any instance type.
+- **Stale local PVs on node turnover.** When a node is replaced/removed, its `nvme-cache` PVs remain `Available` with node-affinity to a node that no longer exists. They're harmless but accumulate; delete the orphaned `Available` PVs (or recreate the provisioner) to tidy up.
+
 ---
 
 ## Performance Considerations
