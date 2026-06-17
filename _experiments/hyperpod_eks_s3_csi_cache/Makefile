@@ -11,6 +11,10 @@ EKS_CLUSTER_NAME ?= sagemaker-k8-1-1bd2626f-eks
 AWS_REGION       ?= us-west-2
 AWS_ACCOUNT_ID   ?= 842413447717
 
+# --- HyperPod cluster (for the Option A lifecycle-script automation) ---
+HYPERPOD_CLUSTER_NAME ?= k8-1
+NVME_INSTANCE_GROUP   ?= worker3      # the NVMe instance group to relocate kubelet onto
+
 # --- S3 bucket the cache reads from (REQUIRED for most targets) ---
 S3_BUCKET_NAME   ?=
 
@@ -61,6 +65,10 @@ help:
 	@echo "  uninstall-driver      Remove the add-on (set DELETE_IAM=true to also remove IAM)"
 	@echo ""
 	@echo "Option A — emptyDir cache on NVMe (recommended starting point):"
+	@echo "  lcc-set-auto          Edit LCC: prefer NVMe (/opt/dlami/nvme), fall back to EBS if absent"
+	@echo "  lcc-set-nvme          Edit LCC: force kubelet data root -> /opt/dlami/nvme"
+	@echo "  lcc-revert-ebs        Edit LCC: force kubelet data root -> /opt/sagemaker (EBS)"
+	@echo "  lcc-replace-nodes     Edit LCC (auto) AND replace the $(NVME_INSTANCE_GROUP) nodes (DESTRUCTIVE)"
 	@echo "  deploy-a              Apply PV (emptyDir cache) + PVC"
 	@echo "  delete-a              Delete PV + PVC"
 	@echo ""
@@ -113,6 +121,30 @@ uninstall-driver:
 # =============================================================================
 # Option A — emptyDir cache on NVMe
 # =============================================================================
+.PHONY: lcc-set-auto
+lcc-set-auto:
+	python3 scripts/update_lifecycle_nvme.py \
+		--cluster-name $(HYPERPOD_CLUSTER_NAME) --region $(AWS_REGION) --target auto
+
+.PHONY: lcc-set-nvme
+lcc-set-nvme:
+	python3 scripts/update_lifecycle_nvme.py \
+		--cluster-name $(HYPERPOD_CLUSTER_NAME) --region $(AWS_REGION) --target nvme
+
+.PHONY: lcc-revert-ebs
+lcc-revert-ebs:
+	python3 scripts/update_lifecycle_nvme.py \
+		--cluster-name $(HYPERPOD_CLUSTER_NAME) --region $(AWS_REGION) --target ebs
+
+# DESTRUCTIVE: edits the LCC (auto NVMe-with-EBS-fallback), then replaces the NVMe
+# node group so the updated script re-runs. Prompts for confirmation (CONFIRM=yes to skip).
+.PHONY: lcc-replace-nodes
+lcc-replace-nodes:
+	python3 scripts/update_lifecycle_nvme.py \
+		--cluster-name $(HYPERPOD_CLUSTER_NAME) --region $(AWS_REGION) --target auto \
+		--replace-nodes --instance-group $(NVME_INSTANCE_GROUP) \
+		$(if $(filter yes,$(CONFIRM)),--yes,)
+
 .PHONY: deploy-a
 deploy-a: guard-bucket
 	$(RENDER) $(MANIFESTS)/pv-option-a.yaml | kubectl apply -f -

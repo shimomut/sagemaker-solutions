@@ -112,20 +112,41 @@ This is the simplest approach: an `emptyDir` cache backed by local NVMe. It does
 
 ### Step 0: Point kubelet's data root at NVMe (lifecycle script)
 
-In your HyperPod EKS lifecycle script (`on_create_main.sh`), select the NVMe instance store:
+Option A requires kubelet's data root to live on NVMe, which is *not* the default (see Background). Use the helper script, which edits `on_create_main.sh` in the cluster's LCC S3 bucket for you:
 
 ```bash
-# Edit lines ~8-9 of on_create_main.sh
-#DISK_FOR_CONTAINERD_KUBELET="/opt/sagemaker"     # comment out the EBS default
-DISK_FOR_CONTAINERD_KUBELET="/opt/dlami/nvme"     # use local NVMe instead
+make lcc-set-auto HYPERPOD_CLUSTER_NAME=<your-hp-cluster>
+# or directly:
+#   python3 scripts/update_lifecycle_nvme.py --cluster-name <your-hp-cluster> --target auto
 ```
+
+This replaces the static `DISK_FOR_CONTAINERD_KUBELET=...` line with a small, marked block that decides **at node-creation time**:
+
+- If the instance **has** local instance-store NVMe → use `/opt/dlami/nvme`. It waits (up to `NVME_WAIT_SECONDS`, default 120s) for `dlami-nvme.service` to finish mounting NVMe before deciding, so it doesn't race the mount.
+- If the instance has **no** instance-store NVMe → fall back to `/opt/sagemaker` (secondary EBS).
+
+So the same lifecycle script is safe across NVMe and non-NVMe instance types. Other modes:
+
+```bash
+make lcc-set-nvme    # force /opt/dlami/nvme (no fallback)
+make lcc-revert-ebs  # force /opt/sagemaker (revert to the EBS default)
+```
+
+The original script is backed up locally under `.lcc-backup/<timestamp>/` before each change, and edits are idempotent (wrapped in sentinel markers).
 
 Then **recreate the affected nodes** so the updated script runs:
 
 - The lifecycle script executes **only at node creation**. Rebooting an existing node does **not** re-run it.
-- Replace/recreate the nodes (e.g. scale the instance group down and back up, or update the cluster software so nodes are reprovisioned). After recreation, verify on a node via SSM that `/var/lib/kubelet` is a symlink onto `/opt/dlami/nvme`.
+- Use the automation (replaces nodes via `BatchReplaceClusterNodes`, keeping the group's instance count):
 
-> Skip Step 0 only if you intentionally want the cache on the secondary EBS volume. On instances **without** NVMe instance store, `/opt/dlami/nvme` does not exist — use a different instance type (or accept the EBS-backed `emptyDir` cache).
+  ```bash
+  make lcc-replace-nodes HYPERPOD_CLUSTER_NAME=<your-hp-cluster> NVME_INSTANCE_GROUP=<group>
+  # add CONFIRM=yes to skip the interactive prompt
+  ```
+
+  This is **destructive** — the targeted nodes are terminated and reprovisioned. After recreation, verify on a node via SSM that `/var/lib/kubelet` is a symlink onto `/opt/dlami/nvme`.
+
+> On instances **without** NVMe instance store, the `auto` mode leaves the cache on the secondary EBS volume — functional, just not NVMe-accelerated.
 
 ### Step 1: Install Mountpoint S3 CSI Driver
 
@@ -398,6 +419,38 @@ df -h /opt/dlami/nvme
 | Static Provisioner PVs (Option B) | ✅ | DaemonSet re-discovers the bind-mounted dirs |
 
 **Key point:** The cache data itself is always ephemeral — after a node replacement, the first read from S3 populates the cache. Subsequent reads are served from local storage. This is expected behavior and does not require manual intervention.
+
+---
+
+## Validation Results
+
+This guide was validated end-to-end on a live SageMaker HyperPod EKS cluster.
+
+**Environment**
+- HyperPod cluster `k8-1` (EKS `sagemaker-k8-1-1bd2626f-eks`), `us-west-2`.
+- GPU group `worker3`: 2× `ml.g6.8xlarge` — each has **two** instance-store NVMe disks that the DLAMI's `dlami-nvme.service` aggregates via LVM into one ext4 filesystem (~824 GB) at `/opt/dlami/nvme`.
+- CPU group `worker1`: 1× `ml.m5.xlarge` — **no** instance-store NVMe (EBS only).
+- Mountpoint for S3 CSI driver `v2.6.0`; test bucket with a 1 GiB object plus smaller files.
+
+**Lifecycle `auto` script** (`scripts/update_lifecycle_nvme.py --target auto`) — verified by replacing all nodes via `BatchReplaceClusterNodes`:
+
+| Node type | Instance-store NVMe? | Result after recreation |
+|-----------|----------------------|--------------------------|
+| `ml.g6.8xlarge` (g6) | Yes | `/var/lib/kubelet -> /opt/dlami/nvme/kubelet`; containerd data-root + pod volumes on NVMe |
+| `ml.m5.xlarge` (m5) | No | fell back to `/var/lib/kubelet -> /opt/sagemaker/kubelet` (EBS) |
+
+All nodes rejoined `Ready` with no lifecycle errors, confirming the same script is safe on both NVMe and non-NVMe instance types.
+
+**Cache performance** — repeated reads of the 1 GiB object from a pod (`cat` to `/dev/null`):
+
+| Option | Cold read (from S3) | Warm read (from NVMe cache) | Speedup | Cache location (verified) |
+|--------|---------------------|-----------------------------|---------|---------------------------|
+| **A** (`emptyDir`) | 2.39 s | ~0.62 s | ~3.8× | `/local-cache` (1.1 GB) on `/dev/mapper/vg.01-lv_ephemeral` (NVMe) |
+| **B** (`ephemeral` / hostDir) | 2.31 s | 0.69 s | ~3.3× | `/local-cache` (1.1 GB) on `/dev/mapper/vg.01-lv_ephemeral` (NVMe); PVC bound to a `nvme-cache` local PV |
+
+For both options the warm reads were served from the instance-local NVMe cache (confirmed on-node: `df -h /opt/dlami/nvme` rose by ~1.1 GB during the read and the Mountpoint pod's `--cache=/local-cache` was backed by the NVMe LVM volume).
+
+> Absolute timings depend on instance type, network, and object layout — treat them as a relative cold-vs-warm comparison, not a benchmark.
 
 ---
 

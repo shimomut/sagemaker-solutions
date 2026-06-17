@@ -1,0 +1,6 @@
+# Local backups of lifecycle scripts created by scripts/update_lifecycle_nvme.py
+.lcc-backup/
+
+# Python bytecode cache
+__pycache__/
+*.pyc
