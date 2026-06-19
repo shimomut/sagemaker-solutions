@@ -40,6 +40,23 @@ def build_script_command(script_path: str, script_args: str = "") -> str:
     return f"echo {b64} | base64 -d | bash -s --{suffix}"
 
 
+def build_python_command(script_path: str, script_args: str = "") -> str:
+    """Wrap a local Python script as a single-line remote command.
+
+    The script is base64-encoded and piped into `python3 -` so multi-line
+    bodies, quotes, and any special characters survive the SSM PTY without
+    local re-quoting. `script_args` is appended verbatim to the `python3 -`
+    invocation and becomes the script's ``sys.argv[1:]`` (``sys.argv[0]`` is
+    ``"-"``). The caller is responsible for quoting `script_args` contents.
+    Requires ``python3`` on the remote node.
+    """
+    path = os.path.expanduser(script_path)
+    with open(path, "rb") as fd:
+        b64 = base64.b64encode(fd.read()).decode("ascii")
+    suffix = f" {script_args}" if script_args else ""
+    return f"echo {b64} | base64 -d | python3 -{suffix}"
+
+
 class HyperPodMultiNodeRunner:
     def __init__(self, debug=False):
         self.sagemaker_client = boto3.client('sagemaker')
@@ -190,12 +207,28 @@ class HyperPodMultiNodeRunner:
             # Collapse PTY-doubled CRs ("\r\r\n") down to a single \n in one
             # pass — a naive \r\n→\n then \r→\n turns "\r\r\n" into "\n\n".
             raw = re.sub(r"\r+\n?", "\n", child.before or "")
-            # First newline-delimited chunk is the shell's echo of our
-            # sendline. Drop it; everything after, up to the sentinel, is
-            # the real output. Strip the trailing `echo "$S$T"` echo line
-            # bash emits just before the marker.
-            _, _, after_echo = raw.partition("\n")
-            output = re.sub(r'echo "\$S\$T"\s*\n?$', "", after_echo).rstrip("\n")
+
+            if self.debug:
+                print(f"[DEBUG] {instance_id}: Raw PTY output:\n{raw}")
+
+            # Strip the PTY echo of our sendline. partition("\n") isn't enough
+            # because (a) the PTY wraps long base64-encoded sendlines across
+            # multiple newlines, and (b) some shells (bash on AL2/Ubuntu) echo
+            # the input line twice (readline echo + bash's own echo). Anchor
+            # on the LAST occurrence of the trailing `echo "$S$T"` literal —
+            # that string can only appear in the PTY echo of our input, never
+            # in the resolved output (the shell expands $S$T to the sentinel,
+            # which `expect` already consumed before this code runs).
+            echo_end = raw.rfind('echo "$S$T"')
+            if echo_end >= 0:
+                cut = echo_end + len('echo "$S$T"')
+                if cut < len(raw) and raw[cut] == "\n":
+                    cut += 1
+                output = raw[cut:].rstrip("\n")
+            else:
+                # Fallback: drop only the first line (legacy behaviour).
+                _, _, after_echo = raw.partition("\n")
+                output = after_echo.rstrip("\n")
 
             # Graceful close — let SSM tear down rather than killing it.
             try:
@@ -272,7 +305,13 @@ class HyperPodMultiNodeRunner:
             return
         
         group_info = f" in instance group '{instance_group}'" if instance_group else ""
-        print(f"\nExecuting command on {len(target_nodes)} nodes{group_info}: {command}")
+        # Long script-file commands (base64 blob + bash/python3 pipeline) are
+        # noisy. Truncate by default; show the full thing only in debug mode.
+        if self.debug or len(command) <= 200:
+            shown_command = command
+        else:
+            shown_command = f"{command[:80]}... [{len(command)} chars total — use --debug to see full command]"
+        print(f"\nExecuting command on {len(target_nodes)} nodes{group_info}: {shown_command}")
         print("-" * 60)
         
         # Use ThreadPoolExecutor for concurrent execution
@@ -572,19 +611,27 @@ def main():
     parser.add_argument('--test-node', '-t', help='Test SSM connectivity to specific instance ID')
     parser.add_argument('--command', help='Single command to execute (non-interactive mode)')
     parser.add_argument('--script-file', '-f',
-                        help='Path to local shell script to execute remotely (mutually exclusive with --command)')
+                        help='Path to local shell script to execute remotely '
+                             '(mutually exclusive with --command and --python-script-file)')
+    parser.add_argument('--python-script-file', '-p',
+                        help='Path to local Python script to execute remotely via `python3 -` '
+                             '(mutually exclusive with --command and --script-file). '
+                             'Requires python3 on each node.')
     parser.add_argument('--script-args', default='',
-                        help='Args appended to the remote script (passed as a single string to bash -s --). '
-                             'You are responsible for quoting.')
+                        help='Args appended to the remote script invocation as a single string. '
+                             'For --script-file these go after `bash -s --`; for --python-script-file '
+                             'they go after `python3 -` and become sys.argv[1:]. You are responsible '
+                             'for quoting.')
     parser.add_argument('--instance-group', '-g', help='Target specific instance group only')
     parser.add_argument('--list-groups', action='store_true', help='List all instance groups and exit')
 
     args = parser.parse_args()
 
-    if args.command and args.script_file:
-        parser.error("--command and --script-file are mutually exclusive")
-    if args.script_args and not args.script_file:
-        parser.error("--script-args requires --script-file")
+    script_modes = [bool(args.command), bool(args.script_file), bool(args.python_script_file)]
+    if sum(script_modes) > 1:
+        parser.error("--command, --script-file, and --python-script-file are mutually exclusive")
+    if args.script_args and not (args.script_file or args.python_script_file):
+        parser.error("--script-args requires --script-file or --python-script-file")
     
     try:
         runner = HyperPodMultiNodeRunner(debug=args.debug)
@@ -648,7 +695,16 @@ def main():
                     except OSError as e:
                         print(f"Error reading script file '{args.script_file}': {e}")
                         sys.exit(1)
-                    print(f"Running script {args.script_file} ({len(remote_cmd)} bytes on the wire)")
+                    print(f"Running shell script {args.script_file} ({len(remote_cmd)} bytes on the wire)")
+                    runner.run_command_on_all_nodes(remote_cmd, instance_group=args.instance_group)
+                elif args.python_script_file:
+                    # Python-script mode: encode file and run via `python3 -` on each node.
+                    try:
+                        remote_cmd = build_python_command(args.python_script_file, args.script_args)
+                    except OSError as e:
+                        print(f"Error reading script file '{args.python_script_file}': {e}")
+                        sys.exit(1)
+                    print(f"Running Python script {args.python_script_file} ({len(remote_cmd)} bytes on the wire)")
                     runner.run_command_on_all_nodes(remote_cmd, instance_group=args.instance_group)
                 else:
                     # Interactive mode - set instance group if specified via command line
