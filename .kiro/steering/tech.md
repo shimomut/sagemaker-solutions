@@ -70,6 +70,7 @@ aws sagemaker describe-transform-job --transform-job-name my-job
 
 ## Script Conventions
 
+- When setting up an environment that requires installing additional packages, use a Python virtual environment (venv) or a container rather than modifying the system environment directly.
 - Do NOT set executable file permissions (`chmod +x`) on scripts. Keep them at default `644`.
 - Always invoke scripts through their interpreter explicitly:
   - Shell scripts: `bash script.sh`
