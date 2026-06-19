@@ -6,6 +6,8 @@ A utility to execute commands on all nodes in a HyperPod cluster using SSM sessi
 """
 
 import argparse
+import base64
+import os
 import boto3
 import pexpect
 import re
@@ -15,6 +17,21 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import List, Dict, Tuple
+
+
+def build_script_command(script_path: str, script_args: str = "") -> str:
+    """Wrap a local shell script as a single-line remote command.
+
+    The script is base64-encoded and piped through `base64 -d | bash -s --` so
+    multi-line bodies, quotes, and heredocs survive the SSM PTY without local
+    re-quoting. `script_args` is appended verbatim after `--`; the caller is
+    responsible for quoting its contents.
+    """
+    path = os.path.expanduser(script_path)
+    with open(path, "rb") as fd:
+        b64 = base64.b64encode(fd.read()).decode("ascii")
+    suffix = f" {script_args}" if script_args else ""
+    return f"echo {b64} | base64 -d | bash -s --{suffix}"
 
 
 class HyperPodMultiNodeRunner:
@@ -611,10 +628,20 @@ def main():
     parser.add_argument('--debug', '-d', action='store_true', help='Enable debug mode')
     parser.add_argument('--test-node', '-t', help='Test SSM connectivity to specific instance ID')
     parser.add_argument('--command', help='Single command to execute (non-interactive mode)')
+    parser.add_argument('--script-file', '-f',
+                        help='Path to local shell script to execute remotely (mutually exclusive with --command)')
+    parser.add_argument('--script-args', default='',
+                        help='Args appended to the remote script (passed as a single string to bash -s --). '
+                             'You are responsible for quoting.')
     parser.add_argument('--instance-group', '-g', help='Target specific instance group only')
     parser.add_argument('--list-groups', action='store_true', help='List all instance groups and exit')
-    
+
     args = parser.parse_args()
+
+    if args.command and args.script_file:
+        parser.error("--command and --script-file are mutually exclusive")
+    if args.script_args and not args.script_file:
+        parser.error("--script-args requires --script-file")
     
     try:
         runner = HyperPodMultiNodeRunner(debug=args.debug)
@@ -671,6 +698,15 @@ def main():
                 if args.command:
                     # Single command mode
                     runner.run_command_on_all_nodes(args.command, instance_group=args.instance_group)
+                elif args.script_file:
+                    # Script-file mode: encode file and run via `bash -s --` on each node.
+                    try:
+                        remote_cmd = build_script_command(args.script_file, args.script_args)
+                    except OSError as e:
+                        print(f"Error reading script file '{args.script_file}': {e}")
+                        sys.exit(1)
+                    print(f"Running script {args.script_file} ({len(remote_cmd)} bytes on the wire)")
+                    runner.run_command_on_all_nodes(remote_cmd, instance_group=args.instance_group)
                 else:
                     # Interactive mode - set instance group if specified via command line
                     if args.instance_group:

@@ -8,6 +8,7 @@ A utility tool to execute commands on all nodes or specific instance groups in a
 - **Instance group targeting** - Execute commands on specific instance groups or all nodes
 - **Interactive instance group selection** - Choose target groups at startup
 - Executes commands on multiple nodes simultaneously via SSM sessions
+- **Local shell script execution** - Run a multi-line local script on every node without re-quoting
 - **Improved output parsing** with custom prompts for reliable command execution
 - Real-time output display from all nodes with clean formatting
 - Interactive command input loop with built-in help
@@ -43,6 +44,12 @@ python hyperpod_run_on_multi_nodes.py --cluster my-cluster --command "uptime"
 # Target specific instance group
 python hyperpod_run_on_multi_nodes.py --cluster my-cluster --instance-group worker-group --command "uptime"
 
+# Run a local shell script on every node
+python hyperpod_run_on_multi_nodes.py --cluster my-cluster --script-file ./my_script.sh
+
+# Run a local shell script with arguments
+python hyperpod_run_on_multi_nodes.py --cluster my-cluster --script-file ./my_script.sh --script-args "--flag value"
+
 # List available instance groups
 python hyperpod_run_on_multi_nodes.py --cluster my-cluster --list-groups
 
@@ -60,6 +67,8 @@ python hyperpod_run_on_multi_nodes.py --test-node i-1234567890abcdef0
 
 - `--cluster, -c`: Specify HyperPod cluster name
 - `--command`: Execute single command (non-interactive mode)
+- `--script-file, -f`: Path to a local shell script to execute remotely (mutually exclusive with `--command`). The script is base64-encoded and piped through `base64 -d | bash -s --`, so multi-line bodies, quotes, and heredocs survive the SSM PTY without local re-quoting.
+- `--script-args`: Args appended to the remote script (passed as a single string to `bash -s --`). Requires `--script-file`. You are responsible for quoting.
 - `--instance-group, -g`: Target specific instance group only
 - `--list-groups`: List all instance groups and exit
 - `--debug, -d`: Enable debug mode for troubleshooting
@@ -155,6 +164,9 @@ $ python hyperpod_run_on_multi_nodes.py --cluster my-cluster --instance-group wo
 
 # Run on all nodes
 $ python hyperpod_run_on_multi_nodes.py --cluster my-cluster --command "df -h"
+
+# Run a local shell script on every node in a specific instance group
+$ python hyperpod_run_on_multi_nodes.py --cluster my-cluster --instance-group worker-group --script-file ./bootstrap.sh
 ```
 
 ## Requirements
