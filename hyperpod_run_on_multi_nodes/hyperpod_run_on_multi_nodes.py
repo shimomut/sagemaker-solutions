@@ -11,12 +11,18 @@ import os
 import boto3
 import pexpect
 import re
-import signal
 import sys
-import threading
-import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import List, Dict, Tuple
+
+
+# Initial-prompt patterns covering AL2 (`sh-4.2#`), AL2023 (`sh-5.2#`), and
+# generic `# ` / `$ `. The TIMEOUT sentinel at the end is a fallback the
+# caller can detect to nudge a prompt out of a terse SSM banner.
+_SSM_PROMPT_PATTERNS = [
+    r"sh-\d+\.\d+[#\$]\s*",
+    r"[#\$]\s+",
+]
 
 
 def build_script_command(script_path: str, script_args: str = "") -> str:
@@ -137,131 +143,69 @@ class HyperPodMultiNodeRunner:
             return []
     
     def execute_command_on_node(self, node: Dict, command: str, timeout: int = 60) -> Tuple[str, str, bool]:
-        """Execute a command on a single node via SSM using improved prompt handling for AL2023."""
+        """Execute a command on a single node via SSM and wait for its completion.
+
+        Uses a runtime-assembled sentinel string as the end-of-output marker:
+        the shell joins ``$S$T`` only after the command finishes, so pexpect's
+        first match for the literal sentinel can only fire on the resolved
+        echo line — not on the echo of the input line itself.
+        """
         instance_id = node['InstanceId']
         instance_group_name = node.get('NodeGroup', 'unknown')
-        
-        # Use HyperPod SSM target format
+
         try:
             ssm_target = self.get_hyperpod_ssm_target(instance_id, instance_group_name)
         except ValueError as e:
             return instance_id, f"Failed to construct HyperPod SSM target: {str(e)}", False
+
+        sentinel = "__hyperpod_ssm_done_aef36c__"
+        head = sentinel[: len(sentinel) // 2]
+        tail = sentinel[len(sentinel) // 2 :]
+        initial_patterns = [*_SSM_PROMPT_PATTERNS, pexpect.TIMEOUT]
+
         child = None
-        
-        # Custom prompt for reliable output parsing
-        custom_prompt = "PEXPECT_READY# "
-        
-        def print_pexpect_output(p):
-            """Helper function to print pexpect output for debugging."""
-            if self.debug:
-                print(f"[DEBUG] {instance_id} Before: {repr(p.before)}")
-                print(f"[DEBUG] {instance_id} After: {repr(p.after)}")
-        
         try:
             ssm_command = f"aws ssm start-session --target {ssm_target}"
-            
             if self.debug:
-                print(f"[DEBUG] {instance_id}: Starting SSM session with command: {ssm_command}")
-            
-            # Use pexpect to handle the interactive session
+                print(f"[DEBUG] {instance_id}: Starting SSM session: {ssm_command}")
+
             child = pexpect.spawn(ssm_command, timeout=timeout, encoding='utf-8')
-            child.logfile_read = None  # Disable verbose logging
-            
-            # AL2023 compatibility: Wait for SSM session establishment first
-            if self.debug:
-                print(f"[DEBUG] {instance_id}: Waiting for SSM session establishment...")
-            
-            # More flexible initial prompt detection for AL2023
-            # AL2023 may have different prompt formats, so we try multiple patterns
-            initial_prompt_patterns = [
-                r'[\$#]\s+',            # HyperPod Slurm
-                r'sh-\d+\.\d+[\$#]\s*', # HyperPod EKS
-                pexpect.TIMEOUT         # Fallback for timeout
-            ]
-            
-            if self.debug:
-                print(f"[DEBUG] {instance_id}: Waiting for initial prompt...")
-            
-            # Try to match any of the prompt patterns with extended timeout for AL2023
-            prompt_index = child.expect(initial_prompt_patterns, timeout=30)
-            
-            if prompt_index == len(initial_prompt_patterns) - 1:  # TIMEOUT case
-                if self.debug:
-                    print(f"[DEBUG] {instance_id}: Initial prompt timeout, trying to proceed anyway...")
-                # Send a newline to potentially trigger a prompt
+            child.logfile_read = None
+
+            idx = child.expect(initial_patterns, timeout=30)
+            if idx == len(initial_patterns) - 1:
+                # SSM banner ended without a prompt — nudge with a bare newline.
                 child.sendline('')
                 try:
-                    child.expect(initial_prompt_patterns[:-1], timeout=10)
+                    child.expect(_SSM_PROMPT_PATTERNS, timeout=10)
                 except pexpect.TIMEOUT:
                     return instance_id, "Failed to establish shell session - no prompt detected", False
-            
+
             if self.debug:
-                print(f"[DEBUG] {instance_id}: Initial prompt detected (pattern {prompt_index})")
-                print_pexpect_output(child)
-            
-            # Set the custom prompt with explicit formatting
-            # Use a marker-based approach to avoid matching the prompt in the command itself
-            child.sendline(f'export PS1="{custom_prompt}"')
-            
-            # Send a unique marker command to verify the new prompt is active
-            marker_command = 'echo "PROMPT_SET_MARKER"'
-            child.sendline(marker_command)
-            
-            # Wait for the marker output followed by the new custom prompt
-            child.expect('PROMPT_SET_MARKER', timeout=10)
-            child.expect(custom_prompt, timeout=10)
-            
-            if self.debug:
-                print(f"[DEBUG] {instance_id}: Custom prompt set successfully")
-                print_pexpect_output(child)
-            
-            # Send the actual command
-            if self.debug:
-                print(f"[DEBUG] {instance_id}: Executing command: {command}")
-            
-            child.sendline(command)
-            
-            # Wait for command completion and custom prompt return
-            child.expect(custom_prompt, timeout=timeout)
-            
-            if self.debug:
-                print(f"[DEBUG] {instance_id}: Command completed")
-                print_pexpect_output(child)
-            
-            # Extract output (everything before the final prompt)
-            output = child.before
-            if output:
-                # Clean up the output - remove command echo and extra whitespace
-                lines = output.split('\n')
-                
-                # Remove command echo if present (first non-empty line)
-                cleaned_lines = []
-                command_echo_removed = False
-                
-                for line in lines:
-                    line = line.strip()
-                    if not command_echo_removed and line == command:
-                        command_echo_removed = True
-                        continue
-                    if line:  # Only add non-empty lines
-                        cleaned_lines.append(line)
-                
-                output = '\n'.join(cleaned_lines)
-            else:
-                output = ""
-            
-            # Close the session gracefully
+                print(f"[DEBUG] {instance_id}: Initial prompt detected; running command")
+
+            child.sendline(f'S="{head}"; T="{tail}"; {command}; echo "$S$T"')
+            child.expect(sentinel, timeout=timeout)
+
+            # Collapse PTY-doubled CRs ("\r\r\n") down to a single \n in one
+            # pass — a naive \r\n→\n then \r→\n turns "\r\r\n" into "\n\n".
+            raw = re.sub(r"\r+\n?", "\n", child.before or "")
+            # First newline-delimited chunk is the shell's echo of our
+            # sendline. Drop it; everything after, up to the sentinel, is
+            # the real output. Strip the trailing `echo "$S$T"` echo line
+            # bash emits just before the marker.
+            _, _, after_echo = raw.partition("\n")
+            output = re.sub(r'echo "\$S\$T"\s*\n?$', "", after_echo).rstrip("\n")
+
+            # Graceful close — let SSM tear down rather than killing it.
             try:
                 child.sendline('exit')
                 child.expect(pexpect.EOF, timeout=5)
-            except:
-                try:
-                    child.kill(signal.SIGINT)
-                except:
-                    pass  # Ignore errors during cleanup
-            
+            except pexpect.TIMEOUT:
+                pass
+
             return instance_id, output, True
-            
+
         except pexpect.TIMEOUT:
             error_msg = f"Command '{command}' timed out after {timeout} seconds"
             if child and hasattr(child, 'before') and child.before:
@@ -269,26 +213,25 @@ class HyperPodMultiNodeRunner:
             if self.debug:
                 error_msg += f"\nSSM Target: {ssm_target}"
             return instance_id, error_msg, False
-            
+
         except pexpect.EOF:
             error_msg = "SSM session ended unexpectedly"
             if child and hasattr(child, 'before') and child.before:
                 error_msg += f"\nLast output: {child.before[:500]}..."
             return instance_id, error_msg, False
-            
+
         except Exception as e:
             error_msg = f"Error executing command: {str(e)}"
             if self.debug:
                 import traceback
                 error_msg += f"\nTraceback: {traceback.format_exc()}"
             return instance_id, error_msg, False
-            
+
         finally:
-            # Ensure child process is cleaned up
             if child and child.isalive():
                 try:
                     child.terminate(force=True)
-                except:
+                except Exception:
                     pass
     
     def get_nodes_by_instance_group(self, instance_group: str = None) -> List[Dict]:
