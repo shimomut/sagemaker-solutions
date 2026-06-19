@@ -92,7 +92,7 @@ clean:
 	@echo "Cleaning up temporary files..."
 	find . -type f -name "*.pyc" -delete
 	find . -type d -name "__pycache__" -delete
-	rm -rf .pytest_cache/
+	rm -rf .pytest_cache/ $(VENV_DIR)
 
 # Basic test
 test: $(VENV_STAMP)
