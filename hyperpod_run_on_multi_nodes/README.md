@@ -22,6 +22,20 @@ A utility tool to execute commands on all nodes or specific instance groups in a
 - SSM permissions for the HyperPod cluster nodes
 - Python 3.x with required dependencies (see `requirements.txt`)
 
+## Limits
+
+This tool sends each command (or each base64-encoded script) as a **single line** through an SSM PTY session. The kernel's canonical-mode line buffer (`MAX_CANON`, 4096 bytes on Linux) silently truncates anything larger, so the tool enforces hard and soft limits accordingly.
+
+| What | Limit | Notes |
+|---|---|---|
+| Single command / encoded script on the wire | **3500 bytes** (hard cap) | Exceeding this raises `ScriptTooLargeError` before any SSM session opens. Raw script size translates to roughly 4/3× on the wire because of base64. In practice this is **~2.5 KB of raw script**. |
+| Per-node session startup | ~3 seconds | Fixed overhead per node; multi-node runs parallelize across `max_workers`. |
+| Output captured per node | **~10 MB practical** | No hard byte cliff, but throughput degrades because output is buffered entirely in memory and post-processed in one pass. 1 MB ≈ 5 s, 10 MB ≈ 25 s, 50 MB ≈ 8 min. Above ~10 MB this tool is the wrong choice. |
+
+**If your script is too large**, the simplest fix is usually to trim comments/docstrings. If that's not enough, have the small wrapper script `curl` or `aws s3 cp` the real payload from a known location, or use `aws ssm send-command` (which has different size limits and no PTY constraint) for one-shot jobs.
+
+**If your expected output is large**, write it to a file on the node and pull it back through a separate channel (S3, scp via SSM port-forwarding, etc.) instead of capturing through this tool.
+
 ## Usage
 
 ### Interactive Mode

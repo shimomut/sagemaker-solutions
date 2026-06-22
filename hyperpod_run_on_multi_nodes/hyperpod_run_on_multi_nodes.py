@@ -24,6 +24,41 @@ _SSM_PROMPT_PATTERNS = [
     r"[#\$]\s+",
 ]
 
+# Kernel canonical-mode line buffer (MAX_CANON) on Linux truncates a single
+# `sendline` at ~4096 bytes. Measured cliff on Ubuntu 22.04: 3993 bytes on
+# the wire succeeds, 4192 silently truncates → base64 decode fails remotely
+# → sentinel never echoes → expect() hangs the full timeout. We cap the
+# `command` payload below the cliff with headroom for the runtime sentinel
+# wrapper (`S="..."; T="..."; <command>; echo "$S$T"`, ~44 bytes).
+_MAX_REMOTE_CMD_BYTES = 3500
+
+
+class ScriptTooLargeError(ValueError):
+    """Raised when a built remote_cmd would exceed the PTY line-buffer limit."""
+
+
+def _check_remote_cmd_size(remote_cmd: str, script_path: str) -> None:
+    """Reject remote commands that won't survive the PTY line buffer.
+
+    See _MAX_REMOTE_CMD_BYTES for the rationale.
+    """
+    n = len(remote_cmd)
+    if n <= _MAX_REMOTE_CMD_BYTES:
+        return
+    raise ScriptTooLargeError(
+        f"Script too large to send through SSM PTY: {script_path} expands to "
+        f"{n} bytes on the wire (limit {_MAX_REMOTE_CMD_BYTES} bytes — kernel "
+        f"PTY line-buffer constraint, MAX_CANON=4096).\n"
+        f"This tool sends the script as a single base64-encoded line; the "
+        f"remote shell silently truncates anything past ~4 KB and the session "
+        f"hangs waiting for output that will never arrive.\n"
+        f"Workarounds:\n"
+        f"  - Trim the script (dropping comments/docstrings is usually enough)\n"
+        f"  - Have the script `curl` or `aws s3 cp` the real payload from a "
+        f"known location\n"
+        f"  - Run the larger work as an `aws ssm send-command` job instead"
+    )
+
 
 def build_script_command(script_path: str, script_args: str = "") -> str:
     """Wrap a local shell script as a single-line remote command.
@@ -32,12 +67,17 @@ def build_script_command(script_path: str, script_args: str = "") -> str:
     multi-line bodies, quotes, and heredocs survive the SSM PTY without local
     re-quoting. `script_args` is appended verbatim after `--`; the caller is
     responsible for quoting its contents.
+
+    Raises ScriptTooLargeError if the built command would exceed the PTY
+    line-buffer cliff (see _MAX_REMOTE_CMD_BYTES).
     """
     path = os.path.expanduser(script_path)
     with open(path, "rb") as fd:
         b64 = base64.b64encode(fd.read()).decode("ascii")
     suffix = f" {script_args}" if script_args else ""
-    return f"echo {b64} | base64 -d | bash -s --{suffix}"
+    remote_cmd = f"echo {b64} | base64 -d | bash -s --{suffix}"
+    _check_remote_cmd_size(remote_cmd, script_path)
+    return remote_cmd
 
 
 def build_python_command(script_path: str, script_args: str = "") -> str:
@@ -49,12 +89,17 @@ def build_python_command(script_path: str, script_args: str = "") -> str:
     invocation and becomes the script's ``sys.argv[1:]`` (``sys.argv[0]`` is
     ``"-"``). The caller is responsible for quoting `script_args` contents.
     Requires ``python3`` on the remote node.
+
+    Raises ScriptTooLargeError if the built command would exceed the PTY
+    line-buffer cliff (see _MAX_REMOTE_CMD_BYTES).
     """
     path = os.path.expanduser(script_path)
     with open(path, "rb") as fd:
         b64 = base64.b64encode(fd.read()).decode("ascii")
     suffix = f" {script_args}" if script_args else ""
-    return f"echo {b64} | base64 -d | python3 -{suffix}"
+    remote_cmd = f"echo {b64} | base64 -d | python3 -{suffix}"
+    _check_remote_cmd_size(remote_cmd, script_path)
+    return remote_cmd
 
 
 class HyperPodMultiNodeRunner:
@@ -181,6 +226,7 @@ class HyperPodMultiNodeRunner:
         initial_patterns = [*_SSM_PROMPT_PATTERNS, pexpect.TIMEOUT]
 
         child = None
+        sendline_payload = ""
         try:
             ssm_command = f"aws ssm start-session --target {ssm_target}"
             if self.debug:
@@ -201,7 +247,8 @@ class HyperPodMultiNodeRunner:
             if self.debug:
                 print(f"[DEBUG] {instance_id}: Initial prompt detected; running command")
 
-            child.sendline(f'S="{head}"; T="{tail}"; {command}; echo "$S$T"')
+            sendline_payload = f'S="{head}"; T="{tail}"; {command}; echo "$S$T"'
+            child.sendline(sendline_payload)
             child.expect(sentinel, timeout=timeout)
 
             # Collapse PTY-doubled CRs ("\r\r\n") down to a single \n in one
@@ -240,7 +287,22 @@ class HyperPodMultiNodeRunner:
             return instance_id, output, True
 
         except pexpect.TIMEOUT:
-            error_msg = f"Command '{command}' timed out after {timeout} seconds"
+            # If we never saw the sentinel and the sendline was anywhere near
+            # the PTY line-buffer cliff (~4 KB), it almost certainly got
+            # truncated on the way in — surface that as the likely cause
+            # instead of the generic timeout.
+            payload_size = len(sendline_payload) or len(command)
+            if payload_size >= _MAX_REMOTE_CMD_BYTES:
+                error_msg = (
+                    f"Sentinel never returned after {timeout}s. The remote "
+                    f"command was {payload_size} bytes — at or above the kernel "
+                    f"PTY line-buffer limit (MAX_CANON=4096). The script was "
+                    f"almost certainly truncated on send; the remote shell "
+                    f"never reached the trailing `echo` that prints our "
+                    f"sentinel. Shrink the script or stage it out-of-band."
+                )
+            else:
+                error_msg = f"Command '{command}' timed out after {timeout} seconds"
             if child and hasattr(child, 'before') and child.before:
                 error_msg += f"\nPartial output: {child.before[:500]}..."
             if self.debug:
@@ -695,6 +757,9 @@ def main():
                     except OSError as e:
                         print(f"Error reading script file '{args.script_file}': {e}")
                         sys.exit(1)
+                    except ScriptTooLargeError as e:
+                        print(f"Error: {e}")
+                        sys.exit(1)
                     print(f"Running shell script {args.script_file} ({len(remote_cmd)} bytes on the wire)")
                     runner.run_command_on_all_nodes(remote_cmd, instance_group=args.instance_group)
                 elif args.python_script_file:
@@ -703,6 +768,9 @@ def main():
                         remote_cmd = build_python_command(args.python_script_file, args.script_args)
                     except OSError as e:
                         print(f"Error reading script file '{args.python_script_file}': {e}")
+                        sys.exit(1)
+                    except ScriptTooLargeError as e:
+                        print(f"Error: {e}")
                         sys.exit(1)
                     print(f"Running Python script {args.python_script_file} ({len(remote_cmd)} bytes on the wire)")
                     runner.run_command_on_all_nodes(remote_cmd, instance_group=args.instance_group)
