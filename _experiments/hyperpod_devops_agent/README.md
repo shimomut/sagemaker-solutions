@@ -83,6 +83,10 @@ make upload-skill                                  # zips skills/hyperpod-invest
 make list-skills                                   # show all skills + their type (USER vs LEARNED)
 # To remove: make delete-skill
 
+# Step 6 (optional) - Import upstream HyperPod skills from awslabs/agent-plugins
+make import-upstream-skills                        # clones repo, strips scripts/, uploads each
+# SKILLS='hyperpod-nccl hyperpod-node-debugger' make import-upstream-skills  # subset
+
 # Teardown
 make teardown                # bridge stack -> EKS entry -> agent space -> IAM roles
 DELETE_SECRET=yes make teardown   # also wipes the Secrets Manager secret
@@ -165,6 +169,48 @@ skills/hyperpod-investigation/
 The skill's frontmatter `description:` is what makes the agent decide to load it — it lists triggering keywords (`HyperPod`, `aws.sagemaker`, the three EventBridge detail-types, common failure modes) so the description-match step lights up for any incident originating from our webhook bridge.
 
 `make upload-skill` zips the directory and calls `aws devops-agent create-asset --asset-type skill`. Re-running calls `update-asset` instead of creating duplicates. To author additional skills, drop a new directory under `skills/` and run `SKILL_DIR=skills/my-skill make upload-skill`.
+
+### Importing the upstream `awslabs/agent-plugins` HyperPod skills
+
+`make import-upstream-skills` clones [awslabs/agent-plugins](https://github.com/awslabs/agent-plugins) into `skills/upstream/` (git-ignored), strips each skill's `scripts/` directory (DevOps Agent skills are explicitly "non-executable documents"), and uploads every `hyperpod-*` skill via `create-asset` / `update-asset`. Subsequent runs `git pull` and re-upload the latest version — version control sits in upstream.
+
+Subset to one or a few skills with the `SKILLS` env var: `SKILLS='hyperpod-nccl' make import-upstream-skills`. Override `UPSTREAM_REF` to pin to a specific commit/branch/tag.
+
+The upstream skills were authored for Claude Code / Codex runtimes that can execute shell directly. DevOps Agent's runtime is more constrained, and the constraint is **partial, not absolute**, for SSM specifically.
+
+### SSM access — what DevOps Agent can and cannot do (revisit needed)
+
+`AIDevOpsAgentAccessPolicy` (the managed policy attached to `DevOpsAgentRole-AgentSpace`) allows the **read** side of SSM but not the **execute** side:
+
+| SSM action | In policy? | Use |
+| --- | --- | --- |
+| `ssm:Describe*`, `ssm:List*` | ✅ | Describe instances, list documents/associations/patches, etc. |
+| `ssm:GetDocument`, `ssm:GetParameters`, `ssm:GetPatchBaseline`, `ssm:GetResourcePolicies`, `ssm:GetDefaultPatchBaseline` | ✅ | Read SSM resources and Parameter Store. |
+| `ssm:GetCommandInvocation` | ✅ | **Read output** of a Run Command invocation someone else already kicked off. |
+| `ssm:SendCommand` | ❌ | Kick off a Run Command on a node. |
+| `ssm:StartSession` | ❌ | Open a Session Manager shell. |
+
+So DevOps Agent **can read SSM**; it cannot **drive SSM**. The IAM model deliberately scopes the agent to read-only to limit blast radius from prompt injection (this is also why Reader is the only Azure role the docs allow).
+
+**Impact on the imported skills:**
+
+- `hyperpod-ssm` (kick off remote commands) — blocked at step 1. Agent will fail.
+- `hyperpod-issue-report` (multi-node diagnostic collection) — needs `SendCommand`. Blocked.
+- `hyperpod-version-checker` (per-node version reads) — needs `SendCommand`. Blocked.
+- `hyperpod-node-debugger` — K8s-side + EC2-side procedures work; on-node DCGM / XID / dmesg checks need `SendCommand` and don't.
+- `hyperpod-nccl` — AWS API + kubectl parts work; on-node EFA / libfabric probes need `SendCommand`.
+
+**Why this matters and what we need to revisit:**
+
+SSM execution is the **only realistic way to read on-node truth** for a whole class of HyperPod failures: GPU XID errors in `dmesg`, NVIDIA driver state via `nvidia-smi`, EFA / libfabric counters, kernel module status, `/var/log/messages`, lifecycle script output that didn't make it to CloudWatch. These are exactly the kinds of issues HyperPod operators most need help triaging. Without `SendCommand`, the agent has to guess from K8s-side proxies (NotReady, taints, node labels) when the ground truth is on the host.
+
+Three plausible paths to revisit later, none of which we've evaluated yet:
+
+1. **Pre-collected diagnostics**: a Lambda / cron runs `aws ssm send-command` on a schedule (or on EventBridge events), captures the output as a CloudWatch Logs stream or S3 object, and the agent reads from there via the access it already has. Read-only purity preserved.
+2. **GetCommandInvocation pivot**: human/automation runs `send-command` *as part of triage*, hands the agent the resulting `CommandId`, agent reads the output via `GetCommandInvocation`. Works for on-demand investigations but doesn't auto-trigger.
+3. **Augment the IAM policy**: add `ssm:SendCommand` (and likely `ssm:GetCommandInvocation` if not already) to a *separate* role specifically used for diagnostic commands, scoped tightly by resource (only HyperPod-tagged instances) and document (an allowlist of read-only diagnostic SSM documents). Bigger blast radius, needs careful threat modeling.
+
+For now we've left all 8 upstream skills imported — at minimum they're useful as reference documentation the agent can quote in findings, and the K8s-side / AWS-API parts of skills like `hyperpod-node-debugger` and `hyperpod-nccl` still work as intended. Revisit before treating this as production-ready.
 
 Two coexisting skill types you'll see in `make list-skills`:
 - **USER** — what we author (this repo). Edits are deliberate.

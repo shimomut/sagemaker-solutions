@@ -18,7 +18,13 @@ ROOT="$(cd "${HERE}/.." && pwd)"
 source "${HERE}/config.sh"
 
 : "${SKILL_DIR:=skills/hyperpod-investigation}"
-SKILL_PATH="${ROOT}/${SKILL_DIR}"
+# If SKILL_DIR is an absolute path, use it as-is. Otherwise resolve it
+# relative to the project root.
+if [[ "${SKILL_DIR}" == /* ]]; then
+    SKILL_PATH="${SKILL_DIR}"
+else
+    SKILL_PATH="${ROOT}/${SKILL_DIR}"
+fi
 
 if [[ ! -d "${SKILL_PATH}" ]]; then
     echo "Error: skill directory not found: ${SKILL_PATH}" >&2

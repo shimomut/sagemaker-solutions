@@ -2,3 +2,4 @@
 /docs/*.txt
 /.venv/
 /.state.json
+/skills/upstream/

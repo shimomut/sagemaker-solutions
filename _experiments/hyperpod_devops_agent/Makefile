@@ -28,7 +28,7 @@ SCRIPTS_DIR := scripts
         setup iam-roles agent-space eks-access \
         webhook-secret deploy-bridge delete-bridge bridge-logs bridge-test \
         bridge-debug-on bridge-debug-off bridge-env \
-        upload-skill list-skills delete-skill \
+        upload-skill list-skills delete-skill import-upstream-skills \
         teardown status clean
 
 help:
@@ -67,6 +67,8 @@ help:
 	@echo "  list-skills     - Show every skill asset in the Agent Space"
 	@echo "  delete-skill    - Delete the skill named in SKILL.md's frontmatter"
 	@echo "                    (SKILL_DIR=... or SKILL_NAME=... to target a specific skill)"
+	@echo "  import-upstream-skills - Clone awslabs/agent-plugins, strip scripts/, upload"
+	@echo "                           every hyperpod-* skill (SKILLS='name1 name2' to subset)"
 	@echo
 	@echo "Operate / teardown:"
 	@echo "  status        - Print state file + console URL for the Agent Space"
@@ -170,6 +172,9 @@ upload-skill:
 
 delete-skill:
 	bash $(SCRIPTS_DIR)/08_delete_skill.sh
+
+import-upstream-skills:
+	bash $(SCRIPTS_DIR)/09_import_upstream_skills.sh
 
 list-skills:
 	@bash -c 'source $(SCRIPTS_DIR)/config.sh && \
