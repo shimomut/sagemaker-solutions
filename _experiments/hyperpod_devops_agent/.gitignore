@@ -1,2 +1,4 @@
 /docs/*.pdf
 /docs/*.txt
+/.venv/
+/.state.json

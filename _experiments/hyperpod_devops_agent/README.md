@@ -1,73 +1,111 @@
 # HyperPod x AWS DevOps Agent — experiment
 
-Experiment: wire SageMaker HyperPod (EKS first, Slurm later) into [AWS DevOps Agent](https://docs.aws.amazon.com/devopsagent/) so the agent can monitor cluster health, investigate failures, and drive remediation.
+Wire SageMaker HyperPod (EKS-orchestrated cluster `k8-1`) into [AWS DevOps Agent](https://docs.aws.amazon.com/devopsagent/) and see what the agent does with it out of the box.
 
-## What's here
+This iteration is a **minimal end-to-end loop**: stand up an Agent Space, give it read-only access to the underlying EKS cluster, and run a manual investigation from the web app. No custom EventBridge bridges, no remediation Lambdas, no auto-triggering — that comes later, once we've seen what the agent produces unprompted.
 
-- `docs/` — DevOps Agent user guide and API reference PDFs (git-ignored). Extracted `.txt` siblings are produced by `make extract-docs` for searching with `grep`.
-- `extract_pdf.py` — PDF -> text via `pypdf`.
-- `Makefile` — `make venv`, `make extract-docs`, `make clean`.
+## Layout
 
-```bash
-make venv          # create .venv and install pypdf
-make extract-docs  # docs/*.pdf -> docs/*.txt (page markers included)
+```
+.
+├── Makefile                 - make targets for every step below
+├── README.md                - this file
+├── docs/                    - DevOps Agent UG + API ref PDFs (git-ignored) + extracted .txt
+├── extract_pdf.py           - PDF -> .txt helper (pypdf)
+├── requirements.txt
+├── scripts/
+│   ├── config.sh            - shared config (env-overridable)
+│   ├── 01_create_iam_roles.sh
+│   ├── 02_create_agent_space.sh
+│   ├── 03_grant_eks_access.sh
+│   └── 99_teardown.sh
+└── .state.json              - written by setup, read by teardown (git-ignored)
 ```
 
-## Notes from the docs (anchor for design decisions)
+## Prerequisites
 
-DevOps Agent is organized around **Agent Spaces** (logical containers for accounts, integrations, permissions). Production operations breaks into:
+- AWS CLI v2 configured for the target account.
+- HyperPod cluster `k8-1` in `us-west-2` (account 842413447717) — already exists.
+- Permission to create IAM roles and call `devops-agent:*` + `eks:CreateAccessEntry`.
 
-- **Autonomous incident response** — kicked off by alerts/tickets/webhooks. The agent triages (link / skip / proceed), correlates telemetry across the topology, identifies root cause, and proposes a mitigation plan.
+## Quick start
+
+```bash
+make help                    # show every target
+make extract-docs            # one-time: build searchable .txt from the PDFs
+
+make check-aws               # whoami + caller identity
+make check-cluster           # confirms HyperPod + EKS auth mode
+make config                  # show resolved config (region, role names, ...)
+
+make setup                   # full setup: iam-roles -> agent-space -> eks-access
+make status                  # print state file + Operator web app URL
+
+# Then, in the AWS console, open the Operator web app and start a manual
+# investigation like "Investigate node health on HyperPod cluster k8-1".
+
+make teardown                # remove EKS access entry, agent space, IAM roles
+```
+
+To override defaults, export before running:
+
+```bash
+REGION=us-west-2 \
+HYPERPOD_CLUSTER_NAME=k8-1 \
+EKS_CLUSTER_NAME=sagemaker-k8-1-1bd2626f-eks \
+AGENT_SPACE_NAME=hyperpod-devops-agent-poc \
+make setup
+```
+
+## What `make setup` creates
+
+| # | Resource | Why |
+| --- | --- | --- |
+| 1 | IAM role `DevOpsAgentRole-AgentSpace` | Assumed by `aidevops.amazonaws.com` to read AWS resources during investigations. Attaches managed policy `AIDevOpsAgentAccessPolicy` + an inline policy allowing the Resource Explorer service-linked role to be created. Trust is scoped to this account's `agentspace/*`. |
+| 2 | IAM role `DevOpsAgentRole-WebappAdmin` | Backs the Operator web app. Attaches managed policy `AIDevOpsOperatorAppAccessPolicy`. |
+| 3 | Agent Space `hyperpod-devops-agent-poc` (in `us-west-2`) | The logical container for accounts, integrations, knowledge. |
+| 4 | Primary AWS account association (`accountType=monitor`) | Turns on topology discovery across all regions of the account. |
+| 5 | Operator web app (auth flow `iam`) | UI entry point at `https://us-west-2.console.aws.amazon.com/aidevops/...`. |
+| 6 | EKS access entry on `sagemaker-k8-1-1bd2626f-eks` | Grants the Agent Space monitoring role read-only kubectl via the AWS-managed `AmazonAIOpsAssistantPolicy` access policy, cluster scope. |
+
+The agent cannot create, modify, or delete K8s resources — `AmazonAIOpsAssistantPolicy` is read-only (describe, get pod logs, list events, check node health, etc.).
+
+## What `make setup` does NOT create
+
+- No Lambdas, EventBridge rules, SES, or Slack/PagerDuty integrations.
+- No webhooks (so investigations don't auto-start from HyperPod events yet).
+- No skills, custom agents, or instructions uploaded to the Agent Space.
+- No changes to the HyperPod cluster or its data plane.
+
+These are intentionally deferred — they belong to follow-up iterations once we've seen baseline behavior.
+
+## Findings from the DevOps Agent docs (anchor for design)
+
+DevOps Agent is organized around **Agent Spaces** (logical containers for accounts, integrations, knowledge, permissions). Production operations breaks into three capabilities:
+
+- **Autonomous incident response** — kicked off by alerts/tickets/webhooks. Triages (link / skip / proceed), correlates telemetry across the topology, identifies root cause, proposes a mitigation plan.
 - **Proactive incident prevention** — weekly cross-incident analysis that surfaces recommendations across observability / infra / governance / code.
 - **On-demand DevOps tasks** — natural-language chat over the topology.
 
-Three relevant integration surfaces for us:
+Integration surfaces relevant to HyperPod:
 
 | Surface | Direction | Use for HyperPod |
 | --- | --- | --- |
-| **Webhooks** (generic, HMAC-signed) | _Into_ the agent | Trigger an investigation from any HyperPod signal we choose (cluster events, K8s events, custom alarms). |
-| **EventBridge** events `source: aws.aidevops` | _From_ the agent | React to investigation lifecycle (Created / In Progress / Completed / Failed / Timed Out / Cancelled / Skipped / Linked) — e.g., post to Slack, open a ticket, fan out to a remediation Lambda. |
-| **Skills** (modular instruction sets) | Inside the agent | Encode HyperPod-specific runbooks (node replacement, FSx checks, NCCL triage) and skip-criteria for noisy events. |
+| **EKS access entry** (this PoC) | Pull | Read-only kubectl against the underlying EKS cluster. Agent describes resources, retrieves pod logs, inspects cluster events, checks node health. |
+| **Webhooks** (generic, HMAC-signed) | _Into_ the agent | Trigger an investigation from any HyperPod signal (cluster events, K8s events, custom alarms). Not used in this iteration. |
+| **EventBridge** events `source: aws.aidevops` | _From_ the agent | React to investigation lifecycle (Created / In Progress / Completed / Failed / Timed Out / Cancelled / Skipped / Linked). Not used in this iteration. |
+| **Skills** (modular instruction sets) | Inside the agent | Encode HyperPod-specific runbooks (node replacement, FSx checks, NCCL triage). Authored via `aws devops-agent create-asset --asset-type skill`. Not used in this iteration. |
 
-Built-in observability integrations include CloudWatch, Datadog, Dynatrace, Grafana, New Relic, Splunk. CloudWatch is the natural fit since HyperPod control-plane events and node logs already land there.
+Confirmed for our environment:
 
-## Likely architecture (first sketch — not committed)
+- **us-west-2 is a supported Agent Space region** (`aidevops.us-west-2.amazonaws.com`).
+- **Quotas are non-blocking for a PoC**: 100 agent spaces / region, 3 concurrent investigations / space (adjustable), 10 concurrent on-demand invocations / space.
+- **Cross-region monitoring is implicit** — one Agent Space in us-west-2 can discover resources across every region of the associated account.
+- **EKS auth mode of `k8-1` is `API_AND_CONFIG_MAP`** — the EKS API path is enabled, which is the prerequisite for the access entry approach.
 
-```
-   HyperPod EKS cluster
-       │
-       │  SageMaker ListClusterEvents       ─┐
-       │  EventBridge (HyperPod events)     ─┤
-       │  CloudWatch Logs (control/data plane) ─┤───► (filter / shape) ───► DevOps Agent generic webhook
-       │  K8s Events / Node conditions      ─┤                                       │
-       │  CloudWatch Alarms (custom metrics)─┘                                       │
-                                                                                     ▼
-                                                              DevOps Agent investigation
-                                                                                     │
-                                                                                     ▼
-                                                  EventBridge `aws.aidevops` lifecycle events
-                                                                                     │
-                          ┌─────────────────────────────┬────────────────────────────┘
-                          ▼                             ▼
-                  Slack / SES / ticket         Remediation Lambda
-                                                  └─► reuse existing scripts
-                                                      (hyperpod_replace_and_drain,
-                                                       hyperpod_eks_auto_resume,
-                                                       hyperpod_issue_report, …)
-```
+## Next iterations (not yet implemented)
 
-Two PoC scenarios that map cleanly onto existing repo plumbing:
-
-1. **Node health → auto-replace.** EventBridge HyperPod event → small Lambda shapes it → DevOps Agent webhook → investigation completes → `aws.aidevops` "Investigation Completed" → remediation Lambda calls the replace-and-drain flow. Reuses [hyperpod_events/](../../hyperpod_events/) for the shaping and [hyperpod_replace_and_drain/](../../hyperpod_replace_and_drain/) for the action.
-2. **Cluster anomaly → on-demand triage.** A CloudWatch Composite Alarm (e.g., FSx throughput drop or sustained NotReady nodes) fires → webhook → investigation produces an RCA → result is posted to Slack/SES.
-
-## Open design questions
-
-- **HyperPod EKS K8s signals**: does DevOps Agent's CloudWatch integration already pull container insights / EKS control-plane logs, or do we need to surface K8s node/pod events ourselves?
-- **Skills authoring**: are we expected to write skills as files and upload via the Asset API, or only through the web app?
-- **Quotas / cost**: the docs mention a monthly investigation rate limit ("hit the limit for the month") — need to check the Quotas chapter before designing high-volume triggers.
-- **Region availability**: see "Supported Regions" page; need to confirm coverage in the regions we run HyperPod clusters.
-
-## Next step
-
-Decide which of the two PoC scenarios to build first, or whether to start with a discovery write-up that exhaustively maps every HyperPod signal source against DevOps Agent's ingestion options.
+1. **Webhook trigger**: EventBridge → Lambda forwarder that shapes a HyperPod node-health event into a generic webhook call so investigations auto-start.
+2. **Lifecycle observation**: a Lambda subscribed to `source: aws.aidevops` lifecycle events that logs every investigation to CloudWatch.
+3. **HyperPod-specific skill**: a `SKILL.md` checked into this repo and uploaded via the Asset API, encoding our node-replacement and NCCL-triage runbooks.
+4. **Slurm path**: same shape, but using SSM-based access to the head node instead of EKS access entries.
