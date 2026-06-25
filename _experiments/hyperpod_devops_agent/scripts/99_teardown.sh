@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
-# Tears down everything created by 01/02/03 scripts, in reverse order.
+# Tears down everything created by 01/02/03 (and 05) scripts, in reverse order.
 # Safe to run repeatedly; each step ignores 'not found' errors.
+#
+# The webhook secret in Secrets Manager is left in place by default; pass
+# DELETE_SECRET=yes to also remove it.
 
 set -uo pipefail
 
@@ -23,6 +26,13 @@ fi
 if [[ -z "${AGENT_SPACE_ROLE_ARN}" ]]; then
     AGENT_SPACE_ROLE_ARN="arn:aws:iam::${ACCOUNT_ID}:role/${AGENT_SPACE_ROLE_NAME}"
 fi
+
+: "${STACK_NAME:=hyperpod-devops-agent-webhook-bridge}"
+
+echo "==> Step 0/4: Delete webhook bridge stack (if present)"
+DELETE_SECRET="${DELETE_SECRET:-no}" STACK_NAME="${STACK_NAME}" \
+    bash "${HERE}/06_delete_webhook_bridge.sh" || true
+echo
 
 echo "==> Step 1/4: Remove EKS access entry"
 if aws eks describe-access-entry \

@@ -1,8 +1,10 @@
 # HyperPod x AWS DevOps Agent — experiment scaffolding
 #
-# Targets fall into two groups:
+# Targets fall into three groups:
 #   1. Documentation tooling (venv, extract-docs) - reads the PDFs into .txt.
-#   2. PoC setup/teardown   - sets up an Agent Space monitoring cluster k8-1.
+#   2. Agent Space setup    - IAM roles, Agent Space, EKS access entry.
+#   3. Webhook bridge       - Secrets Manager secret + CloudFormation stack
+#                              that forwards HyperPod events to the webhook.
 #
 # All AWS-touching targets call bash scripts under scripts/. The scripts read
 # scripts/config.sh which honors REGION, HYPERPOD_CLUSTER_NAME, EKS_CLUSTER_NAME,
@@ -24,6 +26,9 @@ SCRIPTS_DIR := scripts
 .PHONY: help venv extract-docs \
         config check-aws check-cluster \
         setup iam-roles agent-space eks-access \
+        webhook-secret deploy-bridge delete-bridge bridge-logs bridge-test \
+        bridge-debug-on bridge-debug-off bridge-env \
+        upload-skill list-skills delete-skill \
         teardown status clean
 
 help:
@@ -36,11 +41,32 @@ help:
 	@echo "  check-aws     - Verify AWS credentials are usable"
 	@echo "  check-cluster - Verify HyperPod cluster and underlying EKS auth mode"
 	@echo
-	@echo "PoC setup (run in order, or all at once with 'make setup'):"
+	@echo "Agent Space setup (run in order, or all at once with 'make setup'):"
 	@echo "  iam-roles     - Create DevOps Agent and Webapp IAM roles"
 	@echo "  agent-space   - Create Agent Space, associate account, enable operator app"
 	@echo "  eks-access    - Grant the monitoring role read-only access to the EKS cluster"
 	@echo "  setup         - iam-roles -> agent-space -> eks-access"
+	@echo
+	@echo "Webhook bridge (after generating webhook URL+secret in the console):"
+	@echo "  webhook-secret  - Store webhook URL+secret in Secrets Manager"
+	@echo "                    (WEBHOOK_URL=... WEBHOOK_HMAC_SECRET=... make webhook-secret)"
+	@echo "  deploy-bridge   - Deploy CloudFormation stack (EventBridge rule + Lambda)"
+	@echo "  bridge-test     - Send a synthetic HyperPod event to the real webhook"
+	@echo "                    (LOCAL_EVENT_TYPE=node-health|cluster-state-change|cluster-event)"
+	@echo "  bridge-logs     - Tail the webhook bridge Lambda's CloudWatch Logs"
+	@echo "  delete-bridge   - Delete the CloudFormation stack"
+	@echo "                    (DELETE_SECRET=yes also removes the Secrets Manager entry)"
+	@echo "  bridge-debug-on  - Turn on full-event + outgoing-payload logging on the Lambda"
+	@echo "                     (DRY_RUN=yes also skips the actual webhook POST)"
+	@echo "  bridge-debug-off - Restore normal logging on the Lambda"
+	@echo "  bridge-env       - Show the Lambda's current env vars"
+	@echo
+	@echo "Skill management (uploads SKILL.md + references to the Agent Space):"
+	@echo "  upload-skill    - Zip skills/hyperpod-investigation/ and create or update the asset"
+	@echo "                    (SKILL_DIR=skills/other to upload a different skill)"
+	@echo "  list-skills     - Show every skill asset in the Agent Space"
+	@echo "  delete-skill    - Delete the skill named in SKILL.md's frontmatter"
+	@echo "                    (SKILL_DIR=... or SKILL_NAME=... to target a specific skill)"
 	@echo
 	@echo "Operate / teardown:"
 	@echo "  status        - Print state file + console URL for the Agent Space"
@@ -82,7 +108,7 @@ check-cluster:
 		aws eks describe-cluster --name $$EKS_CLUSTER_NAME --region $$REGION \
 			--query "cluster.{AuthMode:accessConfig.authenticationMode,Status:status}"'
 
-# ------------------------------------------------------------ setup steps
+# ------------------------------------------------------------ Agent Space setup
 
 iam-roles:
 	bash $(SCRIPTS_DIR)/01_create_iam_roles.sh
@@ -94,6 +120,64 @@ eks-access:
 	bash $(SCRIPTS_DIR)/03_grant_eks_access.sh
 
 setup: iam-roles agent-space eks-access
+
+# ------------------------------------------------------------ webhook bridge
+
+webhook-secret:
+	bash $(SCRIPTS_DIR)/04_create_webhook_secret.sh
+
+deploy-bridge:
+	bash $(SCRIPTS_DIR)/05_deploy_webhook_bridge.sh
+
+delete-bridge:
+	bash $(SCRIPTS_DIR)/06_delete_webhook_bridge.sh
+
+bridge-debug-on:
+	bash $(SCRIPTS_DIR)/bridge_debug.sh on $(DRY_RUN)
+
+bridge-debug-off:
+	bash $(SCRIPTS_DIR)/bridge_debug.sh off
+
+bridge-env:
+	@bash -c 'source $(SCRIPTS_DIR)/config.sh && \
+		FUNC=$$(aws cloudformation describe-stacks --region $$REGION \
+			--stack-name hyperpod-devops-agent-webhook-bridge \
+			--query "Stacks[0].Outputs[?OutputKey=='\''LambdaFunctionName'\''].OutputValue | [0]" \
+			--output text); \
+		aws lambda get-function-configuration --region $$REGION --function-name $$FUNC \
+			--query "Environment.Variables" --output table'
+
+bridge-test: venv
+	@bash -c 'source $(SCRIPTS_DIR)/config.sh && \
+		EVENT_TYPE=$${LOCAL_EVENT_TYPE:-node-health}; \
+		$(VENV_PYTHON) webhook_bridge/local_test.py --event-type $$EVENT_TYPE --region $$REGION'
+
+bridge-logs:
+	@bash -c 'source $(SCRIPTS_DIR)/config.sh && \
+		FUNC=$$(aws cloudformation describe-stacks --region $$REGION \
+			--stack-name hyperpod-devops-agent-webhook-bridge \
+			--query "Stacks[0].Outputs[?OutputKey=='\''LambdaFunctionName'\''].OutputValue | [0]" \
+			--output text); \
+		if [ -z "$$FUNC" ] || [ "$$FUNC" = "None" ]; then \
+			echo "Stack not deployed."; exit 1; \
+		fi; \
+		aws logs tail /aws/lambda/$$FUNC --region $$REGION --follow --since 1h'
+
+# ------------------------------------------------------------ skill management
+
+upload-skill:
+	bash $(SCRIPTS_DIR)/07_upload_skill.sh
+
+delete-skill:
+	bash $(SCRIPTS_DIR)/08_delete_skill.sh
+
+list-skills:
+	@bash -c 'source $(SCRIPTS_DIR)/config.sh && \
+		ID=$$($(PYTHON3) -c "import json; print(json.load(open(\".state.json\")).get(\"agentSpaceId\",\"\"))" ); \
+		if [ -z "$$ID" ]; then echo "No agentSpaceId in .state.json"; exit 1; fi; \
+		aws devops-agent list-assets --region $$REGION --agent-space-id $$ID --max-results 50 \
+			--query "items[?assetType==\`skill\`].{assetId:assetId,name:metadata.name,version:version,status:metadata.status,type:metadata.skill_type}" \
+			--output table'
 
 # ------------------------------------------------------------ operate / teardown
 
@@ -116,3 +200,4 @@ teardown:
 clean:
 	rm -rf $(VENV_DIR)
 	rm -f $(TXTS)
+	rm -f webhook_bridge/template.embedded.yaml

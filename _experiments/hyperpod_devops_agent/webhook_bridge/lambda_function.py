@@ -1,0 +1,257 @@
+"""Forward HyperPod EventBridge events to the AWS DevOps Agent generic webhook.
+
+The webhook URL and HMAC secret live in AWS Secrets Manager as a single
+JSON blob with two keys: {"url": "...", "secret": "..."}. The secret ARN
+is passed in via the WEBHOOK_SECRET_ARN env var.
+
+For every HyperPod event this Lambda receives, it builds the DevOps Agent
+incident payload, HMAC-signs the request, and POSTs it. A non-2xx response
+is logged and re-raised so EventBridge will retry.
+"""
+import base64
+import datetime
+import hashlib
+import hmac
+import json
+import os
+import urllib.request
+from urllib.error import HTTPError, URLError
+
+import boto3
+
+
+# EventLevel values that should NOT trigger an investigation. "Info" is by far
+# the most common (e.g. routine cluster update lifecycle, EKS access entry
+# refreshes, instance group scaling). Override with WEBHOOK_DROP_EVENT_LEVELS
+# (comma-separated) if needed without redeploying.
+_DEFAULT_DROP_LEVELS = {"info"}
+
+
+_secrets_cache: dict[str, str] = {}
+
+
+def _load_webhook_credentials() -> tuple[str, str]:
+    """Fetch webhook URL + HMAC secret from Secrets Manager, cached per cold start."""
+    if "url" in _secrets_cache and "secret" in _secrets_cache:
+        return _secrets_cache["url"], _secrets_cache["secret"]
+
+    secret_arn = os.environ["WEBHOOK_SECRET_ARN"]
+    client = boto3.client("secretsmanager")
+    resp = client.get_secret_value(SecretId=secret_arn)
+    payload = json.loads(resp["SecretString"])
+    _secrets_cache["url"] = payload["url"]
+    _secrets_cache["secret"] = payload["secret"]
+    return _secrets_cache["url"], _secrets_cache["secret"]
+
+
+def _drop_levels() -> set[str]:
+    raw = os.environ.get("WEBHOOK_DROP_EVENT_LEVELS")
+    if not raw:
+        return _DEFAULT_DROP_LEVELS
+    return {tok.strip().lower() for tok in raw.split(",") if tok.strip()}
+
+
+def _event_level(event: dict) -> str | None:
+    """Pull EventLevel from the EventBridge envelope.
+
+    SageMaker HyperPod Cluster Event payloads wrap ListClusterEvents data under
+    detail.EventDetails, so EventLevel lives at detail.EventDetails.EventLevel.
+    The other detail-types (Cluster State Change, Cluster Node Health Event)
+    don't carry EventLevel; for those, treat as unknown -> never drop.
+    """
+    return (
+        event.get("detail", {})
+        .get("EventDetails", {})
+        .get("EventLevel")
+    )
+
+
+def _should_drop(event: dict) -> tuple[bool, str | None]:
+    level = _event_level(event)
+    if level is None:
+        return False, None
+    if level.lower() in _drop_levels():
+        return True, level
+    return False, level
+
+
+def _priority_for(event: dict) -> str:
+    """Map HyperPod event severity onto DevOps Agent priority levels."""
+    detail = event.get("detail", {})
+    detail_type = event.get("detail-type", "")
+
+    if detail_type == "SageMaker HyperPod Cluster Node Health Event":
+        health_status = (
+            detail.get("HealthSummary", {}).get("HealthStatus", "").lower()
+        )
+        if "unhealthy" in health_status or "degraded" in health_status:
+            return "HIGH"
+        return "MEDIUM"
+
+    if detail_type == "SageMaker HyperPod Cluster State Change":
+        status = detail.get("ClusterStatus", "").lower()
+        if status in {"failed", "rollingback"}:
+            return "HIGH"
+        if status in {"updating", "deleting"}:
+            return "LOW"
+        return "MEDIUM"
+
+    return "MEDIUM"
+
+
+def _title_and_description(event: dict) -> tuple[str, str]:
+    detail = event.get("detail", {})
+    detail_type = event.get("detail-type", "unknown")
+    region = event.get("region", "unknown")
+    account = event.get("account", "unknown")
+    cluster_name = (
+        detail.get("ClusterName")
+        or detail.get("EventDetails", {}).get("ClusterName")
+        or "unknown-cluster"
+    )
+
+    if detail_type == "SageMaker HyperPod Cluster Node Health Event":
+        health = detail.get("HealthSummary", {})
+        instance_id = detail.get("InstanceId", "unknown-instance")
+        title = (
+            f"HyperPod node health: {cluster_name}/{instance_id} "
+            f"-> {health.get('HealthStatus', 'unknown')}"
+        )
+        description = (
+            f"HyperPod cluster '{cluster_name}' (account {account}, {region}) reported a node "
+            f"health event for instance {instance_id}. "
+            f"HealthStatus={health.get('HealthStatus', 'n/a')}; "
+            f"Reason={health.get('HealthStatusReason', 'n/a')}; "
+            f"RepairAction={health.get('RepairAction', 'n/a')}; "
+            f"Recommendation={health.get('Recommendation', 'n/a')}. "
+            f"Underlying EKS cluster (if EKS-orchestrated) is named "
+            f"'sagemaker-{cluster_name}-*-eks'. Investigate node {instance_id} "
+            f"in the EKS cluster and the SageMaker HyperPod control plane."
+        )
+        return title, description
+
+    if detail_type == "SageMaker HyperPod Cluster State Change":
+        status = detail.get("ClusterStatus", "unknown")
+        title = f"HyperPod cluster state: {cluster_name} -> {status}"
+        groups = detail.get("InstanceGroups", []) or []
+        groups_summary = ", ".join(
+            f"{g.get('InstanceGroupName')}: {g.get('CurrentCount')}/{g.get('TargetCount')} ({g.get('Status')})"
+            for g in groups
+        )
+        description = (
+            f"HyperPod cluster '{cluster_name}' (account {account}, {region}) transitioned to status "
+            f"{status}. Instance groups: {groups_summary or 'none'}. Investigate via SageMaker "
+            f"DescribeCluster and the underlying EKS resources."
+        )
+        return title, description
+
+    if detail_type == "SageMaker HyperPod Cluster Event":
+        ev_details = detail.get("EventDetails", {})
+        resource_type = ev_details.get("ResourceType", "n/a")
+        description_text = ev_details.get("Description", "")
+        title = f"HyperPod cluster event: {cluster_name} / {resource_type}"
+        description = (
+            f"HyperPod cluster '{cluster_name}' (account {account}, {region}) emitted a cluster "
+            f"event for resource type {resource_type}. "
+            f"InstanceGroup={ev_details.get('InstanceGroupName', 'n/a')}; "
+            f"InstanceId={ev_details.get('InstanceId', 'n/a')}. "
+            f"Description: {description_text or 'n/a'}."
+        )
+        return title, description
+
+    return (
+        f"HyperPod event: {detail_type} on {cluster_name}",
+        f"HyperPod cluster '{cluster_name}' (account {account}, {region}) emitted an event of type "
+        f"'{detail_type}'. Raw detail attached.",
+    )
+
+
+def _build_payload(event: dict) -> dict:
+    title, description = _title_and_description(event)
+    detail = event.get("detail", {})
+    event_id = event.get("id") or event.get("time") or datetime.datetime.utcnow().isoformat()
+
+    return {
+        "eventType": "incident",
+        "incidentId": f"hyperpod-{event_id}",
+        "action": "created",
+        "priority": _priority_for(event),
+        "title": title,
+        "description": description,
+        "timestamp": event.get("time")
+        or datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S.000Z"),
+        "service": "SageMakerHyperPod",
+        "data": {
+            "metadata": {
+                "region": event.get("region"),
+                "account": event.get("account"),
+                "detailType": event.get("detail-type"),
+                "clusterName": detail.get("ClusterName")
+                or detail.get("EventDetails", {}).get("ClusterName"),
+            },
+            "originalEvent": event,
+        },
+    }
+
+
+def _truthy(env_var: str) -> bool:
+    return os.environ.get(env_var, "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _post(webhook_url: str, secret: str, payload: dict) -> None:
+    body = json.dumps(payload).encode("utf-8")
+    timestamp = datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S.000Z")
+    signature = base64.b64encode(
+        hmac.new(
+            secret.encode("utf-8"),
+            f"{timestamp}:{body.decode('utf-8')}".encode("utf-8"),
+            hashlib.sha256,
+        ).digest()
+    ).decode("utf-8")
+
+    if _truthy("WEBHOOK_LOG_PAYLOAD"):
+        # body is the EXACT bytes being POSTed; log size + content + signed
+        # timestamp so you can reproduce the HMAC offline if needed.
+        print(f"webhook POST url={webhook_url}")
+        print(f"webhook POST timestamp={timestamp} signature={signature}")
+        print(f"webhook POST body bytes={len(body)} json={body.decode('utf-8')}")
+
+    if _truthy("WEBHOOK_DRY_RUN"):
+        print("webhook DRY RUN: skipping POST (WEBHOOK_DRY_RUN=true)")
+        return
+
+    request = urllib.request.Request(
+        webhook_url,
+        data=body,
+        method="POST",
+        headers={
+            "Content-Type": "application/json",
+            "x-amzn-event-timestamp": timestamp,
+            "x-amzn-event-signature": signature,
+        },
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=10) as resp:
+            print(f"webhook response status={resp.status} body={resp.read(512)!r}")
+    except HTTPError as e:
+        print(f"webhook HTTP error status={e.code} body={e.read()!r}")
+        raise
+    except URLError as e:
+        print(f"webhook URL error: {e}")
+        raise
+
+
+def lambda_handler(event, context):
+    print(f"received event detail-type={event.get('detail-type')!r} id={event.get('id')!r}")
+    if _truthy("WEBHOOK_LOG_FULL_EVENT"):
+        print(f"full event: {json.dumps(event)}")
+    drop, level = _should_drop(event)
+    if drop:
+        print(f"dropping event: EventLevel={level!r} is in WEBHOOK_DROP_EVENT_LEVELS")
+        return {"statusCode": 200, "body": json.dumps({"dropped": True, "eventLevel": level})}
+
+    webhook_url, secret = _load_webhook_credentials()
+    payload = _build_payload(event)
+    print(f"payload incidentId={payload['incidentId']} priority={payload['priority']} title={payload['title']!r} eventLevel={level!r}")
+    _post(webhook_url, secret, payload)
+    return {"statusCode": 200, "body": json.dumps({"incidentId": payload["incidentId"]})}
