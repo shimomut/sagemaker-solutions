@@ -293,7 +293,32 @@ Confirmed for our environment:
 
 ## Next iterations (not yet implemented)
 
-1. **Slack channel for live investigation updates** — configure the built-in Slack integration in the Agent Space console.
-2. **Investigation lifecycle EventBridge rule** — fan out `aws.aidevops` events to SNS/email/Lambda for offline review.
-3. **More skills** — current skill covers the three HyperPod EventBridge detail-types and the resource map. Future additions: NCCL/EFA triage, FSx Lustre throughput, Karpenter scaling issues.
-4. **Slurm path** — same shape, but using SSM-based access to the head node instead of EKS access entries.
+### Primary focus: guardrail-aware HyperPod skills
+
+The experiment's current direction is investing in the **agent's intelligence** rather than in custom notification plumbing or auto-execution. The trigger pipeline (EventBridge → Lambda → webhook, drop `Info` only) is intentionally left as-is. The work goes into the skills the agent loads after the webhook fires, so investigations produce better triage decisions and higher-quality recommendations.
+
+The upstream `awslabs/agent-plugins` HyperPod skills aren't a drop-in answer because they were authored for Claude Code / Codex runtimes that can drive SSM sessions. Inside DevOps Agent's permission guardrail, most of their procedures aren't executable. The work below is rewriting them with what *is* reachable: SageMaker control-plane APIs, EKS kubectl, CloudWatch Logs/metrics, CloudTrail. Where the upstream skill needed shell, the rewrite splits into "agent reads a proxy signal" (e.g. HMA's CloudWatch log stream for Xid evidence) and "agent recommends the customer run this SSM command and paste the output back."
+
+Three skill layers planned:
+
+1. **Triage skill** (`agent_types: ["INCIDENT_TRIAGE"]`). Decides per-incident:
+   - Skip when HyperPod is already auto-resolving (HMA classification + `NodeRecovery=Automatic` + replacement event sequence in `ListClusterEvents` → cluster is healing itself, no new information from a full investigation).
+   - Skip when `Investigation Linked` already happened.
+   - Proceed otherwise — especially when no HMA classification matches the event, when `NodeRecovery=None`, when multiple replacements happen in a short window, or when cluster status is `Failed`/`RollingBack`.
+   - Highest leverage on noise and investigation-quota burn.
+
+2. **Per-failure-mode investigation skills** (`agent_types: ["INCIDENT_RCA"]`), each rewritten from an upstream skill with three structural changes:
+   - Every upstream "Suggested command" block reframed as either an in-guardrail agent action (SageMaker API / kubectl / CloudWatch query) OR an explicit customer recommendation with the exact SSM command to confirm.
+   - A proxy-signal map for each on-node truth the upstream skill relied on. Example: for Xid evidence, the agent reads the `SagemakerHealthMonitoringAgent/<group>/<instance>` CloudWatch log stream instead of `dmesg`. For DCGM, it reads HMA's classification rather than running `dcgmi`.
+   - A required confidence section in every RCA output: which conclusions are direct observation vs. proxy inference, what the agent could not verify, and what the customer would need to run to close the gap.
+
+3. **Recommendation-quality skill** (`agent_types: ["INCIDENT_MITIGATION"]`). Standardized mitigation-plan template so every recommendation includes: the precise action, the API/command, safe-state preconditions, rollback, and success criteria. Borrows the discipline of the upstream skills' Suggested-command blocks without requiring agent-side execution.
+
+Build order TBD — likely triage first (smallest, validates the description-matching logic for `INCIDENT_TRIAGE`-typed skills), then port one investigation skill (node-debugger or nccl), then layer the mitigation skill on top.
+
+### Other follow-ups (lower priority)
+
+- **Slack channel for live investigation updates** — built-in Slack integration; paused on workspace 3P approval.
+- **Investigation lifecycle EventBridge rule** — fan out `aws.aidevops` events to SNS / email / Lambda. Not built; not blocking.
+- **External diagnostic collector** (read [SSM access — the permission guardrail is a hard ceiling](#ssm-access--the-permission-guardrail-is-a-hard-ceiling) above). Would side-load on-node truth into CloudWatch Logs or S3. Only worth building if the proxy-signal map in the rewritten investigation skills hits a real wall.
+- **Slurm path** — same shape, but using SSM-based access to the head node instead of EKS access entries. SSM unavailable from the agent means the proxy-signal map matters even more for Slurm.
