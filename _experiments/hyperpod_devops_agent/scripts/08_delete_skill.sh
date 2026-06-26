@@ -1,14 +1,13 @@
 #!/usr/bin/env bash
-# Deletes a skill from the configured Agent Space, matched by SKILL.md name.
+# Deletes a skill from the configured Agent Space.
+# Provide either SKILL_NAME=... directly, or SKILL_DIR=... to read the name
+# from the directory's SKILL.md frontmatter.
 
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "${HERE}/.." && pwd)"
 source "${HERE}/config.sh"
-
-: "${SKILL_DIR:=skills/hyperpod-investigation}"
-SKILL_PATH="${ROOT}/${SKILL_DIR}"
 
 if [[ ! -f "${STATE_FILE}" ]]; then
     echo "Error: ${STATE_FILE} not found." >&2
@@ -23,7 +22,12 @@ fi
 
 if [[ -n "${SKILL_NAME:-}" ]]; then
     NAME="${SKILL_NAME}"
-else
+elif [[ -n "${SKILL_DIR:-}" ]]; then
+    if [[ "${SKILL_DIR}" == /* ]]; then
+        SKILL_PATH="${SKILL_DIR}"
+    else
+        SKILL_PATH="${ROOT}/${SKILL_DIR}"
+    fi
     NAME="$(python3 - "${SKILL_PATH}/SKILL.md" <<'PY'
 import sys, re
 text = open(sys.argv[1]).read()
@@ -36,6 +40,9 @@ if not m:
 print(m.group(1).strip())
 PY
 )"
+else
+    echo "Error: provide SKILL_NAME=... or SKILL_DIR=..." >&2
+    exit 1
 fi
 
 echo "==> Looking up skill '${NAME}' in Agent Space ${AGENT_SPACE_ID}"

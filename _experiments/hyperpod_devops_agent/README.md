@@ -35,9 +35,7 @@ Notifications about investigation outcomes are handled by **DevOps Agent**: conf
 │   ├── local_test.py          - send a synthetic event to the real webhook
 │   └── template.embedded.yaml - generated; the rendered template
 ├── skills/
-│   └── hyperpod-investigation/
-│       ├── SKILL.md           - frontmatter + decision tree the agent loads
-│       └── references/        - per-event runbooks + HyperPod resource map
+│   └── upstream/              - awslabs/agent-plugins clone (git-ignored; populated by make import-upstream-skills)
 └── .state.json                - written by setup, read by teardown (git-ignored)
 ```
 
@@ -78,14 +76,11 @@ make bridge-test                                   # default: node-health event
 LOCAL_EVENT_TYPE=cluster-state-change make bridge-test
 make bridge-logs                                   # tail the Lambda logs (Ctrl-C to stop)
 
-# Step 5 - Upload the HyperPod knowledge skill (so the agent knows what HyperPod is)
-make upload-skill                                  # zips skills/hyperpod-investigation/ -> create-asset
-make list-skills                                   # show all skills + their type (USER vs LEARNED)
-# To remove: make delete-skill
-
-# Step 6 (optional) - Import upstream HyperPod skills from awslabs/agent-plugins
+# Step 5 - Import upstream HyperPod skills from awslabs/agent-plugins
 make import-upstream-skills                        # clones repo, strips scripts/, uploads each
+make list-skills                                   # show all skills + their type (USER vs LEARNED)
 # SKILLS='hyperpod-nccl hyperpod-node-debugger' make import-upstream-skills  # subset
+# To remove a single skill by name: SKILL_NAME=hyperpod-nccl make delete-skill
 
 # Teardown
 make teardown                # bridge stack -> EKS entry -> agent space -> IAM roles
@@ -150,25 +145,9 @@ Set `WEBHOOK_LOG_FULL_EVENT=true` to log the full EventBridge envelope per invoc
 
 `Cluster State Change` and `Node Health Event` payloads don't carry `EventLevel`, so they're never dropped by this filter — they should always trigger investigations.
 
-## Knowledge: the `hyperpod-investigation` skill
+## Knowledge: HyperPod skills in the Agent Space
 
-DevOps Agent does not understand HyperPod out of the box — a HyperPod cluster is "a SageMaker resource" to its topology engine, not a composition of EKS + EC2 + FSx + lifecycle scripts. The `skills/hyperpod-investigation/` directory teaches it that mapping.
-
-Structure:
-
-```
-skills/hyperpod-investigation/
-├── SKILL.md                            # decision tree the agent reads first
-└── references/
-    ├── hyperpod-resource-map.md        # HyperPod -> EKS/EC2/FSx/VPC + API map
-    ├── runbook-node-health.md          # per-event procedure
-    ├── runbook-cluster-state.md
-    └── runbook-cluster-event.md
-```
-
-The skill's frontmatter `description:` is what makes the agent decide to load it — it lists triggering keywords (`HyperPod`, `aws.sagemaker`, the three EventBridge detail-types, common failure modes) so the description-match step lights up for any incident originating from our webhook bridge.
-
-`make upload-skill` zips the directory and calls `aws devops-agent create-asset --asset-type skill`. Re-running calls `update-asset` instead of creating duplicates. To author additional skills, drop a new directory under `skills/` and run `SKILL_DIR=skills/my-skill make upload-skill`.
+DevOps Agent does not understand HyperPod out of the box — a HyperPod cluster is "a SageMaker resource" to its topology engine, not a composition of EKS + EC2 + FSx + lifecycle scripts. We import upstream skills from [awslabs/agent-plugins](https://github.com/awslabs/agent-plugins) to teach it that mapping.
 
 ### Importing the upstream `awslabs/agent-plugins` HyperPod skills
 
@@ -176,41 +155,109 @@ The skill's frontmatter `description:` is what makes the agent decide to load it
 
 Subset to one or a few skills with the `SKILLS` env var: `SKILLS='hyperpod-nccl' make import-upstream-skills`. Override `UPSTREAM_REF` to pin to a specific commit/branch/tag.
 
-The upstream skills were authored for Claude Code / Codex runtimes that can execute shell directly. DevOps Agent's runtime is more constrained, and the constraint is **partial, not absolute**, for SSM specifically.
+### Authoring your own skill
 
-### SSM access — what DevOps Agent can and cannot do (revisit needed)
+The `07_upload_skill.sh` and `08_delete_skill.sh` scripts are general-purpose. To author a custom skill, drop a directory under `skills/` containing a `SKILL.md` (with frontmatter `name:` and `description:`) plus optional `references/` markdown files, then run `SKILL_DIR=skills/my-skill make upload-skill`. To remove: `SKILL_NAME=my-skill make delete-skill`. The skill's `description:` field determines when the agent loads it during investigations.
 
-`AIDevOpsAgentAccessPolicy` (the managed policy attached to `DevOpsAgentRole-AgentSpace`) allows the **read** side of SSM but not the **execute** side:
+The upstream skills were authored for Claude Code / Codex runtimes that can execute shell directly on HyperPod nodes. **DevOps Agent's runtime cannot, and adding IAM permissions does not change that.** The constraint is an AWS-published "permission guardrail" — a fixed session policy applied at AssumeRole time — that intersects with the IAM role and overrides anything you grant.
 
-| SSM action | In policy? | Use |
+### SSM access — the permission guardrail is a hard ceiling
+
+The DevOps Agent UG (p. 365–367, "Understanding permission guardrails") states this verbatim:
+
+> *"AWS DevOps Agent applies a permission guardrail to every session it creates when accessing your AWS resources. This guardrail acts as a ceiling — it defines the maximum set of permissions the agent can ever use, regardless of what permissions you grant on the IAM role."*
+>
+> *"Permissions not listed here or in the `AIDevOpsAgentAccessPolicy` managed policy are blocked by the guardrail."*
+
+Three layers stack at AssumeRole time:
+
+| Layer | Who controls | Purpose |
 | --- | --- | --- |
-| `ssm:Describe*`, `ssm:List*` | ✅ | Describe instances, list documents/associations/patches, etc. |
-| `ssm:GetDocument`, `ssm:GetParameters`, `ssm:GetPatchBaseline`, `ssm:GetResourcePolicies`, `ssm:GetDefaultPatchBaseline` | ✅ | Read SSM resources and Parameter Store. |
-| `ssm:GetCommandInvocation` | ✅ | **Read output** of a Run Command invocation someone else already kicked off. |
-| `ssm:SendCommand` | ❌ | Kick off a Run Command on a node. |
-| `ssm:StartSession` | ❌ | Open a Session Manager shell. |
+| IAM role policies | You | What you intend the agent to be able to do |
+| Permission guardrail (session policy) | **AWS DevOps Agent** | The maximum the agent can ever do |
+| Effective permissions | Intersection of both | What the agent can actually do |
 
-So DevOps Agent **can read SSM**; it cannot **drive SSM**. The IAM model deliberately scopes the agent to read-only to limit blast radius from prompt injection (this is also why Reader is the only Azure role the docs allow).
+The guardrail contains everything in `AIDevOpsAgentAccessPolicy` (the default read-only set) plus a **closed allowlist** of opt-in permissions you can enable by adding them to your role. The complete allowlist from the UG:
 
-**Impact on the imported skills:**
+| Service | Actions | Use case |
+| --- | --- | --- |
+| Athena | `athena:GetQuery*`, `athena:StartQueryExecution`, `athena:StopQueryExecution` | Run queries against your data catalog |
+| S3 | `s3:GetObject`, `s3:ListBucket` | Read application data, logs, configs |
+| Direct Connect | `directconnect:Describe*` | Investigate network connectivity |
+| Glue | `glue:GetPartitions` | Read partition metadata for Athena |
+| KMS | `kms:Decrypt` | Decrypt encrypted resources |
 
-- `hyperpod-ssm` (kick off remote commands) — blocked at step 1. Agent will fail.
-- `hyperpod-issue-report` (multi-node diagnostic collection) — needs `SendCommand`. Blocked.
-- `hyperpod-version-checker` (per-node version reads) — needs `SendCommand`. Blocked.
-- `hyperpod-node-debugger` — K8s-side + EC2-side procedures work; on-node DCGM / XID / dmesg checks need `SendCommand` and don't.
-- `hyperpod-nccl` — AWS API + kubectl parts work; on-node EFA / libfabric probes need `SendCommand`.
+`ssm:StartSession` and `ssm:SendCommand` are NOT in the allowlist, and `AIDevOpsAgentAccessPolicy` does not include them either. **The guardrail strips them from the session regardless of what you grant on the role.**
 
-**Why this matters and what we need to revisit:**
+### What we observed empirically
 
-SSM execution is the **only realistic way to read on-node truth** for a whole class of HyperPod failures: GPU XID errors in `dmesg`, NVIDIA driver state via `nvidia-smi`, EFA / libfabric counters, kernel module status, `/var/log/messages`, lifecycle script output that didn't make it to CloudWatch. These are exactly the kinds of issues HyperPod operators most need help triaging. Without `SendCommand`, the agent has to guess from K8s-side proxies (NotReady, taints, node labels) when the ground truth is on the host.
+We confirmed this end-to-end. The experiment:
 
-Three plausible paths to revisit later, none of which we've evaluated yet:
+1. Attached a scoped inline policy on `DevOpsAgentRole-AgentSpace` granting `ssm:StartSession` against the HyperPod cluster ARN and the `AWS-StartNonInteractiveCommand` document ARN. (The grant/revoke scripts have since been removed from this repo since SSM is permanently outside the guardrail; the policy itself is recorded below for reference.)
+2. Asked the agent in chat: *"Run `nvidia-smi -L` on instance `i-080f90acad180de3e` via SSM."*
+3. Agent loaded the `hyperpod-ssm` skill, called `sagemaker:describe_cluster` to resolve the cluster ID, built the correct target string `sagemaker-cluster:lw12e0dn1hhd_worker3-i-080f90acad180de3e`, and attempted `ssm:start_session` with document `AWS-StartNonInteractiveCommand` and the right parameters.
+4. **The call was blocked before reaching AWS.** Agent reported: *"The SSM `start_session` operation was blocked because it requires operator approval — it's classified as a mutative operation."*
 
-1. **Pre-collected diagnostics**: a Lambda / cron runs `aws ssm send-command` on a schedule (or on EventBridge events), captures the output as a CloudWatch Logs stream or S3 object, and the agent reads from there via the access it already has. Read-only purity preserved.
-2. **GetCommandInvocation pivot**: human/automation runs `send-command` *as part of triage*, hands the agent the resulting `CommandId`, agent reads the output via `GetCommandInvocation`. Works for on-demand investigations but doesn't auto-trigger.
-3. **Augment the IAM policy**: add `ssm:SendCommand` (and likely `ssm:GetCommandInvocation` if not already) to a *separate* role specifically used for diagnostic commands, scoped tightly by resource (only HyperPod-tagged instances) and document (an allowlist of read-only diagnostic SSM documents). Bigger blast radius, needs careful threat modeling.
+So the agent's tool surface accepts the call (it's a real `use_aws` invocation against `ssm:StartSession`), but the session policy strips the permission, surfacing as "requires operator approval / mutative". This is the guardrail doing its job.
 
-For now we've left all 8 upstream skills imported — at minimum they're useful as reference documentation the agent can quote in findings, and the K8s-side / AWS-API parts of skills like `hyperpod-node-debugger` and `hyperpod-nccl` still work as intended. Revisit before treating this as production-ready.
+We've revoked the inline policy. It had no effect on agent behavior — kept only as a reminder that customer IAM isn't the lever here.
+
+### How the upstream skills work around it (for reference)
+
+The upstream `hyperpod-*` skills use `ssm:StartSession` with the AWS-managed `AWS-StartNonInteractiveCommand` document. From `skills/upstream/plugins/sagemaker-ai/skills/hyperpod-ssm/scripts/ssm-exec.sh`:
+
+```
+aws ssm start-session \
+  --target sagemaker-cluster:<cluster-id>_<group>-<instance-id> \
+  --document-name AWS-StartNonInteractiveCommand \
+  --parameters '{"command":["nvidia-smi"]}'
+```
+
+Functionally this is "send me a command, give me the stdout" — but it's `StartSession` under the hood (HyperPod targets don't accept `SendCommand` either, per the internal HyperPod mental model doc). The `unbuffer` wrapper in the upstream script is a workaround for an SSM PTY race ([aws/amazon-ssm-agent#358](https://github.com/aws/amazon-ssm-agent/issues/358)), not a HyperPod thing.
+
+This pattern works for Claude Code / Codex (which call the AWS CLI directly with the session-manager-plugin) but is unreachable from DevOps Agent because of the guardrail.
+
+### Impact on the imported skills
+
+| Skill | Pure AWS-API / kubectl portion | On-node portion (requires SSM session with stdin) |
+| --- | --- | --- |
+| `hyperpod-cluster-debugger` | works | n/a |
+| `hyperpod-nccl` | works | **blocked at guardrail** (EFA / libfabric / `dmesg` probes) |
+| `hyperpod-node-debugger` | works | **blocked at guardrail** (DCGM / Xid / kubelet journal) |
+| `hyperpod-performance-debugger` | works | **blocked at guardrail** (per-node throughput probes) |
+| `hyperpod-slurm-debugger` | works | **blocked at guardrail** (slurmctld logs, `scontrol` from controller) |
+| `hyperpod-issue-report` | n/a | **blocked at guardrail** (whole skill is on-node collection) |
+| `hyperpod-version-checker` | n/a | **blocked at guardrail** (whole skill is on-node version reads) |
+| `hyperpod-ssm` | n/a | **blocked at guardrail** (whole skill is the SSM driver) |
+
+### Why this matters operationally
+
+The HyperPod ops doc enumerates ground-truth signals that **only** live on the node: NVIDIA Xid lines in `dmesg`, DCGM correctable/uncorrectable ECC counters, EFA fabric errors, kubelet journal, `slurmctld.log`, lifecycle script output to `/var/log/provision/provisioning.log`, NVMe / `/opt/dlami` state, GPU thermal throttling. Many of these are the exact failure modes (Xid 74/79, ECC UCE, EFA health-check failure, lifecycle script failure) that drive HyperPod replacements.
+
+Without an on-node path, DevOps Agent's investigations have to either:
+
+- **Reason from proxies**: HMA-generated CloudWatch log streams (`SagemakerHealthMonitoringAgent/<group>/<instance>` in `/aws/sagemaker/Clusters/<name>/<id>`), K8s node labels (`sagemaker.amazonaws.com/fault-types`, `fault-reasons`, `node-health-status`), `list-cluster-events`, `sinfo` / `kubectl describe node`. These often surface *the conclusion* (HMA already classified the fault) without the underlying evidence.
+- **Lose**: for the long tail where HMA didn't classify the failure (custom workloads, NCCL hangs, slow storage, dropped LCS output), DevOps Agent will not see the on-node signal at all.
+
+The proxy path is sufficient for HMA-classified faults. The Xid 79 fault-injection test we ran (HMA → `NvidiaGPUUnhealthy` → `Cluster Event` Warn → investigation) is the canonical example — the agent didn't need on-node access because HMA's classification was already in the control-plane event.
+
+### Workarounds (none built yet)
+
+Because the guardrail is fixed by AWS, the only realistic paths are **side-loading on-node data into surfaces the guardrail already permits**:
+
+1. **External collector → CloudWatch Logs.** A Lambda or cron uses `StartSession` + `AWS-StartNonInteractiveCommand` (the [`hyperpod_run_on_multi_nodes.py`](../../hyperpod_run_on_multi_nodes/) pattern in this repo), runs a fixed read-only diagnostic script on each node, writes output to a CloudWatch Logs group. The agent reads via `logs:FilterLogEvents` which IS in the guardrail. SSM throttle is 3 TPS — fan-out must serialize or back off.
+2. **Periodic snapshot to S3.** Same shape, but writes structured JSON to a versioned S3 prefix. Agent reads via `s3:GetObject` (which is in the guardrail's opt-in allowlist — must be added to the role explicitly). Better for time-series reconstruction across investigations.
+3. **On-demand collector before investigation.** The HyperPod EventBridge → webhook bridge invokes the collector first, waits for output to land in CloudWatch Logs, then fires the investigation webhook. Highest fidelity, every investigation pays the collector's wall-clock.
+
+Either branch needs the agent to be told *where* the on-node data lives — additions to a HyperPod-specific skill that say "for on-node DCGM state, query `logs:FilterLogEvents` against log group `/aws/hyperpod-collector/...`" or similar.
+
+### Should we ask AWS to change the guardrail?
+
+This is the real revisit. The guardrail is not a bug — it's AWS's deliberate ceiling for blast-radius from prompt injection (the same reason the Azure integration only allows the Reader role; UG p. 216). But for HyperPod specifically, the on-node signals are operationally critical and the alternative (every customer building a collector) is infrastructure tax for what's really an AWS-internal capability gap.
+
+A reasonable ask would be: **add `ssm:StartSession` to the guardrail allowlist, scoped to `arn:aws:ssm:*::document/AWS-StartNonInteractiveCommand`** (so only the non-interactive command document is reachable, never a full shell). That keeps the prompt-injection blast radius bounded to "run a customer-defined command" rather than "drop into an interactive shell" — comparable to what `s3:GetObject` already permits.
+
+Filing that as feedback to ASBX is the most leveraged next action. Tracked as a follow-up; not yet sent. None of the side-load paths are built either — the AWS-API/kubectl portions of the imported skills still work and cover the HMA-classified failure modes, which is most of what we'd auto-trigger investigations on anyway.
 
 Two coexisting skill types you'll see in `make list-skills`:
 - **USER** — what we author (this repo). Edits are deliberate.
@@ -235,7 +282,7 @@ Integration surfaces relevant to HyperPod:
 | **EKS access entry** | Pull | Yes — read-only `kubectl` against the underlying EKS cluster. |
 | **Generic webhook** (HMAC) | Into the agent | Yes — every HyperPod event triggers an investigation. |
 | **EventBridge `aws.aidevops`** | From the agent | Not used here. Add your own rules for downstream notifications. |
-| **Skills** (asset API) | Inside the agent | Yes — `skills/hyperpod-investigation/` teaches the agent the HyperPod resource model and per-event runbooks. |
+| **Skills** (asset API) | Inside the agent | Yes — 8 upstream `hyperpod-*` skills from awslabs/agent-plugins are imported via `make import-upstream-skills`. |
 
 Confirmed for our environment:
 

@@ -62,11 +62,11 @@ help:
 	@echo "  bridge-env       - Show the Lambda's current env vars"
 	@echo
 	@echo "Skill management (uploads SKILL.md + references to the Agent Space):"
-	@echo "  upload-skill    - Zip skills/hyperpod-investigation/ and create or update the asset"
-	@echo "                    (SKILL_DIR=skills/other to upload a different skill)"
+	@echo "  upload-skill    - Zip a skill directory and create or update the asset"
+	@echo "                    (SKILL_DIR=skills/my-skill required)"
 	@echo "  list-skills     - Show every skill asset in the Agent Space"
-	@echo "  delete-skill    - Delete the skill named in SKILL.md's frontmatter"
-	@echo "                    (SKILL_DIR=... or SKILL_NAME=... to target a specific skill)"
+	@echo "  delete-skill    - Delete a skill by name"
+	@echo "                    (SKILL_NAME=... or SKILL_DIR=... to identify the skill)"
 	@echo "  import-upstream-skills - Clone awslabs/agent-plugins, strip scripts/, upload"
 	@echo "                           every hyperpod-* skill (SKILLS='name1 name2' to subset)"
 	@echo

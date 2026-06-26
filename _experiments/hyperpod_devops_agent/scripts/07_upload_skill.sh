@@ -5,8 +5,8 @@
 # instead of create-asset, preserving the existing asset id.
 #
 # Usage:
-#     make upload-skill                       # uploads skills/hyperpod-investigation
 #     SKILL_DIR=skills/my-skill make upload-skill
+#     SKILL_DIR=/abs/path make upload-skill          # absolute paths accepted
 #
 # The skill name comes from the SKILL.md frontmatter and must match the
 # `name:` field there. The script greps it out of the file.
@@ -17,7 +17,10 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "${HERE}/.." && pwd)"
 source "${HERE}/config.sh"
 
-: "${SKILL_DIR:=skills/hyperpod-investigation}"
+if [[ -z "${SKILL_DIR:-}" ]]; then
+    echo "Error: SKILL_DIR is required (e.g. SKILL_DIR=skills/my-skill make upload-skill)" >&2
+    exit 1
+fi
 # If SKILL_DIR is an absolute path, use it as-is. Otherwise resolve it
 # relative to the project root.
 if [[ "${SKILL_DIR}" == /* ]]; then
