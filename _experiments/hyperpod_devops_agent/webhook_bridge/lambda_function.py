@@ -75,6 +75,19 @@ def _should_drop(event: dict) -> tuple[bool, str | None]:
     return False, level
 
 
+def _cluster_filter() -> set[str]:
+    raw = os.environ.get("WEBHOOK_CLUSTER_FILTER", "")
+    return {tok.strip() for tok in raw.split(",") if tok.strip()}
+
+
+def _event_cluster_name(event: dict) -> str | None:
+    detail = event.get("detail", {})
+    return (
+        detail.get("ClusterName")
+        or detail.get("EventDetails", {}).get("ClusterName")
+    )
+
+
 def _priority_for(event: dict) -> str:
     """Map HyperPod event severity onto DevOps Agent priority levels."""
     detail = event.get("detail", {})
@@ -124,9 +137,9 @@ def _title_and_description(event: dict) -> tuple[str, str]:
             f"Reason={health.get('HealthStatusReason', 'n/a')}; "
             f"RepairAction={health.get('RepairAction', 'n/a')}; "
             f"Recommendation={health.get('Recommendation', 'n/a')}. "
-            f"Underlying EKS cluster (if EKS-orchestrated) is named "
-            f"'sagemaker-{cluster_name}-*-eks'. Investigate node {instance_id} "
-            f"in the EKS cluster and the SageMaker HyperPod control plane."
+            f"Resolve the underlying EKS cluster (for EKS-orchestrated clusters) via "
+            f"'aws sagemaker describe-cluster --cluster-name {cluster_name}' and inspect "
+            f"node {instance_id} via the SageMaker HyperPod control plane."
         )
         return title, description
 
@@ -245,6 +258,13 @@ def lambda_handler(event, context):
     print(f"received event detail-type={event.get('detail-type')!r} id={event.get('id')!r}")
     if _truthy("WEBHOOK_LOG_FULL_EVENT"):
         print(f"full event: {json.dumps(event)}")
+    allowlist = _cluster_filter()
+    if allowlist:
+        cluster = _event_cluster_name(event)
+        if cluster not in allowlist:
+            print(f"dropping event: cluster={cluster!r} not in WEBHOOK_CLUSTER_FILTER={sorted(allowlist)}")
+            return {"statusCode": 200, "body": json.dumps({"dropped": True, "reason": "cluster-not-in-filter"})}
+
     drop, level = _should_drop(event)
     if drop:
         print(f"dropping event: EventLevel={level!r} is in WEBHOOK_DROP_EVENT_LEVELS")

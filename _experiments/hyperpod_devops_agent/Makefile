@@ -29,6 +29,7 @@ SCRIPTS_DIR := scripts
         webhook-secret deploy-bridge delete-bridge bridge-logs bridge-test \
         bridge-debug-on bridge-debug-off bridge-env \
         upload-skill list-skills delete-skill import-upstream-skills \
+        deploy-email-notifier delete-email-notifier email-notifier-logs \
         teardown status clean
 
 help:
@@ -69,6 +70,12 @@ help:
 	@echo "                    (SKILL_NAME=... or SKILL_DIR=... to identify the skill)"
 	@echo "  import-upstream-skills - Clone awslabs/agent-plugins, strip scripts/, upload"
 	@echo "                           every hyperpod-* skill (SKILLS='name1 name2' to subset)"
+	@echo
+	@echo "Email notifications (DevOps Agent investigations -> SES email):"
+	@echo "  deploy-email-notifier  - Deploy EventBridge rule + Lambda + SES sender"
+	@echo "                           (EMAIL_SENDER=... EMAIL_RECIPIENTS=... required)"
+	@echo "  delete-email-notifier  - Delete the email notifier stack"
+	@echo "  email-notifier-logs    - Tail the email notifier Lambda's CloudWatch Logs"
 	@echo
 	@echo "Operate / teardown:"
 	@echo "  status        - Print state file + console URL for the Agent Space"
@@ -175,6 +182,25 @@ delete-skill:
 
 import-upstream-skills:
 	bash $(SCRIPTS_DIR)/09_import_upstream_skills.sh
+
+# ------------------------------------------------------------ email notifier
+
+deploy-email-notifier:
+	bash $(SCRIPTS_DIR)/10_deploy_email_notifier.sh
+
+delete-email-notifier:
+	bash $(SCRIPTS_DIR)/11_delete_email_notifier.sh
+
+email-notifier-logs:
+	@bash -c 'source $(SCRIPTS_DIR)/config.sh && \
+		FUNC=$$(aws cloudformation describe-stacks --region $$REGION \
+			--stack-name hyperpod-devops-agent-email-notifier \
+			--query "Stacks[0].Outputs[?OutputKey=='\''LambdaFunctionName'\''].OutputValue | [0]" \
+			--output text); \
+		if [ -z "$$FUNC" ] || [ "$$FUNC" = "None" ]; then \
+			echo "Email notifier stack not deployed."; exit 1; \
+		fi; \
+		aws logs tail /aws/lambda/$$FUNC --region $$REGION --follow --since 1h'
 
 list-skills:
 	@bash -c 'source $(SCRIPTS_DIR)/config.sh && \

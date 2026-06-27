@@ -48,18 +48,27 @@ if [[ -z "${AGENT_SPACE_ID}" ]]; then
     exit 1
 fi
 
-# Extract the skill name from the SKILL.md frontmatter.
-SKILL_NAME="$(python3 - "${SKILL_PATH}/SKILL.md" <<'PY'
-import sys, re
+# Extract the skill name + agent_types from the SKILL.md frontmatter.
+read -r SKILL_NAME SKILL_AGENT_TYPES <<<"$(python3 - "${SKILL_PATH}/SKILL.md" <<'PY'
+import sys, re, json
 text = open(sys.argv[1]).read()
 m = re.search(r"^---\s*\n(.*?)\n---", text, re.S)
 if not m:
     sys.exit("SKILL.md is missing frontmatter")
 fm = m.group(1)
-m = re.search(r"^name:\s*(\S+)", fm, re.M)
-if not m:
+name_match = re.search(r"^name:\s*(\S+)", fm, re.M)
+if not name_match:
     sys.exit("SKILL.md frontmatter is missing 'name:'")
-print(m.group(1).strip())
+name = name_match.group(1).strip()
+# agent_types may live at the top level or under metadata: in either YAML form.
+# Accept inline list (agent_types: ["A", "B"]) — simple parse, no full YAML lib.
+agent_types_match = re.search(r"agent_types:\s*\[([^\]]*)\]", fm)
+if agent_types_match:
+    tokens = [t.strip().strip('"').strip("'") for t in agent_types_match.group(1).split(",")]
+    agent_types = [t for t in tokens if t]
+else:
+    agent_types = ["GENERIC"]
+print(name, json.dumps(agent_types))
 PY
 )"
 
@@ -68,7 +77,20 @@ print_config
 echo "Agent Space ID: ${AGENT_SPACE_ID}"
 echo "Skill dir:      ${SKILL_PATH}"
 echo "Skill name:     ${SKILL_NAME}"
+echo "Agent types:    ${SKILL_AGENT_TYPES}"
 echo
+
+# Sync the canonical HyperPod mental-model doc into the skill's references/
+# directory before zipping. The repo's docs/hyperpod-mental-model.md is the
+# single source of truth; the skill carries a copy so it's loaded into the
+# agent's context when the skill fires. Only refresh if the skill already
+# has a placeholder/copy of this file under references/.
+REPO_MENTAL_MODEL="$(cd "${ROOT}/../.." && pwd)/docs/hyperpod-mental-model.md"
+SKILL_MENTAL_MODEL="${SKILL_PATH}/references/hyperpod-mental-model.md"
+if [[ -f "${SKILL_MENTAL_MODEL}" && -f "${REPO_MENTAL_MODEL}" ]]; then
+    echo "==> Refreshing references/hyperpod-mental-model.md from ${REPO_MENTAL_MODEL}"
+    cp "${REPO_MENTAL_MODEL}" "${SKILL_MENTAL_MODEL}"
+fi
 
 # Build the zip with deterministic relative paths.
 ZIP_PATH="$(mktemp -d)/${SKILL_NAME}.zip"
@@ -102,15 +124,16 @@ trap 'rm -f "${INPUT_JSON_PATH}"' EXIT
 
 if [[ -n "${EXISTING_ID}" && "${EXISTING_ID}" != "None" ]]; then
     echo "    updating existing asset ${EXISTING_ID}"
-    python3 - "${INPUT_JSON_PATH}" "${AGENT_SPACE_ID}" "${EXISTING_ID}" "${ZIP_PATH}" <<'PY'
+    python3 - "${INPUT_JSON_PATH}" "${AGENT_SPACE_ID}" "${EXISTING_ID}" "${ZIP_PATH}" "${SKILL_AGENT_TYPES}" <<'PY'
 import base64, json, sys
-out_path, agent_space_id, asset_id, zip_path = sys.argv[1:]
+out_path, agent_space_id, asset_id, zip_path, agent_types_json = sys.argv[1:]
+agent_types = json.loads(agent_types_json)
 with open(zip_path, "rb") as f:
     blob = f.read()
 payload = {
     "agentSpaceId": agent_space_id,
     "assetId": asset_id,
-    "metadata": {"agent_types": ["GENERIC"], "status": "ACTIVE"},
+    "metadata": {"agent_types": agent_types, "status": "ACTIVE"},
     "content": {"zip": {"zipFile": base64.b64encode(blob).decode("ascii")}},
 }
 with open(out_path, "w") as f:
@@ -123,15 +146,16 @@ PY
         --output table
 else
     echo "    creating new asset"
-    python3 - "${INPUT_JSON_PATH}" "${AGENT_SPACE_ID}" "${ZIP_PATH}" <<'PY'
+    python3 - "${INPUT_JSON_PATH}" "${AGENT_SPACE_ID}" "${ZIP_PATH}" "${SKILL_AGENT_TYPES}" <<'PY'
 import base64, json, sys
-out_path, agent_space_id, zip_path = sys.argv[1:]
+out_path, agent_space_id, zip_path, agent_types_json = sys.argv[1:]
+agent_types = json.loads(agent_types_json)
 with open(zip_path, "rb") as f:
     blob = f.read()
 payload = {
     "agentSpaceId": agent_space_id,
     "assetType": "skill",
-    "metadata": {"agent_types": ["GENERIC"], "status": "ACTIVE"},
+    "metadata": {"agent_types": agent_types, "status": "ACTIVE"},
     "content": {"zip": {"zipFile": base64.b64encode(blob).decode("ascii")}},
 }
 with open(out_path, "w") as f:

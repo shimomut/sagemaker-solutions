@@ -1,0 +1,118 @@
+AWSTemplateFormatVersion: '2010-09-09'
+
+Description: "Email notification for AWS DevOps Agent investigation lifecycle events via SES."
+
+Parameters:
+
+  EmailSender:
+    Type: String
+    Description: "SES-verified From address (must be verified in this region's SES)."
+
+  EmailRecipients:
+    Type: String
+    Description: "Comma-separated list of recipient email addresses. Each must be verified if SES is in sandbox mode."
+
+  EmailDetailTypes:
+    Type: String
+    Default: "Investigation Created,Investigation Closed"
+    Description: "Comma-separated EventBridge detail-types to send on. Default sends on creation and closure only (skips noisy 'Investigation Updated')."
+
+  ConsoleUrlTemplate:
+    Type: String
+    Default: "https://{region}.console.aws.amazon.com/aidevops/home?region={region}#/investigations/{investigation_id}"
+    Description: "Optional URL template included in emails. Tokens: {region}, {account}, {investigation_id}."
+
+Resources:
+
+  EmailNotifierExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: EmailNotifierExecutionPolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource:
+                  - "arn:aws:logs:*:*:log-group:/aws/lambda/*"
+                  - "arn:aws:logs:*:*:log-group:/aws/lambda/*:log-stream:*"
+              - Effect: Allow
+                Action:
+                  - ses:SendEmail
+                  - ses:SendRawEmail
+                Resource: "*"
+                Condition:
+                  StringEquals:
+                    "ses:FromAddress": !Ref EmailSender
+
+  EmailNotifierFunction:
+    DependsOn: EmailNotifierExecutionRole
+    Type: AWS::Lambda::Function
+    Properties:
+      Role: !GetAtt EmailNotifierExecutionRole.Arn
+      Runtime: python3.13
+      Handler: index.lambda_handler
+      Timeout: 30
+      Environment:
+        Variables:
+          EMAIL_SENDER: !Ref EmailSender
+          EMAIL_RECIPIENTS: !Ref EmailRecipients
+          EMAIL_DETAIL_TYPES: !Ref EmailDetailTypes
+          CONSOLE_URL_TEMPLATE: !Ref ConsoleUrlTemplate
+      Code:
+        ZipFile: |
+          # LAMBDA_CODE_PLACEHOLDER
+
+  EventBridgeTargetRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: events.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: EventBridgeInvokeLambda
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: lambda:InvokeFunction
+                Resource: !GetAtt EmailNotifierFunction.Arn
+
+  InvestigationLifecycleRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Description: "Route DevOps Agent investigation lifecycle events to the email notifier."
+      State: ENABLED
+      EventPattern:
+        source:
+          - aws.aidevops
+        detail-type:
+          - prefix: "Investigation"
+      Targets:
+        - Arn: !GetAtt EmailNotifierFunction.Arn
+          Id: "EmailNotifierTarget"
+          RoleArn: !GetAtt EventBridgeTargetRole.Arn
+
+Outputs:
+
+  LambdaFunctionName:
+    Value: !Ref EmailNotifierFunction
+    Description: "Name of the deployed email notifier Lambda function."
+
+  EventRuleName:
+    Value: !Ref InvestigationLifecycleRule
+    Description: "Name of the EventBridge rule on aws.aidevops investigations."

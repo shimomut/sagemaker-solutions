@@ -24,6 +24,12 @@ print_config
 echo "Agent Space role ARN: ${AGENT_SPACE_ROLE_ARN}"
 echo
 
+if [[ -z "${EKS_CLUSTER_NAME:-}" ]]; then
+    echo "==> No EKS cluster associated with HyperPod cluster '${HYPERPOD_CLUSTER_NAME}'."
+    echo "    Skipping EKS access entry (this is expected for Slurm-orchestrated clusters)."
+    exit 0
+fi
+
 echo "==> Step 1/2: Verify EKS cluster auth mode includes the EKS API"
 AUTH_MODE="$(aws eks describe-cluster \
     --name "${EKS_CLUSTER_NAME}" \

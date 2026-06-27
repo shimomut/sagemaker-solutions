@@ -42,14 +42,22 @@ awk '/# LAMBDA_CODE_PLACEHOLDER/ {
 { print }' "${TEMPLATE_SRC}" > "${TEMPLATE_OUT}"
 echo "    wrote ${TEMPLATE_OUT}"
 
+: "${CLUSTER_FILTER:=${HYPERPOD_CLUSTER_NAME}}"
+: "${DROP_EVENT_LEVELS:=Info}"
+
 echo
 echo "==> Deploying stack ${STACK_NAME}"
+echo "    Cluster filter:    ${CLUSTER_FILTER:-<none — all clusters>}"
+echo "    Drop event levels: ${DROP_EVENT_LEVELS}"
 aws cloudformation deploy \
     --region "${REGION}" \
     --stack-name "${STACK_NAME}" \
     --template-file "${TEMPLATE_OUT}" \
     --capabilities CAPABILITY_IAM \
-    --parameter-overrides "WebhookSecretArn=${WEBHOOK_SECRET_ARN}"
+    --parameter-overrides \
+        "WebhookSecretArn=${WEBHOOK_SECRET_ARN}" \
+        "ClusterFilter=${CLUSTER_FILTER}" \
+        "DropEventLevels=${DROP_EVENT_LEVELS}"
 
 echo
 echo "==> Stack outputs"

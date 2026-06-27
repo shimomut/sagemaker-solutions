@@ -2,14 +2,12 @@
 # Stores the DevOps Agent generic webhook URL + HMAC secret in Secrets Manager
 # and records the resulting ARN in .state.json.
 #
-# The webhook itself is created in the AWS DevOps Agent console (Agent Space ->
-# Capabilities -> Webhook -> Configure -> Generate webhook). The console only
-# shows the URL and secret once, so capture them and feed them to this script.
-#
-# Usage:
-#   WEBHOOK_URL='...' WEBHOOK_HMAC_SECRET='...' make webhook-secret
-#
-# The script prompts interactively if either variable is unset.
+# Source of the credentials, in order:
+#   1. WEBHOOK_URL + WEBHOOK_HMAC_SECRET env vars (explicit override).
+#   2. webhookUrl + webhookSecret in .state.json (written by
+#      02_create_agent_space.sh after register-service + associate-service).
+#   3. Interactive prompt (last resort — e.g. webhook generated manually
+#      in the console).
 
 set -euo pipefail
 
@@ -22,6 +20,19 @@ echo "==> Configuration"
 print_config
 echo "Secret name: ${SECRET_NAME}"
 echo
+
+# Fall back to state-file values written by 02_create_agent_space.sh.
+if [[ -z "${WEBHOOK_URL:-}" || -z "${WEBHOOK_HMAC_SECRET:-}" ]]; then
+    if [[ -f "${STATE_FILE}" ]]; then
+        STATE_URL="$(python3 -c "import json,sys; print(json.load(open(sys.argv[1])).get('webhookUrl',''))" "${STATE_FILE}" 2>/dev/null || echo "")"
+        STATE_SECRET="$(python3 -c "import json,sys; print(json.load(open(sys.argv[1])).get('webhookSecret',''))" "${STATE_FILE}" 2>/dev/null || echo "")"
+        : "${WEBHOOK_URL:=${STATE_URL}}"
+        : "${WEBHOOK_HMAC_SECRET:=${STATE_SECRET}}"
+        if [[ -n "${WEBHOOK_URL}" && -n "${WEBHOOK_HMAC_SECRET}" ]]; then
+            echo "    using webhook credentials from ${STATE_FILE}"
+        fi
+    fi
+fi
 
 if [[ -z "${WEBHOOK_URL:-}" ]]; then
     read -rp "Webhook URL: " WEBHOOK_URL
@@ -70,6 +81,9 @@ if os.path.exists(path):
         state = json.load(f)
 state["webhookSecretName"] = name
 state["webhookSecretArn"] = arn
+# Now that the secret is stored in Secrets Manager, drop the plaintext copy
+# from the local state file (the URL is fine to keep; the HMAC secret is not).
+state.pop("webhookSecret", None)
 with open(path, "w") as f:
     json.dump(state, f, indent=2, sort_keys=True)
 print(f"    wrote {path}")

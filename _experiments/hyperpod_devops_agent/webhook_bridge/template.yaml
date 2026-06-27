@@ -13,6 +13,16 @@ Parameters:
     Type: String
     Description: "ARN of a Secrets Manager secret holding {\"url\":\"...\",\"secret\":\"...\"} for the DevOps Agent generic webhook."
 
+  ClusterFilter:
+    Type: String
+    Default: ""
+    Description: "Comma-separated allowlist of HyperPod cluster names to forward. Empty = forward events from all clusters in the account/region."
+
+  DropEventLevels:
+    Type: String
+    Default: "Info"
+    Description: "Comma-separated EventLevel values to drop (HyperPod 'Cluster Event' detail-type only). Default drops noisy Info-level events."
+
 Resources:
 
   WebhookBridgeLambdaExecutionRole:
@@ -75,6 +85,8 @@ Resources:
       Environment:
         Variables:
           WEBHOOK_SECRET_ARN: !Ref WebhookSecretArn
+          WEBHOOK_CLUSTER_FILTER: !Ref ClusterFilter
+          WEBHOOK_DROP_EVENT_LEVELS: !Ref DropEventLevels
       Code:
         ZipFile: |
           # LAMBDA_CODE_PLACEHOLDER

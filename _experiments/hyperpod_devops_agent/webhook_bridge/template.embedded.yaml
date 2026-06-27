@@ -13,6 +13,16 @@ Parameters:
     Type: String
     Description: "ARN of a Secrets Manager secret holding {\"url\":\"...\",\"secret\":\"...\"} for the DevOps Agent generic webhook."
 
+  ClusterFilter:
+    Type: String
+    Default: ""
+    Description: "Comma-separated allowlist of HyperPod cluster names to forward. Empty = forward events from all clusters in the account/region."
+
+  DropEventLevels:
+    Type: String
+    Default: "Info"
+    Description: "Comma-separated EventLevel values to drop (HyperPod 'Cluster Event' detail-type only). Default drops noisy Info-level events."
+
 Resources:
 
   WebhookBridgeLambdaExecutionRole:
@@ -75,6 +85,8 @@ Resources:
       Environment:
         Variables:
           WEBHOOK_SECRET_ARN: !Ref WebhookSecretArn
+          WEBHOOK_CLUSTER_FILTER: !Ref ClusterFilter
+          WEBHOOK_DROP_EVENT_LEVELS: !Ref DropEventLevels
       Code:
         ZipFile: |
           """Forward HyperPod EventBridge events to the AWS DevOps Agent generic webhook.
@@ -154,6 +166,19 @@ Resources:
               return False, level
 
 
+          def _cluster_filter() -> set[str]:
+              raw = os.environ.get("WEBHOOK_CLUSTER_FILTER", "")
+              return {tok.strip() for tok in raw.split(",") if tok.strip()}
+
+
+          def _event_cluster_name(event: dict) -> str | None:
+              detail = event.get("detail", {})
+              return (
+                  detail.get("ClusterName")
+                  or detail.get("EventDetails", {}).get("ClusterName")
+              )
+
+
           def _priority_for(event: dict) -> str:
               """Map HyperPod event severity onto DevOps Agent priority levels."""
               detail = event.get("detail", {})
@@ -203,9 +228,9 @@ Resources:
                       f"Reason={health.get('HealthStatusReason', 'n/a')}; "
                       f"RepairAction={health.get('RepairAction', 'n/a')}; "
                       f"Recommendation={health.get('Recommendation', 'n/a')}. "
-                      f"Underlying EKS cluster (if EKS-orchestrated) is named "
-                      f"'sagemaker-{cluster_name}-*-eks'. Investigate node {instance_id} "
-                      f"in the EKS cluster and the SageMaker HyperPod control plane."
+                      f"Resolve the underlying EKS cluster (for EKS-orchestrated clusters) via "
+                      f"'aws sagemaker describe-cluster --cluster-name {cluster_name}' and inspect "
+                      f"node {instance_id} via the SageMaker HyperPod control plane."
                   )
                   return title, description
 
@@ -324,6 +349,13 @@ Resources:
               print(f"received event detail-type={event.get('detail-type')!r} id={event.get('id')!r}")
               if _truthy("WEBHOOK_LOG_FULL_EVENT"):
                   print(f"full event: {json.dumps(event)}")
+              allowlist = _cluster_filter()
+              if allowlist:
+                  cluster = _event_cluster_name(event)
+                  if cluster not in allowlist:
+                      print(f"dropping event: cluster={cluster!r} not in WEBHOOK_CLUSTER_FILTER={sorted(allowlist)}")
+                      return {"statusCode": 200, "body": json.dumps({"dropped": True, "reason": "cluster-not-in-filter"})}
+
               drop, level = _should_drop(event)
               if drop:
                   print(f"dropping event: EventLevel={level!r} is in WEBHOOK_DROP_EVENT_LEVELS")

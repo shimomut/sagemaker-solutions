@@ -17,19 +17,28 @@ source "${HERE}/config.sh"
 : "${UPSTREAM_REF:=main}"
 UPSTREAM_SKILLS_DIR="${UPSTREAM_DIR}/plugins/sagemaker-ai/skills"
 
-# Default: every hyperpod-prefixed skill in the upstream repo. Override with
-# SKILLS=... to import a subset (space-separated). Useful when an upload fails
-# and you want to iterate on just one.
+# Curated default — only the upstream skills whose in-guardrail (API + kubectl)
+# portion is useful inside DevOps Agent. Skills whose entire procedure depends
+# on SSM (issue-report, version-checker, ssm itself) are excluded by default
+# because the guardrail blocks ssm:StartSession — loading them would confuse the
+# agent with unreachable instructions. slurm-debugger is excluded because its
+# diagnostic recipes require SSM to the controller. See the README's "Impact on
+# the imported skills" section.
+#
+# Override with SKILLS='name1 name2' to import a different set.
 DEFAULT_SKILLS=(
     hyperpod-cluster-debugger
-    hyperpod-issue-report
     hyperpod-nccl
     hyperpod-node-debugger
     hyperpod-performance-debugger
-    hyperpod-slurm-debugger
-    hyperpod-ssm
-    hyperpod-version-checker
 )
+
+# Skills that exist upstream but are intentionally excluded from the default
+# import. Kept as a comment so re-additions are deliberate.
+#   hyperpod-issue-report      - whole skill is on-node collection
+#   hyperpod-slurm-debugger    - controller-side SSM
+#   hyperpod-ssm               - SSM driver itself
+#   hyperpod-version-checker   - whole skill is on-node reads
 
 if [[ -n "${SKILLS:-}" ]]; then
     read -r -a SKILLS_TO_IMPORT <<< "${SKILLS}"

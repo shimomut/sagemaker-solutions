@@ -1,0 +1,80 @@
+AWSTemplateFormatVersion: '2010-09-09'
+
+Description: "IAM roles for AWS DevOps Agent + HyperPod (Agent Space monitoring role and Operator web app role)."
+
+Parameters:
+
+  AgentSpaceRoleName:
+    Type: String
+    Default: "DevOpsAgentRole-AgentSpace"
+    Description: "Name of the role assumed by aidevops.amazonaws.com to read AWS resources during investigations."
+
+  WebappRoleName:
+    Type: String
+    Default: "DevOpsAgentRole-WebappAdmin"
+    Description: "Name of the role backing the Operator web app."
+
+Resources:
+
+  AgentSpaceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Ref AgentSpaceRoleName
+      Description: "AWS DevOps Agent monitoring role (managed by hyperpod_devops_agent solution)."
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: aidevops.amazonaws.com
+            Action: sts:AssumeRole
+            Condition:
+              StringEquals:
+                "aws:SourceAccount": !Sub "${AWS::AccountId}"
+              ArnLike:
+                "aws:SourceArn": !Sub "arn:aws:aidevops:${AWS::Region}:${AWS::AccountId}:agentspace/*"
+      ManagedPolicyArns:
+        - "arn:aws:iam::aws:policy/AIDevOpsAgentAccessPolicy"
+      Policies:
+        - PolicyName: AllowCreateServiceLinkedRoles
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: AllowResourceExplorerServiceLinkedRole
+                Effect: Allow
+                Action:
+                  - iam:CreateServiceLinkedRole
+                Resource:
+                  - !Sub "arn:aws:iam::${AWS::AccountId}:role/aws-service-role/resource-explorer-2.amazonaws.com/AWSServiceRoleForResourceExplorer"
+
+  WebappRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Ref WebappRoleName
+      Description: "AWS DevOps Agent Operator web app role (managed by hyperpod_devops_agent solution)."
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: aidevops.amazonaws.com
+            Action:
+              - sts:AssumeRole
+              - sts:TagSession
+            Condition:
+              StringEquals:
+                "aws:SourceAccount": !Sub "${AWS::AccountId}"
+              ArnLike:
+                "aws:SourceArn": !Sub "arn:aws:aidevops:${AWS::Region}:${AWS::AccountId}:agentspace/*"
+      ManagedPolicyArns:
+        - "arn:aws:iam::aws:policy/AIDevOpsOperatorAppAccessPolicy"
+
+Outputs:
+
+  AgentSpaceRoleArn:
+    Value: !GetAtt AgentSpaceRole.Arn
+    Description: "ARN of the Agent Space monitoring role. Pass to create-agent-space and use as the EKS access-entry principal."
+
+  WebappRoleArn:
+    Value: !GetAtt WebappRole.Arn
+    Description: "ARN of the Webapp Admin role. Pass to create-web-app."
