@@ -436,7 +436,7 @@ When asked "what happened to this node?", consult these in order:
 | Order | Source | What it tells you |
 |---|---|---|
 | 1 | `aws sagemaker list-cluster-nodes` + `describe-cluster-node` | Current HyperPod-side status (`Running`/`Pending`/`Failed`/`ShuttingDown`); current instance ID (changes on replace) |
-| 2 | `aws sagemaker list-cluster-events` *(EKS only — not yet on Slurm)* | The 500 most recent control-plane events with timestamps and reasons; up to 5 pages of 100 |
+| 2 | `aws sagemaker list-cluster-events` *(EKS; Slurm with Continuous Provisioning)* | The 500 most recent control-plane events with timestamps and reasons; up to 5 pages of 100. The canonical record of replacement attempts (including failed ones) — survives even when individual nodes disappear from `list-cluster-nodes` between retries. |
 | 3 | CloudWatch log group `/aws/sagemaker/Clusters/<NAME>/<CLUSTER-ID>` | HMA events, lifecycle output, deep-health-check results (see "Logs (via SSM)" below for stream layout) |
 | 4 | Slurm: `scontrol show node <ip>` / `sinfo -R`; EKS: `kubectl describe node <name>` | Orchestrator-side state and reason strings |
 | 5 | On-node `/var/log/provision/provisioning.log`, `/var/log/syslog`, `dmesg`, `journalctl` | The actual hardware/system events that triggered everything |
@@ -691,15 +691,30 @@ timelines from per-cycle pairs, not from a single snapshot. A node
 disappearing from `list-cluster-nodes` while still counted in
 `describe-cluster.CurrentCount` is the normal mid-transition shape.
 
-### `Failed` instance status is terminal
+### `Failed` instance status is not necessarily terminal
 
 *(Both)*
 
 When HyperPod replacement itself fails — most often due to a transient
 EFA health check failure during boot — the node lands in `Failed`
-status. We have NOT observed HyperPod auto-retrying out of `Failed` over
-20+ minute windows. The operator must manually call
-`batch-replace-cluster-nodes` to retry.
+status. **HyperPod may auto-retry from `Failed`**, particularly when
+Continuous Provisioning is enabled on the cluster. Earlier guidance
+that `Failed` is terminal is outdated; treat `Failed` as a transient
+state inside a retry chain until enough time has passed without
+progress to conclude HyperPod has given up.
+
+Additionally, **a node can disappear from `list-cluster-nodes`
+between retry attempts** — the customer-visible API surface is not
+always populated during the gap between one failed attempt and the
+next. Don't infer "gave up" from a single missing snapshot.
+
+To distinguish "still retrying" from "stuck", consult
+`list-cluster-events` (the canonical customer record of replacement
+attempts, including failed ones) and apply a time budget — at least
+60–90 minutes of no new attempt and no successful `Running`
+transition before concluding retry is exhausted. A single replacement
+attempt typically takes 20–30 minutes (see "How long things take"
+below), so a window covering 2–3 attempts is the floor.
 
 The error message in `describe-cluster-node` is:
 > *"Instance replacement failed: EFA health checks did not run
@@ -949,8 +964,9 @@ aws sagemaker describe-cluster --cluster-name <name> \
 - **CloudWatch + on-node**: lifecycle script output.
 - **On-node only**: kubelet, containerd, dmesg, system journal,
   `slurmctld.log`/`slurmd.log`, DCGM findings.
-- **Service API only**: `list-cluster-events` (EKS) and `list-cluster-nodes`
-  state transitions — **not** in CloudWatch.
+- **Service API only**: `list-cluster-events` (EKS, and Slurm with
+  Continuous Provisioning) and `list-cluster-nodes` state transitions
+  — **not** in CloudWatch.
 
 ### CloudWatch metrics
 
