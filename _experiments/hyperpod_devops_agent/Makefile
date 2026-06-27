@@ -25,7 +25,7 @@ SCRIPTS_DIR := scripts
 
 .PHONY: help venv extract-docs \
         config check-aws check-cluster \
-        setup iam-roles agent-space eks-access \
+        setup foundation provision-webhook eks-access \
         webhook-secret deploy-bridge delete-bridge bridge-logs bridge-test \
         bridge-debug-on bridge-debug-off bridge-env \
         upload-skill list-skills delete-skill import-upstream-skills \
@@ -43,10 +43,11 @@ help:
 	@echo "  check-cluster - Verify HyperPod cluster and underlying EKS auth mode"
 	@echo
 	@echo "Agent Space setup (run in order, or all at once with 'make setup'):"
-	@echo "  iam-roles     - Create DevOps Agent and Webapp IAM roles"
-	@echo "  agent-space   - Create Agent Space, associate account, enable operator app"
-	@echo "  eks-access    - Grant the monitoring role read-only access to the EKS cluster"
-	@echo "  setup         - iam-roles -> agent-space -> eks-access"
+	@echo "  foundation        - Deploy CFN stack: IAM roles + AgentSpace + AWS monitor association"
+	@echo "  provision-webhook - Register eventChannel service + associate to Agent Space"
+	@echo "                      (imperative — CFN doesn't yet expose the webhook URL/HMAC)"
+	@echo "  eks-access        - Grant the monitoring role read-only access to the EKS cluster"
+	@echo "  setup             - foundation -> provision-webhook -> eks-access"
 	@echo
 	@echo "Webhook bridge (after generating webhook URL+secret in the console):"
 	@echo "  webhook-secret  - Store webhook URL+secret in Secrets Manager"
@@ -119,16 +120,16 @@ check-cluster:
 
 # ------------------------------------------------------------ Agent Space setup
 
-iam-roles:
-	bash $(SCRIPTS_DIR)/01_create_iam_roles.sh
+foundation:
+	bash $(SCRIPTS_DIR)/01_deploy_foundation.sh
 
-agent-space:
-	bash $(SCRIPTS_DIR)/02_create_agent_space.sh
+provision-webhook:
+	bash $(SCRIPTS_DIR)/02_provision_webhook.sh
 
 eks-access:
 	bash $(SCRIPTS_DIR)/03_grant_eks_access.sh
 
-setup: iam-roles agent-space eks-access
+setup: foundation provision-webhook eks-access
 
 # ------------------------------------------------------------ webhook bridge
 

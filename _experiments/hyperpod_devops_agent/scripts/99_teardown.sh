@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tears down everything created by 01/02/03 (and 05) scripts, in reverse order.
+# Tears down everything created by 01/02/03/05/10, in reverse order.
 # Safe to run repeatedly; each step ignores 'not found' errors.
 #
 # The webhook secret in Secrets Manager is left in place by default; pass
@@ -27,15 +27,16 @@ if [[ -z "${AGENT_SPACE_ROLE_ARN}" ]]; then
     AGENT_SPACE_ROLE_ARN="arn:aws:iam::${ACCOUNT_ID}:role/${AGENT_SPACE_ROLE_NAME}"
 fi
 
-: "${STACK_NAME:=hyperpod-devops-agent-webhook-bridge}"
+: "${BRIDGE_STACK_NAME:=hyperpod-devops-agent-webhook-bridge}"
 : "${EMAIL_STACK_NAME:=hyperpod-devops-agent-email-notifier}"
+: "${FOUNDATION_STACK_NAME:=hyperpod-devops-agent-foundation}"
 
-echo "==> Step 0a/3: Delete webhook bridge stack (if present)"
-DELETE_SECRET="${DELETE_SECRET:-no}" STACK_NAME="${STACK_NAME}" \
+echo "==> Step 0a/4: Delete webhook bridge stack (if present)"
+DELETE_SECRET="${DELETE_SECRET:-no}" STACK_NAME="${BRIDGE_STACK_NAME}" \
     bash "${HERE}/06_delete_webhook_bridge.sh" || true
 echo
 
-echo "==> Step 0b/3: Delete email notifier stack (if present)"
+echo "==> Step 0b/4: Delete email notifier stack (if present)"
 if aws cloudformation describe-stacks \
     --region "${REGION}" \
     --stack-name "${EMAIL_STACK_NAME}" \
@@ -46,7 +47,7 @@ else
 fi
 echo
 
-echo "==> Step 1/3: Remove EKS access entry"
+echo "==> Step 1/4: Remove EKS access entry"
 if [[ -z "${EKS_CLUSTER_NAME:-}" ]]; then
     echo "    no EKS cluster associated; nothing to remove"
 elif aws eks describe-access-entry \
@@ -63,8 +64,11 @@ else
     echo "    no access entry to delete"
 fi
 
+# eventChannel webhook lives outside the foundation CFN stack. It MUST be
+# disassociated before CFN can delete the AgentSpace, because CFN-managed
+# AgentSpace deletion will fail if "extra" associations are attached.
 echo
-echo "==> Step 2/3: Delete Agent Space (and disassociate + deregister eventChannel)"
+echo "==> Step 2/4: Disassociate + deregister eventChannel webhook (outside CFN)"
 if [[ -z "${AGENT_SPACE_ID}" ]]; then
     AGENT_SPACE_ID="$(aws devops-agent list-agent-spaces \
         --region "${REGION}" \
@@ -72,9 +76,6 @@ if [[ -z "${AGENT_SPACE_ID}" ]]; then
         --output text 2>/dev/null || true)"
 fi
 if [[ -n "${AGENT_SPACE_ID}" && "${AGENT_SPACE_ID}" != "None" ]]; then
-    # Disassociate every non-AWS service association first (eventChannel etc).
-    # delete-agent-space appears to be fine with these still attached, but
-    # disassociating leaves the registered service usable for a future space.
     EVENT_CHANNEL_ASSOC_IDS="$(aws devops-agent list-associations \
         --region "${REGION}" \
         --agent-space-id "${AGENT_SPACE_ID}" \
@@ -87,18 +88,11 @@ if [[ -n "${AGENT_SPACE_ID}" && "${AGENT_SPACE_ID}" != "None" ]]; then
             --association-id "${ASSOC_ID}" \
             >/dev/null 2>&1 && echo "    disassociated eventChannel association ${ASSOC_ID}" || true
     done
-
-    aws devops-agent delete-agent-space \
-        --region "${REGION}" \
-        --agent-space-id "${AGENT_SPACE_ID}" \
-        >/dev/null && echo "    deleted agent space ${AGENT_SPACE_ID}"
 else
-    echo "    no agent space to delete"
+    echo "    no agent space found; skipping"
 fi
 
-# Deregister any eventChannel services left behind in this account. We don't
-# have a service id that's always reliable in state, so list filter on the
-# service type.
+# Deregister any eventChannel services left behind in this account.
 EVENT_CHANNEL_SVC_IDS="$(aws devops-agent list-services \
     --region "${REGION}" \
     --query "services[?serviceType=='eventChannel' || serviceTypeName=='eventChannel'].serviceId" \
@@ -111,19 +105,20 @@ for SVC_ID in ${EVENT_CHANNEL_SVC_IDS}; do
 done
 
 echo
-echo "==> Step 3/3: Delete IAM roles CloudFormation stack"
-: "${IAM_STACK_NAME:=hyperpod-devops-agent-iam-roles}"
+echo "==> Step 3/4: Delete foundation CloudFormation stack (IAM roles + AgentSpace + AWS association)"
 if aws cloudformation describe-stacks \
     --region "${REGION}" \
-    --stack-name "${IAM_STACK_NAME}" \
+    --stack-name "${FOUNDATION_STACK_NAME}" \
     >/dev/null 2>&1; then
-    aws cloudformation delete-stack --region "${REGION}" --stack-name "${IAM_STACK_NAME}"
-    aws cloudformation wait stack-delete-complete --region "${REGION}" --stack-name "${IAM_STACK_NAME}" || true
-    echo "    deleted stack ${IAM_STACK_NAME}"
+    aws cloudformation delete-stack --region "${REGION}" --stack-name "${FOUNDATION_STACK_NAME}"
+    aws cloudformation wait stack-delete-complete --region "${REGION}" --stack-name "${FOUNDATION_STACK_NAME}" || true
+    echo "    deleted stack ${FOUNDATION_STACK_NAME}"
 else
-    echo "    IAM roles stack not found"
+    echo "    foundation stack not found"
 fi
 
+echo
+echo "==> Step 4/4: Cleanup state file"
 rm -f "${STATE_FILE}" && echo "    removed ${STATE_FILE}"
 echo
 echo "Teardown complete."

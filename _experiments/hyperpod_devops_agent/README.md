@@ -22,8 +22,8 @@ Slack notifications can be added later (paused on workspace 3P approval) via Dev
 ├── docs/                    - DevOps Agent UG + API ref PDFs (git-ignored) + extracted .txt
 ├── extract_pdf.py           - PDF -> .txt helper (pypdf)
 ├── requirements.txt
-├── iam_roles/
-│   └── template.yaml        - CloudFormation: AgentSpace + Webapp IAM roles
+├── foundation/
+│   └── template.yaml        - CloudFormation: IAM roles + AWS::DevOpsAgent::AgentSpace + AWS::DevOpsAgent::Association (AWS monitor)
 ├── webhook_bridge/
 │   ├── template.yaml        - CloudFormation: EventBridge rule + Lambda + IAM
 │   ├── lambda_function.py   - HyperPod event -> DevOps Agent payload
@@ -38,8 +38,8 @@ Slack notifications can be added later (paused on workspace 3P approval) via Dev
 │   └── upstream/            - awslabs/agent-plugins clone (git-ignored)
 ├── scripts/
 │   ├── config.sh                 - shared config (env-overridable)
-│   ├── 01_create_iam_roles.sh    - deploys iam_roles/template.yaml
-│   ├── 02_create_agent_space.sh
+│   ├── 01_deploy_foundation.sh   - deploys foundation/template.yaml (CFN-native)
+│   ├── 02_provision_webhook.sh   - register-service + associate-service (imperative — CFN gap)
 │   ├── 03_grant_eks_access.sh    - skipped for Slurm clusters
 │   ├── 04_create_webhook_secret.sh
 │   ├── 05_deploy_webhook_bridge.sh
@@ -77,8 +77,8 @@ make config                  # show resolved config (region, role names, ...)
 make check-aws               # whoami + caller identity
 make check-cluster           # confirms HyperPod + EKS auth mode (EKS-orchestrated only)
 
-# Step 1 - Agent Space + EKS access + webhook (all in one)
-make setup                   # iam-roles -> agent-space (+ eventChannel webhook) -> eks-access (skipped for Slurm)
+# Step 1 - Foundation + webhook + EKS access (all in one)
+make setup                   # foundation (CFN) -> provision-webhook -> eks-access (skipped for Slurm)
 make status                  # print state file + Operator web app URL
 
 # Step 2 - Stash the webhook credentials in Secrets Manager and deploy the bridge
@@ -110,26 +110,31 @@ make teardown                # email-notifier -> bridge -> EKS entry -> agent sp
 DELETE_SECRET=yes make teardown   # also wipes the Secrets Manager secret
 ```
 
-> **Webhook provisioning is fully automated.** Step 1 calls
-> `devops-agent register-service` + `associate-service` against the
-> `eventChannel` service type. The HMAC secret returned by
-> `associate-service` is only shown once — it lands in `.state.json`
-> temporarily, gets copied to Secrets Manager by step 2, and is then
-> stripped from the state file. If you ever need to recover the secret
-> (e.g. teardown rolled back partway), you have to disassociate +
-> re-associate to get a fresh one — the API doesn't expose the existing
-> HMAC after creation.
+> **Webhook provisioning is fully automated** but stays imperative for
+> the reason described in "What `make setup` creates" above. The HMAC
+> secret returned by `associate-service` is only shown once — it lands
+> in `.state.json` temporarily, gets copied to Secrets Manager by step 2,
+> and is then stripped from the state file. If you ever need to recover
+> the secret (e.g. teardown rolled back partway), you have to
+> disassociate + re-associate to get a fresh one — the API doesn't
+> expose the existing HMAC after creation.
 
 ## What `make setup` creates
 
-| # | Resource | Why |
+`make foundation` deploys the CloudFormation stack `hyperpod-devops-agent-foundation` using **native `AWS::DevOpsAgent::*` resource types**:
+
+| # | Resource (CFN type) | Why |
 | --- | --- | --- |
-| 1 | CloudFormation stack `hyperpod-devops-agent-iam-roles` containing role `DevOpsAgentRole-AgentSpace` | Assumed by `aidevops.amazonaws.com` to read AWS resources during investigations. Attaches managed policy `AIDevOpsAgentAccessPolicy` + inline policy allowing the Resource Explorer service-linked role to be created. Trust scoped to this account's `agentspace/*`. |
-| 2 | …same stack: role `DevOpsAgentRole-WebappAdmin` | Backs the Operator web app. Attaches managed policy `AIDevOpsOperatorAppAccessPolicy`. |
-| 3 | Agent Space `hyperpod-<cluster>-devops-agent` (in `$REGION`) | Logical container for accounts, integrations, knowledge. |
-| 4 | Primary account association (`accountType=monitor`) | Turns on topology discovery across all regions of the account. |
-| 5 | Operator web app (auth flow `iam`) | UI entry point. |
-| 6 | EKS access entry on the discovered EKS cluster (EKS-orchestrated clusters only) | Read-only kubectl via `AmazonAIOpsAssistantPolicy`, cluster scope. Skipped for Slurm clusters. |
+| 1 | `AWS::IAM::Role` `DevOpsAgentRole-AgentSpace` | Assumed by `aidevops.amazonaws.com` to read AWS resources during investigations. Attaches managed policy `AIDevOpsAgentAccessPolicy` + inline policy allowing the Resource Explorer service-linked role to be created. Trust scoped to this account's `agentspace/*`. |
+| 2 | `AWS::IAM::Role` `DevOpsAgentRole-WebappAdmin` | Backs the Operator web app. Attaches managed policy `AIDevOpsOperatorAppAccessPolicy`. |
+| 3 | `AWS::DevOpsAgent::AgentSpace` `hyperpod-<cluster>-devops-agent` | Logical container for accounts, integrations, knowledge. `OperatorApp.Iam.OperatorAppRoleArn` set to the Webapp role — the operator web app is enabled in the same resource. |
+| 4 | `AWS::DevOpsAgent::Association` (config `Aws`, accountType `monitor`) | Primary AWS account association. Turns on topology discovery across all regions of the account. |
+
+`make provision-webhook` then runs `register-service eventChannel` + `associate-service` against the Agent Space, **imperatively**, because:
+- `AWS::DevOpsAgent::Service` does not yet list `eventChannel` as an allowed `ServiceType` (only the OAuth/SaaS and MCP integrations are supported as of writing).
+- Even when using `AWS::DevOpsAgent::Association` with an `EventChannel` configuration, **the generated webhook URL and HMAC secret are not exposed as `Fn::GetAtt` attributes** — there's no way to feed them into Secrets Manager from a CFN template.
+
+`make eks-access` creates the EKS access entry (read-only `AmazonAIOpsAssistantPolicy`, cluster scope) — skipped for Slurm clusters.
 
 ## What `make deploy-bridge` creates
 
