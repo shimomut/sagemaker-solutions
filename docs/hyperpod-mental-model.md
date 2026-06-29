@@ -822,7 +822,11 @@ Use exponential backoff or serialize.
 Also: `aws ssm start-session` intermittently returns empty stdout
 with `"Cannot perform start session: EOF"` even when the command ran
 successfully. Mitigation: wrap with `unbuffer` (from the `expect`
-package) on the client side.
+package) on the client side, or use the
+[`hyperpod_run_on_multi_nodes.py`](../hyperpod_run_on_multi_nodes/)
+helper in this repo which handles the unbuffer wrapping and retry
+semantics, plus parallel fan-out across multiple nodes with the
+3-TPS-per-account SSM throttle factored in.
 
 ### `ssm:SendCommand` does NOT work against `sagemaker-cluster:` targets
 
@@ -1039,7 +1043,14 @@ Verbatim strings worth recognizing across logs:
 - `"EFA health checks did not run successfully. Ensure that your VPC and security groups are properly configured before attempting to create a new cluster."` — instance-replacement boot failure (often transient).
 - `"Target is not connected"` — SSM session can't reach the node.
 - `"Cannot perform start session: EOF"` — SSM PTY quirk; intermittent
-  empty-stdout response. Wrap with `unbuffer` (from `expect`).
+  empty-stdout response. Wrap with `unbuffer` (from `expect`), or use
+  the [`hyperpod_run_on_multi_nodes.py`](../hyperpod_run_on_multi_nodes/)
+  helper which handles the unbuffer wrapping + retry semantics. Note
+  that `sudo dcgmi test --inject ...` triggers this EOF response
+  *every* time when invoked through `aws ssm start-session ... --document-name
+  AWS-StartNonInteractiveCommand` even though the inject itself
+  succeeds on-node — the dcgmi binary writes its output in a way that
+  breaks the PTY framing. The multi-node helper handles this correctly.
 - `"Embedded stack failed"` — real CloudFormation nested-stack error.
 - `"We currently do not have sufficient capacity in the Availability Zone you requested"` — EC2 capacity issue, not a customer config issue.
 - `"InvalidPermission.Duplicate"` — SG authorize idempotency, treat as success.
@@ -1055,19 +1066,19 @@ running workloads.
 
 | Event | How to trigger |
 |---|---|
-| Instance reboot (HMA-driven) | Append a fake `NVRM: Xid` line to `/var/log/syslog` on the target node, e.g. `sudo sh -c "echo \"$(date '+%b %d %H:%M:%S') $(hostname) kernel: NVRM: Xid (PCI:0000:b9:00): 74, ..., NVLink: fatal error...\" >> /var/log/syslog"`. HMA picks it up and marks the node `Action:Reboot`. |
-| Instance replacement (HMA-driven) | `sudo dcgmi test --inject --gpuid 0 -f 230 -v 79` on the target node. Injects a replace-grade GPU fault; HMA marks `Action:Replace`. |
+| Instance replacement / reboot (HyperPod **EKS**, AL2023) | Write a fake `NVRM: Xid` kernel-log line to **`/var/log/messages`**. Xid **74** → `Action:Replace` (label `UnschedulablePendingReplacement`); Xid **73** → `Action:Reboot` (label `UnschedulablePendingReboot`). Example: `sudo sh -c "echo \"$(date '+%b %d %H:%M:%S') $(hostname) kernel: NVRM: Xid (PCI:0000:b9:00): 74, pid=<unknown>, name=<unknown>, NVLink: fatal error detected on link 6(0x10000, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0)\" >> /var/log/messages"`. **Verified end-to-end**: ~33s from log write to `UnschedulablePendingReplacement`. Canonical recipe: [HyperPod EKS resiliency guide](https://awslabs.github.io/ai-on-sagemaker-hyperpod/docs/eks-orchestration/validation-and-testing/resiliency/eks-resiliency#2emulate-instance-failure). **DCGM `dcgmi inject` does NOT trigger HMA on EKS** — the EKS HMA DaemonSet watches the kernel log only. |
+| Instance replacement (HyperPod **Slurm**, Ubuntu 22.04) | `sudo dcgmi test --inject --gpuid 0 -f 230 -v 79` on the target node. Injects a replace-grade GPU fault via DCGM's field-injection API; HMA on Slurm watches DCGM counters and marks `Action:Replace`. **Do NOT just append an Xid line to `/var/log/syslog` on Slurm if you also want `srun --auto-resume=1` to retry the job** — the auto-resume plugin's diagnostic call inspects DCGM state, and a syslog-only Xid doesn't show up there, so it returns `ResumeAction=NONE` and the job stops instead of requeueing. The `dcgmi inject` path drives both signals (HMA marks the node + DCGM state is consistent so auto-resume sees the fault). See "Slurm job task failure" rows below and the `--auto-resume=1` callout in the Common AI-confusing details section. |
 | Instance replacement (operator-driven) | `aws sagemaker batch-replace-cluster-nodes --cluster-name <name> --node-ids <i-...>` |
 | Instance termination + shrink (operator-driven) | `aws sagemaker batch-delete-cluster-nodes` (reduces instance group count) |
-| Slurm job task failure (no GPU fault) | `sudo kill -11 <task-pid>` on the node running the task. The task exits with status 139; auto-resume's diagnostic call returns `ResumeAction=NONE` (no hardware issue detected). |
-| Slurm job task failure (with GPU fault) | `dcgmi inject` first to set up the hardware-fault signal, then `kill -11 <task-pid>` within ~5s. Auto-resume's diagnostic returns `ResumeAction=RETRYSTEP`. |
+| Slurm job task failure (no GPU fault) | `sudo kill -11 <task-pid>` on the node running the task. The task exits with status 139; auto-resume's diagnostic call returns `ResumeAction=NONE` (no hardware issue detected), so the job stops rather than requeueing. |
+| Slurm job task failure (with GPU fault, exercising auto-resume) | `dcgmi inject` first to set up DCGM hardware-fault state, then `kill -11 <task-pid>` within ~5s. Auto-resume's diagnostic returns `ResumeAction=RETRYSTEP`; if `srun --auto-resume=1` was used, the job requeues after the node is replaced. A syslog-only Xid line does NOT produce this behavior on Slurm — DCGM state must show the fault for the diagnostic to classify it. |
 | Scale up / scale down | SageMaker console "Update cluster" or `update-cluster` API. Adjust the instance group's target count. |
 | Cluster patching (AMI / agent upgrade) | `aws sagemaker update-cluster-software --cluster-name <name>` |
 | Drain a Slurm node without touching EC2 | `sudo scontrol update NodeName=<node> State=DRAIN Reason="..."` |
 | Cordon an EKS node | `kubectl cordon <node>` followed by `kubectl drain <node>` |
 
 Notes:
-- HMA fault injection (`Xid` syslog line, `dcgmi inject`) only works
+- HMA fault injection (Xid syslog line, `dcgmi inject`) only works
   on nodes where HMA is actually running:
   - **Slurm**: check `systemctl status sagemaker-health-monitoring-agent.service`.
     Older AMIs ship without HMA.
@@ -1078,10 +1089,31 @@ Notes:
     health-monitoring-agent pod is `Running` on the target node.
     CPU workers (m5, c5, etc.) have **no HMA pod scheduled** — fault
     injection will not trigger anything.
-- HMA reads `/var/log/syslog` for kernel-Xid signals, NOT
-  `/var/log/messages`. On EKS, the HMA DaemonSet `hostPath`-mounts the
-  node's `/var/log` so the syslog-write recipe still works the same way
-  from the node shell.
+- **Use the right injection path for your orchestrator** — they're
+  not interchangeable:
+  - **HyperPod EKS** (default AMI: **AL2023**): inject by appending a
+    fake `NVRM: Xid` line to **`/var/log/messages`**. The HMA
+    DaemonSet tails the kernel log file; DCGM injection does NOT
+    reach it.
+  - **HyperPod Slurm** (default AMI: **Ubuntu 22.04**): inject via
+    **`sudo dcgmi test --inject ...`**. HMA on Slurm reads DCGM
+    counters; appending an Xid line to `/var/log/syslog` will mark
+    the node via HMA but **leaves DCGM state clean**, which means the
+    Slurm auto-resume plugin's diagnostic call returns
+    `ResumeAction=NONE` and the running job will stop instead of
+    requeueing. The `dcgmi inject` path drives both signals at once
+    so auto-resume works correctly.
+  - Custom AMIs follow their base distro's convention. If unsure on
+    a given node, run `ls -la /var/log/{messages,syslog} 2>/dev/null`
+    or check where `rsyslog`/`systemd-journald` is writing kernel
+    messages.
+- On EKS, the HMA DaemonSet `hostPath`-mounts the node's `/var/log`
+  read-write so the syslog-write recipe works the same way from the
+  node shell — but **write to whichever file matches the AMI**
+  (`/var/log/messages` on AL2023). Writing Xid lines to a file HMA
+  isn't tailing produces no reaction even though the syscall succeeds
+  — failure mode is "node sits Schedulable for minutes after the
+  inject", which is misleading.
 
 ## How long things take
 
