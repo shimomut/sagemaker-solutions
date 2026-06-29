@@ -736,6 +736,106 @@ contractual guarantee** — leaf shuffling has been observed under
 multi-node-replacement pressure (multiple replacements in flight at
 once). Customer code should not depend on replacement-preserves-leaf.
 
+### Recurring fault signature does NOT prove physical-host affinity
+
+*(Both)*
+
+A common AI failure mode when looking at recurring hardware-fault
+signatures (e.g. the same Xid code on the same `PCI:0000:b9:00` /
+`NVLink link 6` across consecutive replacements): defaulting to "every
+replacement keeps landing on the same faulty physical hardware." That
+explanation is almost always wrong on HyperPod, for three reasons:
+
+1. **Instance placement is service-account, not customer-account.**
+   The EC2 instance is owned by the HyperPod service account (see
+   "Ownership boundaries" above). The customer surface — `NodeId`,
+   `InstanceId`, ENI, K8s node name — does not expose the underlying
+   physical host, so the customer literally cannot observe "same
+   physical host." Any claim that two replacements landed on the same
+   physical host is **[unverified]** — there is no customer-side API
+   that surfaces that.
+2. **EC2 placement is non-deterministic per replacement.** AWS EC2's
+   placement model assigns a fresh instance from the capacity pool on
+   each new launch. While *topology leaf* may be preserved (see the
+   "Topology placement on replacement" entry above), the underlying
+   *physical host* is not — and topology preservation isn't even a
+   contract. Two replacements that hit the same fault are far more
+   likely to be hitting the same fault *cause* than the same physical
+   host.
+3. **The Xid code names a fault class, not a physical fingerprint.**
+   `Xid 74 / PCI:0000:b9:00 / NVLink link 6` is the same string on
+   *every* GPU of the same SKU when that GPU has an NVLink link 6
+   issue — the PCI BDF is the slot, not a unique GPU identifier. Two
+   physically distinct GPUs of the same SKU with NVLink defects on
+   link 6 will produce identical strings.
+
+When a recurring signature appears, prefer these competing hypotheses
+over physical-host affinity (and present them as competing, not
+committed):
+
+- **Software / workload pattern**: a particular NCCL collective,
+  driver / CUDA version, or workload code path triggers the fault on
+  whatever GPU it lands on. Test by changing the workload (or moving
+  the instance group to a different node and seeing if the fault
+  follows).
+- **Infrastructure path**: an EFA fabric path, leaf switch, or shared
+  network resource is flaky and surfaces as GPU-level errors on
+  workloads that hit it. Test by moving the instance group to a
+  different subnet / AZ.
+- **Statistical hardware**: a bad batch of GPUs is over-represented
+  in the capacity pool for this SKU + AZ. Test by waiting + retrying
+  later, or by asking AWS Support to exclude specific hardware.
+
+The verdict in a recurring-pattern incident should list these
+hypotheses, mark each `[unverified]`, and recommend the operator
+discriminate by an action (e.g. "open an AWS Support case requesting
+hardware exclusion" or "move the IG to a different subnet to test
+infrastructure-path hypothesis"). It should **not** commit to a
+single explanation absent evidence the customer surface can produce.
+
+#### The only reliable physical-identity check (operator-only)
+
+The single deterministic way to know whether two replacement
+instances landed on the **same physical GPU** is to compare GPU
+UUIDs across them via `nvidia-smi`:
+
+```
+nvidia-smi -L
+# GPU 0: NVIDIA L4 (UUID: GPU-35af0a5d-06b3-f6cc-1fab-c63687d448ff)
+```
+
+The UUID is a per-GPU identifier baked into the GPU's vBIOS — it
+survives reboot and replacement of *everything around* the GPU, but
+it's unique to that physical silicon. If the same UUID appears on
+two different EC2 instance IDs in your cluster, you genuinely are
+hitting the same GPU. If they differ, the replacements landed on
+different physical hardware and "same physical hardware" is ruled
+out.
+
+**This check requires SSM** (`aws ssm start-session ...` plus
+`nvidia-smi -L`). The DevOps Agent permission guardrail does not
+allow `ssm:StartSession`, so DevOps Agent **cannot perform this
+check itself** — it must recommend that the operator run it and
+either paste the output back or open a Support case with the
+collected UUIDs.
+
+The recommended operator action is therefore:
+
+```
+# On each instance that hit the fault, capture the GPU UUID:
+aws ssm start-session \
+  --target sagemaker-cluster:<cluster-id>_<group>-<instance-id> \
+  --document-name AWS-StartNonInteractiveCommand \
+  --parameters '{"command":["nvidia-smi -L"]}'
+
+# Repeat for each affected InstanceId in the cluster events.
+# Compare the UUID strings. If they match, it's the same physical GPU.
+```
+
+This UUID-comparison evidence is the ONLY way to elevate
+"physical-host affinity" from `[unverified]` to `[direct]`. Without
+it, hypotheses must remain competing.
+
 ### Slurm auto-resume requeues, not shrinks-in-place, on GRES nodes
 
 *(Slurm only)*

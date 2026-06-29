@@ -248,10 +248,83 @@ remediation in the verdict symptom's description, under a
 cannot execute these; the operator must.
 
 **Confidence annotations:** for every material claim in the verdict
-description, prefix with one of `[direct]` (observed via API/log),
-`[proxy]` (inferred from HMA classification or similar), or
-`[unverified]` (would need on-node SSM the agent can't run). This
+description, prefix with one of `[direct]` (observed via API/log
+output the agent itself ran), `[proxy]` (inferred from HMA
+classification or a correlated source), or `[unverified]` (would need
+on-node SSM or AWS-internal data the agent can't reach). This
 replaces the separate "Confidence" section.
+
+**`[direct]` requires direct observation, not inference.** A claim
+like "all three replacements landed on the same physical host" is
+**not** `[direct]` even when three identical fault signatures are
+observed — the customer surface (NodeId, InstanceId, ENI, K8s node
+name) does not expose physical hardware identity. Such claims are
+`[unverified]` at best. Mislabeling inference as `[direct]` is a
+serious failure mode because operators trust the annotation to mean
+"the agent saw this in the data."
+
+**Hypothesis discipline for recurring-pattern verdicts
+(rules 4–6).** When the verdict is one of `Escalate — recurring
+hardware fault pattern`, `Escalate — fleet-wide instability`, or
+`Escalate — instance-group instability`, the verdict description
+MUST enumerate at least **two** competing hypotheses for the root
+cause, each labeled `[unverified]` or `[proxy]`, and each paired with
+a discriminating operator action. Do not commit to a single root
+cause without `[direct]` evidence. The required hypothesis classes
+are:
+
+1. **Software / workload** — the workload running on the IG triggers
+   the fault on whatever GPU it lands on (NCCL pattern, driver / CUDA
+   version, application code path). Discriminator: change the
+   workload, or move the IG to a different node and see if the fault
+   follows.
+2. **Infrastructure path** — an EFA fabric path, leaf switch, or
+   shared network resource surfaces as GPU-level errors on workloads
+   that hit it. Discriminator: move the IG to a different subnet / AZ.
+3. **Statistical hardware** — a bad batch of the same SKU is over-
+   represented in the capacity pool. Discriminator: open an AWS
+   Support case with the fault signature requesting hardware
+   exclusion, or wait + retry later from a different time/pool.
+
+The verdict should NOT include "every replacement is landing on the
+same physical hardware" as a stated cause — that's the explanation
+**operators are conditioned to expect from on-prem clusters**, but
+on HyperPod the EC2 instance is owned by the service account, the
+underlying physical host is not exposed on the customer surface, and
+EC2 placement is non-deterministic per replacement. Read the
+"Recurring fault signature does NOT prove physical-host affinity"
+section in [references/hyperpod-mental-model.md](references/hyperpod-mental-model.md)
+before authoring this part of the verdict.
+
+**The GPU UUID check is the only way to confirm or refute
+physical-host affinity, and it requires SSM (operator-only).** The
+verdict's "Recommended actions" section MUST include this check as
+an explicit operator step whenever a recurring-pattern verdict is
+emitted (rules 4–6). The wording should be:
+
+```
+N. Verify or refute "same physical GPU" by capturing GPU UUIDs.
+   The agent cannot run this check (requires SSM, which is outside
+   the DevOps Agent permission guardrail). For each affected
+   instance ID, run:
+
+       aws ssm start-session \
+         --target sagemaker-cluster:<cluster-id>_<group>-<instance-id> \
+         --document-name AWS-StartNonInteractiveCommand \
+         --parameters '{"command":["nvidia-smi -L"]}'
+
+   Compare the UUID strings across the affected instances. If they
+   match, the same physical GPU is being recycled — that elevates
+   the "statistical hardware" hypothesis to [direct] evidence and
+   strengthens the case for an AWS Support exclusion request. If
+   they differ, "same physical hardware" is RULED OUT and the
+   investigation should pivot to the software/workload and
+   infrastructure-path hypotheses instead.
+```
+
+Replace `<cluster-id>`, `<group>`, `<instance-id>` with the actual
+values from the affected instances in the timeline. List each
+instance separately so the operator can run the commands in parallel.
 
 ## Inputs the skill expects from the trigger
 
