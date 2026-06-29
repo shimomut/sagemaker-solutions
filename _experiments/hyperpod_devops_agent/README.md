@@ -352,9 +352,60 @@ The skill classifies each event into one of these verdicts:
 
 Time budgets in the skill encode the "How long things take" table in the [HyperPod mental model](../../docs/hyperpod-mental-model.md). Update the mental-model doc first if the budgets need to change.
 
-## Follow-ups (not yet implemented)
+## Two operational goals the current solution does NOT yet meet
 
-- **Slack channel for live investigation updates** — paused on workspace 3P approval. The email notifier's EventBridge listener is the template; a Slack notifier would drop into the same `aws.aidevops` event stream.
-- **External diagnostic collector** (see [SSM access — the permission guardrail is a hard ceiling](#ssm-access--the-permission-guardrail-is-a-hard-ceiling) above). Would side-load on-node truth (DCGM, EFA fabric counters, kubelet journal) into CloudWatch Logs or S3 where the guardrail can read them. Only worth building if a future investigation hits a wall the proxy-signal path can't reach.
-- **Per-failure-mode RCA skills** beyond `hyperpod-incident` — narrower skills (NCCL hang, slow storage, lifecycle script failure) loaded only when the unified skill's classification matches. The current bet is that the unified skill plus the upstream cluster/node debuggers cover most cases; only branch out if specific failure modes prove to need deeper specialization.
+Validated end-to-end with an Xid 74 fault injection on `worker2`: the skill loads, runs Phase 1 parallel gather across four signal sources, classifies as `Monitor — first attempt`, and emits a structured report with verdict + timeline + confidence annotations. **But two operational requirements are not yet met by the deployed solution:**
+
+### Goal 1: monitor incident duration; escalate if it lasts too long
+
+DevOps Agent runs a **single-shot investigation** per webhook trigger. When the skill emits a `Monitor` verdict, the agent writes the report, declares the investigation `COMPLETED`, and exits. It does NOT come back to:
+- Confirm the replacement EC2 actually launched
+- Verify the new node reached `Running`
+- Catch the case where HyperPod silently dropped into `Failed` after the initial detection
+- Notify the human when recovery cleanly succeeds (silent-success closure)
+
+The skill's "Next re-check: HH:MM UTC" line in the verdict is a promise to the human, not a self-scheduled callback.
+
+### Goal 2: detect statistically recurring patterns even when each occurrence auto-resolves
+
+Each individual incident may classify cleanly as `Monitor — first attempt` and auto-resolve, but if the **same Xid signature hits the same instance group three times in a week**, that pattern matters and the operator needs to know — the surface-level recovery doesn't mean the underlying problem is benign.
+
+The v4 skill noticed this incidentally on a single incident (it flagged the recurring Xid 74 on consecutive worker2 instances as a `hypothesis` finding because both instances were in the journal's lookback). This needs to be promoted from incidental to a first-class classification rule.
+
+## Solution ideas (ranked by leverage)
+
+These extend, not replace, the current EventBridge → bridge Lambda → webhook trigger path. Other trigger sources DevOps Agent supports that we could also use:
+
+| Trigger source | Why we'd use it |
+|---|---|
+| **EventBridge → webhook** (today) | Real-time HyperPod control-plane state changes |
+| **CloudWatch Logs subscription filter on the HMA stream → webhook** | Faster + more granular than the SageMaker EventBridge `Cluster Event` Warn — catches HMA detections that don't always surface as control-plane events, and lets us filter on specific Xid codes / ECC counts / LCS-script failures |
+| **CloudWatch metric alarm → SNS → webhook** | Threshold-crossing semantics for statistical patterns ("3 replacements on this IG in 7 days") |
+| **EventBridge Scheduler → webhook** | Time-based per-incident re-checks and recurring pattern audits |
+| **`devops-agent create-trigger` with `schedule`** | Agent-internal scheduled re-firing — same shape as EventBridge Scheduler but stays inside the platform. Worth trying first; fall back to external if it doesn't fit the per-incident pattern |
+
+Ranked by leverage:
+
+1. **(Goal 2, lightweight) Sliding-window rule inside the existing skill.** Phase 1 already paginates `list-cluster-events`. Extend the lookback to 7 days, count `Replace` actions per InstanceGroup and per Xid code, and add classification rules:
+   - "≥3 replacements with same Xid signature on same IG in 7 days, even with auto-recovery succeeding each time → `Monitor — recurring pattern, hardware investigation recommended`"
+   - "≥5 replacements across any node in 24 hours → `Escalate — fleet-wide instability`"
+
+   Zero new infrastructure. Just skill prose + a classification table extension. Catches Goal 2 for any incident the agent investigates.
+
+2. **(Goal 1) EventBridge Scheduler + DynamoDB for per-incident re-check.**
+   - When the skill emits a `Monitor` verdict, the bridge (or a helper Lambda the skill nudges) writes a row: `(incident_id, cluster, instance_id, first_seen, next_recheck_at, current_verdict)`.
+   - An EventBridge Scheduler rule fires a Lambda every 5 min. The Lambda finds rows where `now > next_recheck_at`, synthesizes a "re-check" event, and POSTs the webhook.
+   - The skill, on re-invocation with a re-check event, sees the same cluster + instance, re-classifies. If recovery completed → emit `Resolved` symptom (and the Lambda deletes the row). If still in flight past 90 min total elapsed → escalate.
+   - **Try DevOps Agent's `create-trigger` API first** (we saw it in the CLI help: `--type` + `--condition schedule={expression=...}` + `--action`). If it supports per-incident scheduled re-fire with custom payload, prefer that — fewer moving parts, stays inside the platform.
+   - This is the missing piece for the "silent-success closure" notification — without it, customers only ever get the initial "Monitor" email and never see a "resolved" confirmation.
+
+3. **(Stronger signal) CloudWatch Logs subscription filter on HMA stream as an additional trigger source.** Adds a faster + more granular trigger path that catches HMA detections SageMaker doesn't always surface as `Cluster Event` Warn. Worth doing once #1 and #2 are in.
+
+4. **(Goal 2, heavier) Independent scheduled pattern audit.** EventBridge Scheduler → Lambda → webhook fires every 12 hours with a "pattern audit" trigger event. Skill, given this trigger type, runs Phase 1 with a wider window (7-30 days) and produces a verdict of `Pattern audit: N replacements in window, top causes X`. Lands as a periodic digest. Catches patterns that span many different nodes — invisible from any single-incident view. Build only if #1 doesn't catch the patterns customers actually report.
+
+5. **Slack channel for live investigation updates** — paused on workspace 3P approval. The email notifier's EventBridge listener is the template; a Slack notifier drops into the same `aws.aidevops` event stream.
+
+6. **External diagnostic collector** (see [SSM access — the permission guardrail is a hard ceiling](#ssm-access--the-permission-guardrail-is-a-hard-ceiling) above). Would side-load on-node truth (DCGM, EFA fabric counters, kubelet journal) into CloudWatch Logs or S3 where the guardrail can read them. Build only if a future investigation hits a wall the proxy-signal path can't reach.
+
+7. **Per-failure-mode RCA skills** beyond `hyperpod-incident` — narrower skills (NCCL hang, slow storage, lifecycle-script failure) loaded only when the unified skill's classification matches. The current bet is that the unified skill plus the upstream cluster/node debuggers cover most cases; branch out only if specific failure modes prove to need deeper specialization.
 - **Slurm coverage validation end-to-end** — the skill is written to work for Slurm with Continuous Provisioning, but the empirical testing so far is EKS-only.

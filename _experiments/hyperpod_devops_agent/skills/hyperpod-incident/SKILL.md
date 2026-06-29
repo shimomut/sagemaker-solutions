@@ -54,10 +54,12 @@ signal — gather all of them before classifying.**
    `list-cluster-nodes` is a signal, not an error** — the node may have
    been removed mid-retry.
 3. **Cluster events chain**: `aws sagemaker list-cluster-events --cluster-name <name>`,
-   paginated to ≥200 entries or until events reach 24 hours back,
+   paginated to ≥500 entries or until events reach **7 days** back,
    whichever comes first. This is the **canonical record of replacement
    attempts including failed ones** and survives nodes disappearing
-   from the node list.
+   from the node list. The wider 7-day window also feeds the recurring-
+   pattern classification rules in Phase 3 — don't shorten the lookback
+   even when the trigger event is recent.
    - Available on EKS clusters and on Slurm clusters with **Continuous
      Provisioning** enabled. If the API returns
      `ValidationException`/equivalent on a Slurm cluster without CP,
@@ -103,22 +105,60 @@ This is the artifact the classification phase reasons over. Include it
 in the final report regardless of verdict — operators need it to
 double-check the agent's call.
 
+### Phase 2b — Compute recurrence statistics
+
+Over the 7-day `list-cluster-events` window from Phase 1, compute and
+record (used by Phase 3 rules 4–6):
+
+- `replacements_7d_total` — count of `Replace` actions / replacement-
+  started cluster events across the whole cluster in the last 7 days.
+- `replacements_7d_by_group[<ig>]` — same, partitioned by InstanceGroup.
+- `replacements_24h_total` — same metric, 24h window.
+- `xid_signature_count_7d[<xid_code>]` — count of distinct replacement
+  attempts whose HMA detection event referenced the same Xid code in
+  the last 7 days. The Xid code is extracted from the HMA detection
+  event's description (e.g. `"Xid 74"` in the line `NVRM: Xid (PCI:...) :
+  74, ...`). Include the affected InstanceGroup in the count
+  partitioning so "Xid 74 on worker2 ×3" is distinguishable from
+  "Xid 74 spread across worker2/worker3/worker4".
+
+Include these counts in the verdict description's "What HyperPod is
+doing right now" paragraph when they're ≥2 — even if the verdict
+itself doesn't change, the operator should see the count.
+
 ### Phase 3 — Classify
 
 Apply the rules below **in order**. Stop at the first match.
+
+The recurring-pattern rules (4–6) are checked **before** the
+single-incident rules (7–11) — a node that's auto-recovering for the
+3rd time this week should be flagged as a pattern, not silently
+classified as `Monitor — first attempt`.
 
 | # | Signal pattern | Verdict |
 |---|---|---|
 | 1 | Trigger detail-type is `Cluster Event` with `EventLevel=Info` and the timeline shows no node-health activity | **Suppress** |
 | 2 | Cluster status is `Failed` or `RollingBack` | **Escalate** (cluster-level) |
 | 3 | `NodeRecovery=None` on the cluster AND a node has been marked `Action:*` / `UnschedulablePending*` AND no replacement has started within 5 minutes | **Escalate** — auto-recovery is off; operator must trigger replacement |
-| 4 | Exactly one replacement attempt in flight, started within the last 30 minutes, no prior failure in the chain | **Monitor — first attempt** (next re-check in 30 min) |
-| 5 | Multiple replacement attempts in the chain, total elapsed since the first failure ≤ 90 minutes, the most recent attempt is *Running* or *Started* (not yet failed) | **Monitor — elevated** (retry in progress, watch closely) |
-| 6 | Multiple replacement attempts, total elapsed > 90 minutes, no successful `Running` transition, AND no new attempt started within the last 30 minutes | **Escalate** — retry chain is stuck |
-| 7 | Node was in `Failed` state AND no new replacement attempt has started within the last 30 minutes AND total time in failing chain > 60 minutes | **Escalate** — HyperPod has given up |
-| 8 | Instance id from the trigger event is missing from `list-cluster-nodes` AND `list-cluster-events` shows no new attempt for the last 30 minutes AND the most recent attempt failed | **Escalate** — instance vanished, no retry |
-| 9 | HMA detection event present but no corresponding `Action:*` / replacement event in the timeline within 10 minutes | **Escalate** — HMA fired without escalating; investigate why (mismatch in node-recovery config, signal didn't classify) |
-| 10 | None of the above match | **Monitor — uncategorized** (include the full timeline; flag for review) |
+| 4 | `xid_signature_count_7d[(<xid>, <ig>)] ≥ 3` — same Xid code has caused ≥3 replacements on the same InstanceGroup in the last 7 days (auto-recovery may be succeeding each time) | **Escalate — recurring hardware fault pattern**: HyperPod is repairing the symptom, but a hardware vendor / capacity investigation is warranted. Include the timestamps of all prior occurrences. |
+| 5 | `replacements_24h_total ≥ 5` — five or more replacements anywhere in the cluster within 24 hours | **Escalate — fleet-wide instability**: the rate of node churn is abnormal regardless of individual root causes. |
+| 6 | `replacements_7d_by_group[<ig>] ≥ 5` — five or more replacements on the same InstanceGroup in 7 days | **Escalate — instance-group instability**: the affected IG (which may be a specific SKU or topology placement) is failing more often than the rest of the cluster. |
+| 7 | Exactly one replacement attempt in flight, started within the last 30 minutes, no prior failure in the chain | **Monitor — first attempt** (next re-check in 30 min) |
+| 8 | Multiple replacement attempts in the chain, total elapsed since the first failure ≤ 90 minutes, the most recent attempt is *Running* or *Started* (not yet failed) | **Monitor — elevated** (retry in progress, watch closely) |
+| 9 | Multiple replacement attempts, total elapsed > 90 minutes, no successful `Running` transition, AND no new attempt started within the last 30 minutes | **Escalate** — retry chain is stuck |
+| 10 | Node was in `Failed` state AND no new replacement attempt has started within the last 30 minutes AND total time in failing chain > 60 minutes | **Escalate** — HyperPod has given up |
+| 11 | Instance id from the trigger event is missing from `list-cluster-nodes` AND `list-cluster-events` shows no new attempt for the last 30 minutes AND the most recent attempt failed | **Escalate** — instance vanished, no retry |
+| 12 | HMA detection event present but no corresponding `Action:*` / replacement event in the timeline within 10 minutes | **Escalate** — HMA fired without escalating; investigate why (mismatch in node-recovery config, signal didn't classify) |
+| 13 | None of the above match | **Monitor — uncategorized** (include the full timeline; flag for review) |
+
+**Recurring-pattern verdicts (4–6) are `Escalate` even when the
+individual incident is auto-recovering correctly.** The reasoning is
+in your operational goals: HyperPod's resiliency repairs the symptom,
+but a 3× hardware fault on the same IG is a vendor / capacity-pool
+problem that auto-recovery can't fix. The verdict explanation should
+explicitly say "this incident is auto-recovering, but the pattern
+across the last <N> days warrants human attention" so operators
+understand the verdict isn't about *this* incident's resolution.
 
 **Time budgets are not hardcoded constants — they encode the
 mental-model doc's "How long things take" section.** A single replace
