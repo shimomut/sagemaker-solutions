@@ -125,50 +125,93 @@ mental-model doc's "How long things take" section.** A single replace
 takes 20–30 min; two attempts plus a slack gap = ~90 min. Don't change
 these without updating the mental-model doc first.
 
-### Phase 4 — Report
+### Phase 4 — Report (using DevOps Agent's native schema)
 
-Every report — whether `Suppress`, `Monitor`, or `Escalate` — produces
-the same structure:
+DevOps Agent's investigation output is structured: the terminal tool
+is `write_final_investigation_report`, and the agent emits `symptom`
+and `finding` records along the way that get serialized into the
+final report. **Author the verdict and timeline into that schema
+directly — do NOT invent a separate four-section markdown format**
+(it would be at the agent's mercy during serialization and may not
+survive into the final report).
 
-```
-## Verdict
+The agent's schema supports these record types:
 
-<Suppress | Monitor (first attempt | elevated | uncategorized) | Escalate>
+| Record type | Used for |
+|---|---|
+| `symptom` | Observable state the operator would notice (a node went unhealthy, an investigation was triggered, the cluster is in `Failed` state). First-class; survives serialization with title + description verbatim. |
+| `finding` with `finding_type: "root_cause"` | An identified hardware/software root cause that cascades to one or more symptoms. |
+| `finding` with `finding_type: "cause"` | An intermediate cause linking root_cause to symptoms. |
+| `finding` with `finding_type: "hypothesis"` | An unverified explanation. |
+| `investigation_gaps[]` | What the agent could not verify and would need the operator to confirm. |
 
-## What HyperPod is doing right now
+**Emit exactly these records, in this order:**
 
-<one paragraph in plain English; reference the timeline>
+1. **First `symptom`** — titled `Triage verdict: <verdict-name>` where
+   `<verdict-name>` is one of `Suppress`, `Monitor — first attempt`,
+   `Monitor — elevated`, `Monitor — uncategorized`, `Escalate —
+   <reason>`. The description is the prose justification in the
+   shape:
 
-## Timeline
+   ```
+   Verdict: <name>
 
-<the timeline from Phase 2>
+   What HyperPod is doing right now:
+   <one paragraph plain English summary referencing the timeline>
 
-## Evidence sources consulted
+   Timeline (UTC):
+   <the timeline reconstructed in Phase 2, one event per line, source-tagged>
 
-<list each Phase 1 source with whether it returned data and any caveats
-(e.g. "list-cluster-events unavailable on this Slurm cluster — Continuous
-Provisioning not enabled; confidence degraded")>
+   Next re-check:
+   <only for Monitor verdicts: UTC timestamp 30 min from now if "first attempt",
+   15 min from now if "elevated">
+   ```
 
-## Confidence
+   `related_resources` on this symptom: `["HyperPod cluster <name>"]`
+   plus any affected instance IDs.
 
-<direct observation | proxy inference | unverifiable> for each material
-claim in the verdict explanation.
+2. **Additional `symptom` records** — one per observable failure
+   condition (e.g. "Instance i-xxxx marked unhealthy with
+   NvidiaGPUUnhealthy"). These are the per-resource symptoms the
+   agent would naturally produce; keep them as separate records so
+   they cross-link with `cascades_to` from the findings.
 
-## Recommended actions (operator runs these)
+3. **`finding` records** as appropriate (root cause, intermediate
+   cause, hypothesis). Cross-link via `cascades_to: [<symptom-id>]`.
 
-<empty if Suppress or Monitor; otherwise a numbered list of the
-specific operator commands that close the gap>
+4. **`investigation_gaps[]`** — anything Phase 1 couldn't reach.
+   Examples: `list-cluster-events` unavailable on a Slurm cluster
+   without Continuous Provisioning; HMA CloudWatch log group not
+   yet populated; no SSM access from the agent (always include this
+   one with a note that operator can confirm via the suggested SSM
+   command).
 
-## Next re-check
+5. **`write_final_investigation_report`** — listing the verdict
+   symptom FIRST in `symptoms[]`, then the per-resource symptoms.
+   Findings listed under their `finding_type` arrays (`root_cause[]`,
+   `cause[]`, `hypothesis[]`). `investigation_gaps[]` populated from
+   step 4.
 
-<only for Monitor verdicts: UTC timestamp when this should be revisited>
-```
+**For `Suppress` verdict:** still emit the verdict symptom (so the
+operator can audit what was suppressed and why), but skip per-resource
+symptoms and findings — there's nothing to root-cause.
 
-For `Monitor` verdicts, the report explicitly tells the human "no
-action needed; HyperPod is recovering; expect completion by HH:MM UTC.
-You will be notified again only if the situation changes." This is the
-key UX improvement — silence is bad; "we're watching and here's why
-we're not alarming you" is good.
+**For `Monitor` verdicts:** the verdict symptom's description tells
+the human "no action needed; HyperPod is recovering; expected
+completion by HH:MM UTC. You will be notified again only if the
+situation changes." This is the key UX improvement — silence is bad;
+"we're watching and here's why we're not alarming you" is good.
+
+**For `Escalate` verdicts:** include explicit operator-runnable
+remediation in the verdict symptom's description, under a
+`Recommended actions (operator runs these):` heading. The agent
+cannot execute these; the operator must.
+
+**Confidence annotations:** for every material claim in the verdict
+description, prefix with one of `[direct]` (observed via API/log),
+`[proxy]` (inferred from HMA classification or similar), or
+`[unverified]` (would need on-node SSM the agent can't run). This
+replaces the separate "Confidence" section.
 
 ## Inputs the skill expects from the trigger
 
