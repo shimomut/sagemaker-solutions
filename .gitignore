@@ -9,3 +9,5 @@ __pycache__
 
 *.sqsh
 *.log
+
+.claude/settings.local.json

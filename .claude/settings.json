@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(aws sagemaker list-*)",
+      "Bash(aws sagemaker describe-*)",
+      "Bash(aws sagemaker get-*)",
+      "Bash(aws sagemaker search:*)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:raw.githubusercontent.com)"
+    ],
+    "additionalDirectories": [
+      "/tmp"
+    ]
+  }
+}
