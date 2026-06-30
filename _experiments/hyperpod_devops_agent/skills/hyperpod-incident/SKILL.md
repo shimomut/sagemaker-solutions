@@ -125,38 +125,79 @@ This is the artifact the classification phase reasons over. Include it
 in the final report regardless of verdict — operators need it to
 double-check the agent's call.
 
-### Phase 2b — Compute recurrence statistics
+### Phase 2b — Categorize every fault event
 
-Over the 7-day `list-cluster-events` window from Phase 1, compute and
-record (used by Phase 3 rules 7–9):
+HyperPod faults are not just NVIDIA GPU Xid errors. Lifecycle script
+failures, capacity errors, EFA health-check failures, Neuron errors,
+and generic instance-provisioning failures are all valid drivers of
+HyperPod replacements and operator notifications. Categorize each
+fault event (Error/Warn cluster event or HMA detection within the
+4h window for signature-set computation, and within the 7d window
+for recurrence statistics) into one of these categories:
+
+| Category | Match condition | `<key>` extraction |
+|---|---|---|
+| `gpu-xid` | HMA detection or kernel log matching `NVRM: Xid (...): N` | Xid code `N` (e.g. `74`) |
+| `gpu-ecc-uce` | HMA detection citing ECC uncorrectable error / UCE | empty |
+| `gpu-row-remap` | DCGM `row_remap_pending` field crossed threshold | empty |
+| `neuron-mismatch` | HMA detection on Trainium/Inferentia node, device count mismatch via `neuron-ls` | detection subtype if present, else empty |
+| `efa-health-check` | Cluster event text contains `"EFA health checks did not run successfully"` | empty |
+| `lifecycle-script-failed` | Cluster event text matches `Instance lifecycle script execution for ... has Failed` | exit code if present in event metadata, else empty |
+| `capacity-insufficient` | Cluster event text contains `"insufficient capacity"` or `"We currently do not have sufficient capacity"` | instance type if extractable, else empty |
+| `instance-creation-failed` | Cluster event text matches `"Failed to provision EC2 Instance"` AND none of the more specific categories above matched | `"generic"` |
+| `cluster-failed` | `describe-cluster` returns `ClusterStatus: Failed` | the ClusterStatus value |
+| `cluster-rollingback` | `describe-cluster` returns `ClusterStatus: RollingBack` | empty |
+| `node-notready-eks` | EKS API / kubectl shows the node `NotReady` for >5 min with no concurrent HMA detection or cluster event explaining it | EKS NodeCondition reason if present, else empty |
+| **`unclassified`** (fallback) | Error/Warn cluster event or HMA detection that did not match any rule above | first 50 characters of the event description, lowercased + non-alphanumerics replaced with `-`, then truncated to 30 chars |
+
+**The `unclassified` bucket is the safety net.** Every fault event
+must end up with some `(category, key, ig)` signature so the
+signature-set comparison and platform verdict-title dedup work
+deterministically. If new categories appear in field usage, extend
+the table above before rerunning. The skill MUST emit an
+`investigation_gap` record when it produces any `unclassified`
+signatures, naming the offending event description text — so the
+operator can request a skill update.
+
+### Phase 2c — Compute recurrence statistics
+
+Over the 7-day `list-cluster-events` window from Phase 1 (and HMA
+CloudWatch stream over the same window), compute and record (used by
+Phase 3 rules 7–9):
 
 - `replacements_7d_total` — count of `Replace` actions / replacement-
   started cluster events across the whole cluster in the last 7 days.
 - `replacements_7d_by_group[<ig>]` — same, partitioned by InstanceGroup.
 - `replacements_24h_total` — same metric, 24h window.
-- `xid_signature_count_7d[<xid_code>]` — count of distinct replacement
-  attempts whose HMA detection event referenced the same Xid code in
-  the last 7 days. The Xid code is extracted from the HMA detection
-  event's description (e.g. `"Xid 74"` in the line `NVRM: Xid (PCI:...) :
-  74, ...`). Include the affected InstanceGroup in the count
-  partitioning so "Xid 74 on worker2 ×3" is distinguishable from
-  "Xid 74 spread across worker2/worker3/worker4".
+- `signature_count_7d[(<category>, <key>, <ig>)]` — count of distinct
+  fault events with the same `(category, key, ig)` tuple in the last
+  7 days. Use the categorization from Phase 2b. **Exclude
+  `category="unclassified"` from this map** — recurring-pattern
+  rules (Phase 3 rule 7) should only fire on signatures we
+  understand.
 
 Include these counts in the verdict description's "What HyperPod is
 doing right now" paragraph when they're ≥2 — even if the verdict
 itself doesn't change, the operator should see the count.
 
-### Phase 2c — Compute the signature set and read the prior audit
+### Phase 2d — Compute the signature set and read the prior audit
 
 The signature set drives both verdict-title generation (which the
 platform's 30-min dedup uses) and the rule-3 staleness check (which
 prevents long-window re-Escalate spam). Compute:
 
 - `current_signature_set` — sorted, deduplicated set of strings of
-  the form `"<ig>:<xid_signature>"` for every distinct fault event
-  in the 4-hour window. Example: `{"worker2:Xid74", "worker3:Xid79"}`.
-  Render in the verdict title as `(worker2:Xid74, worker3:Xid79)`
-  — comma-separated, sorted lexically, no spaces around the colon.
+  the form `"<ig>:<category>:<key>"` for every distinct fault event
+  in the 4-hour window, using the categorization from Phase 2b.
+  Examples:
+  - `{"worker2:gpu-xid:74", "worker3:gpu-xid:79"}` (two different Xids on two IGs)
+  - `{"worker2:gpu-xid:74", "worker2:lifecycle-script-failed:"}` (GPU fault + LCS failure on the same IG)
+  - `{":cluster-failed:Failed"}` (cluster-level fault — IG slot empty)
+
+  Render in the verdict title as
+  `(worker2:gpu-xid:74, worker3:gpu-xid:79)` — comma-separated,
+  sorted lexically, no spaces around the colons. Empty `<ig>` is
+  rendered as nothing (`(:cluster-failed:Failed)` → `(cluster-failed:Failed)`).
 - `current_most_recent_event_at` — the latest `EventTime` of any
   Error/Warn cluster event or HMA detection within the window.
 
@@ -206,7 +247,7 @@ classified as `Monitor — first attempt`.
 | 4 | Trigger detail-type is `Cluster Event` with `EventLevel=Info` and the timeline shows no node-health activity | **Suppress** |
 | 5 | Cluster status is `Failed` or `RollingBack` | **Escalate** (cluster-level) |
 | 6 | `NodeRecovery=None` on the cluster AND a node has been marked `Action:*` / `UnschedulablePending*` AND no replacement has started within 5 minutes | **Escalate** — auto-recovery is off; operator must trigger replacement |
-| 7 | `xid_signature_count_7d[(<xid>, <ig>)] ≥ 3` — same Xid code has caused ≥3 replacements on the same InstanceGroup in the last 7 days (auto-recovery may be succeeding each time) | **Escalate — recurring hardware fault pattern**: HyperPod is repairing the symptom, but a hardware vendor / capacity investigation is warranted. Include the timestamps of all prior occurrences. |
+| 7 | `signature_count_7d[(<category>, <key>, <ig>)] ≥ 3` for ANY signature whose `category != "unclassified"` — same categorized fault has driven ≥3 replacements on the same InstanceGroup in the last 7 days (auto-recovery may be succeeding each time). Covers all fault types in Phase 2b's category table — GPU Xid, lifecycle-script failures, capacity exhaustion, EFA health-check failures, etc. | **Escalate — recurring `<category>` pattern**: HyperPod is repairing the symptom, but the underlying cause hasn't gone away. Verdict name includes the category — e.g. `Escalate — recurring gpu-xid pattern`, `Escalate — recurring lifecycle-script-failed pattern`. Include the timestamps of all prior occurrences and the discriminating operator actions appropriate for that category (vendor-exclusion request for hardware; LCS bug for lifecycle; capacity replacement / pool change for capacity). |
 | 8 | `replacements_24h_total ≥ 5` — five or more replacements anywhere in the cluster within 24 hours | **Escalate — fleet-wide instability**: the rate of node churn is abnormal regardless of individual root causes. |
 | 9 | `replacements_7d_by_group[<ig>] ≥ 5` — five or more replacements on the same InstanceGroup in 7 days | **Escalate — instance-group instability**: the affected IG (which may be a specific SKU or topology placement) is failing more often than the rest of the cluster. |
 | 10 | Exactly one replacement attempt in flight, started within the last 30 minutes, no prior failure in the chain | **Monitor — first attempt** (next re-check in 30 min via scheduled audit) |
@@ -241,9 +282,11 @@ The rule has two protection layers:
 
 1. **Signature-set comparison** (precise): Suppress only when
    `current_signature_set == prior_signature_set`. A new
-   `(InstanceGroup, Xid-signature)` pair — a new Xid type on the
-   same IG, the same Xid spreading to a new IG, or both — produces
-   a different set, **breaks the suppression**, and re-Escalates
+   `(category, key, IG)` signature — a new category (e.g.
+   `lifecycle-script-failed` arriving while `gpu-xid:74` is stale),
+   a new key within an existing category (a different Xid number), a
+   signature spreading to a new IG, or any combination — produces a
+   different set, **breaks the suppression**, and re-Escalates
    regardless of the time window. This is the answer to "what if a
    new type of issue arrives during the 4h window?" — it's not
    suppressed.
@@ -252,8 +295,7 @@ The rule has two protection layers:
    `current_most_recent_event_at == prior_most_recent_event_at` (no
    newer fault event since the previous audit). Even if the
    signature set is unchanged but a fresh event of the same
-   `(IG, signature)` pair has arrived, the operator gets the
-   updated verdict.
+   signature has arrived, the operator gets the updated verdict.
 
 Combined with the platform's 30-minute title-based dedup (which
 sees the signature set in the verdict title), the staleness logic
@@ -262,8 +304,10 @@ covers both short-window noise and long-window stale-replay noise.
 **Recurring-pattern verdicts (7–9) are `Escalate` even when the
 individual incident is auto-recovering correctly.** The reasoning is
 in your operational goals: HyperPod's resiliency repairs the symptom,
-but a 3× hardware fault on the same IG is a vendor / capacity-pool
-problem that auto-recovery can't fix. The verdict explanation should
+but a 3× recurrence of a categorized fault on the same IG is an
+underlying cause (vendor / capacity pool for `gpu-xid`, code bug for
+`lifecycle-script-failed`, pool exhaustion for `capacity-insufficient`,
+etc.) that auto-recovery can't fix. The verdict explanation should
 explicitly say "this incident is auto-recovering, but the pattern
 across the last <N> days warrants human attention" so operators
 understand the verdict isn't about *this* incident's resolution.
@@ -305,10 +349,13 @@ The agent's schema supports these record types:
    sorted-and-deduplicated string representation of the
    `(InstanceGroup, Xid-signature)` pairs that drove the verdict,
    formatted as `(ig1:xid_a, ig1:xid_b, ig2:xid_a, ...)`. Examples:
-   - `Triage verdict: Escalate — recurring hardware fault pattern :: (worker2:Xid74)`
-   - `Triage verdict: Escalate — fleet-wide instability :: (worker2:Xid74, worker3:Xid79)`
-   - `Triage verdict: Monitor — first attempt :: (worker2:Xid74)`
-   - `Triage verdict: Suppress — periodic audit, evidence is stale :: (worker2:Xid74)`
+   - `Triage verdict: Escalate — recurring gpu-xid pattern :: (worker2:gpu-xid:74)`
+   - `Triage verdict: Escalate — fleet-wide instability :: (worker2:gpu-xid:74, worker3:gpu-xid:79)`
+   - `Triage verdict: Escalate — recurring lifecycle-script-failed pattern :: (worker3:lifecycle-script-failed:)`
+   - `Triage verdict: Escalate — recurring capacity-insufficient pattern :: (worker2:capacity-insufficient:ml.g6.4xlarge)`
+   - `Triage verdict: Monitor — first attempt :: (worker2:gpu-xid:74)`
+   - `Triage verdict: Suppress — periodic audit, evidence is stale :: (worker2:gpu-xid:74)`
+   - Mixed-category set: `Triage verdict: Escalate — fleet-wide instability :: (worker2:gpu-xid:74, worker2:lifecycle-script-failed:, worker3:efa-health-check:)`
    - `Triage verdict: Suppress — periodic audit, no open incidents` (no suffix when there's no signature set)
 
    **Purpose**: the DevOps Agent platform's automatic task-dedup uses
@@ -353,6 +400,15 @@ The agent's schema supports these record types:
    yet populated; no SSM access from the agent (always include this
    one with a note that operator can confirm via the suggested SSM
    command).
+
+   **Always emit an `investigation_gap` when Phase 2b produces
+   `category="unclassified"` signatures.** The gap's title should
+   be `Unclassified fault signatures observed — skill category
+   table needs extension`, and the description should list each
+   unclassified event with its full description and timestamp.
+   This is how the skill self-reports gaps in its own
+   categorization rules and asks the operator to extend the table
+   in Phase 2b.
 
 5. **`write_final_investigation_report`** — listing the verdict
    symptom FIRST in `symptoms[]`, then the per-resource symptoms.
