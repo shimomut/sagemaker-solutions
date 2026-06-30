@@ -29,6 +29,7 @@ SCRIPTS_DIR := scripts
         webhook-secret deploy-bridge delete-bridge bridge-logs bridge-test \
         bridge-debug-on bridge-debug-off bridge-env \
         upload-skill list-skills delete-skill import-upstream-skills \
+        deploy-periodic-audit delete-periodic-audit audit-logs audit-test \
         deploy-email-notifier delete-email-notifier email-notifier-logs \
         teardown status clean
 
@@ -48,6 +49,15 @@ help:
 	@echo "                      (imperative — CFN doesn't yet expose the webhook URL/HMAC)"
 	@echo "  eks-access        - Grant the monitoring role read-only access to the EKS cluster"
 	@echo "  setup             - foundation -> provision-webhook -> eks-access"
+	@echo
+	@echo "Periodic audit (Goal 1: monitor open incidents + Resolved closure):"
+	@echo "  deploy-periodic-audit - Deploy CFN stack: EB Scheduler + Lambda that fires the"
+	@echo "                          hyperpod-incident skill in audit mode every 15 min."
+	@echo "                          (DevOps Agent's native scheduled triggers don't support"
+	@echo "                          full investigation tasks — see Goal 1 in the README.)"
+	@echo "  delete-periodic-audit - Delete the periodic-audit stack"
+	@echo "  audit-logs            - Tail the audit Lambda's CloudWatch Logs"
+	@echo "  audit-test            - Manually invoke the audit Lambda once"
 	@echo
 	@echo "Webhook bridge (after generating webhook URL+secret in the console):"
 	@echo "  webhook-secret  - Store webhook URL+secret in Secrets Manager"
@@ -183,6 +193,37 @@ delete-skill:
 
 import-upstream-skills:
 	bash $(SCRIPTS_DIR)/09_import_upstream_skills.sh
+
+# ------------------------------------------------------------ periodic audit (EB Scheduler -> Lambda -> webhook)
+
+deploy-periodic-audit:
+	bash $(SCRIPTS_DIR)/12_deploy_periodic_audit.sh
+
+delete-periodic-audit:
+	bash $(SCRIPTS_DIR)/13_delete_periodic_audit.sh
+
+audit-logs:
+	@bash -c 'source $(SCRIPTS_DIR)/config.sh && \
+		FUNC=$$(aws cloudformation describe-stacks --region $$REGION \
+			--stack-name hyperpod-devops-agent-periodic-audit \
+			--query "Stacks[0].Outputs[?OutputKey=='\''LambdaFunctionName'\''].OutputValue | [0]" \
+			--output text); \
+		if [ -z "$$FUNC" ] || [ "$$FUNC" = "None" ]; then \
+			echo "Periodic-audit stack not deployed."; exit 1; \
+		fi; \
+		aws logs tail /aws/lambda/$$FUNC --region $$REGION --follow --since 1h'
+
+audit-test:
+	@bash -c 'source $(SCRIPTS_DIR)/config.sh && \
+		FUNC=$$(aws cloudformation describe-stacks --region $$REGION \
+			--stack-name hyperpod-devops-agent-periodic-audit \
+			--query "Stacks[0].Outputs[?OutputKey=='\''LambdaFunctionName'\''].OutputValue | [0]" \
+			--output text); \
+		if [ -z "$$FUNC" ] || [ "$$FUNC" = "None" ]; then \
+			echo "Periodic-audit stack not deployed."; exit 1; \
+		fi; \
+		echo "Manually invoking audit Lambda $$FUNC..."; \
+		aws lambda invoke --region $$REGION --function-name $$FUNC --payload "{}" /tmp/audit-test-output.json --cli-binary-format raw-in-base64-out >/dev/null && cat /tmp/audit-test-output.json && echo'
 
 # ------------------------------------------------------------ email notifier
 

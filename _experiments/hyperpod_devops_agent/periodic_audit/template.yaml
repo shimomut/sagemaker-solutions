@@ -1,0 +1,106 @@
+AWSTemplateFormatVersion: '2010-09-09'
+
+Description: "Periodic-audit Lambda + EventBridge Scheduler for hyperpod-incident skill audit mode."
+
+Parameters:
+
+  WebhookSecretArn:
+    Type: String
+    Description: "ARN of the Secrets Manager secret holding {\"url\":\"...\",\"secret\":\"...\"} (shared with the webhook bridge)."
+
+  ClusterName:
+    Type: String
+    Description: "HyperPod cluster name. Included in the synthetic audit payload metadata."
+
+  Schedule:
+    Type: String
+    Default: "rate(15 minutes)"
+    Description: "EventBridge Scheduler expression. Default fires the audit every 15 minutes."
+
+Resources:
+
+  PeriodicAuditLambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: PeriodicAuditLambdaExecutionPolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - secretsmanager:GetSecretValue
+                Resource:
+                  - !Ref WebhookSecretArn
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource:
+                  - "arn:aws:logs:*:*:log-group:/aws/lambda/*"
+                  - "arn:aws:logs:*:*:log-group:/aws/lambda/*:log-stream:*"
+
+  PeriodicAuditFunction:
+    DependsOn: PeriodicAuditLambdaExecutionRole
+    Type: AWS::Lambda::Function
+    Properties:
+      Role: !GetAtt PeriodicAuditLambdaExecutionRole.Arn
+      Runtime: python3.13
+      Handler: index.lambda_handler
+      Timeout: 30
+      Environment:
+        Variables:
+          WEBHOOK_SECRET_ARN: !Ref WebhookSecretArn
+          CLUSTER_NAME: !Ref ClusterName
+          AWS_ACCOUNT_ID: !Sub "${AWS::AccountId}"
+      Code:
+        ZipFile: |
+          # LAMBDA_CODE_PLACEHOLDER
+
+  SchedulerRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: scheduler.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: SchedulerInvokeLambda
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: lambda:InvokeFunction
+                Resource: !GetAtt PeriodicAuditFunction.Arn
+
+  PeriodicAuditSchedule:
+    Type: AWS::Scheduler::Schedule
+    Properties:
+      ScheduleExpression: !Ref Schedule
+      FlexibleTimeWindow:
+        Mode: 'OFF'
+      State: ENABLED
+      Description: "Periodic invocation of the hyperpod-incident skill in audit mode."
+      Target:
+        Arn: !GetAtt PeriodicAuditFunction.Arn
+        RoleArn: !GetAtt SchedulerRole.Arn
+
+Outputs:
+
+  LambdaFunctionName:
+    Value: !Ref PeriodicAuditFunction
+    Description: "Name of the periodic-audit Lambda function."
+
+  ScheduleName:
+    Value: !Ref PeriodicAuditSchedule
+    Description: "Name of the EventBridge Scheduler schedule."

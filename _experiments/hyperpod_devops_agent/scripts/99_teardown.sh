@@ -47,6 +47,10 @@ else
 fi
 echo
 
+echo "==> Step 0c/4: Delete periodic-audit stack (if present)"
+bash "${HERE}/13_delete_periodic_audit.sh" || true
+echo
+
 echo "==> Step 1/4: Remove EKS access entry"
 if [[ -z "${EKS_CLUSTER_NAME:-}" ]]; then
     echo "    no EKS cluster associated; nothing to remove"

@@ -39,11 +39,31 @@ incorrectly on every event.
 
 ## Workflow
 
+## Trigger modes
+
+The skill is loaded from two trigger sources, and Phase 1 / Phase 3
+behavior differs slightly between them:
+
+| Mode | Trigger | Scope |
+|---|---|---|
+| **Incident mode** | Webhook fire from the bridge Lambda (an EventBridge HyperPod event passed the noise filter). The investigation context carries `clusterName` and usually an `instanceId`. | Focused on the specific incident referenced in the trigger. |
+| **Audit mode** | Scheduled `TIME_BASED` trigger (rate(15 minutes)) creating a task against this skill with no per-incident context. | Scan the cluster(s) configured for this Agent Space for any in-flight or recently-resolved fault chains, and re-classify each one. Catches: (1) `Monitor` incidents that have now succeeded (emit `Resolved`), (2) `Monitor` incidents stuck past their re-check budget (escalate), (3) recurring patterns that didn't trigger an EventBridge event recently but persist statistically. |
+
+In both modes the same Phase 1 / Phase 2 / Phase 3 / Phase 4 logic
+applies. The differences are noted inline below.
+
 ### Phase 1 — Gather (run in parallel)
 
 For the incident referenced in the trigger event (cluster name + optional
 instance id), collect these in parallel. **Do not stop on a single
 signal — gather all of them before classifying.**
+
+**Audit mode**: the trigger payload won't carry a cluster name or
+instance id. Use the cluster(s) reachable from this Agent Space's AWS
+account association (typically just one HyperPod cluster — discover
+it via `sagemaker list-clusters`). For each cluster, run the full
+Phase 1 gather. Then in Phase 3, classify per open fault chain found
+in the cluster-events window, not per single trigger.
 
 1. **Cluster state**: `aws sagemaker describe-cluster --cluster-name <name>`
    — current `ClusterStatus`, `NodeRecovery`, `Orchestrator` (Eks vs.
@@ -130,26 +150,47 @@ itself doesn't change, the operator should see the count.
 
 Apply the rules below **in order**. Stop at the first match.
 
+**Audit mode**: classify each open fault chain found in the
+cluster-events window independently. Emit one verdict per chain
+(plus one `Suppress — periodic audit, no open incidents` if no
+chains are open). A fault chain is "open" if it had a fault event
+within the last 4 hours and has not yet emitted a successful
+`Running` transition + 30 min clean-window.
+
 The recurring-pattern rules (4–6) are checked **before** the
-single-incident rules (7–11) — a node that's auto-recovering for the
+single-incident rules (8–12) — a node that's auto-recovering for the
 3rd time this week should be flagged as a pattern, not silently
 classified as `Monitor — first attempt`.
 
 | # | Signal pattern | Verdict |
 |---|---|---|
-| 1 | Trigger detail-type is `Cluster Event` with `EventLevel=Info` and the timeline shows no node-health activity | **Suppress** |
-| 2 | Cluster status is `Failed` or `RollingBack` | **Escalate** (cluster-level) |
-| 3 | `NodeRecovery=None` on the cluster AND a node has been marked `Action:*` / `UnschedulablePending*` AND no replacement has started within 5 minutes | **Escalate** — auto-recovery is off; operator must trigger replacement |
-| 4 | `xid_signature_count_7d[(<xid>, <ig>)] ≥ 3` — same Xid code has caused ≥3 replacements on the same InstanceGroup in the last 7 days (auto-recovery may be succeeding each time) | **Escalate — recurring hardware fault pattern**: HyperPod is repairing the symptom, but a hardware vendor / capacity investigation is warranted. Include the timestamps of all prior occurrences. |
-| 5 | `replacements_24h_total ≥ 5` — five or more replacements anywhere in the cluster within 24 hours | **Escalate — fleet-wide instability**: the rate of node churn is abnormal regardless of individual root causes. |
-| 6 | `replacements_7d_by_group[<ig>] ≥ 5` — five or more replacements on the same InstanceGroup in 7 days | **Escalate — instance-group instability**: the affected IG (which may be a specific SKU or topology placement) is failing more often than the rest of the cluster. |
-| 7 | Exactly one replacement attempt in flight, started within the last 30 minutes, no prior failure in the chain | **Monitor — first attempt** (next re-check in 30 min) |
-| 8 | Multiple replacement attempts in the chain, total elapsed since the first failure ≤ 90 minutes, the most recent attempt is *Running* or *Started* (not yet failed) | **Monitor — elevated** (retry in progress, watch closely) |
-| 9 | Multiple replacement attempts, total elapsed > 90 minutes, no successful `Running` transition, AND no new attempt started within the last 30 minutes | **Escalate** — retry chain is stuck |
-| 10 | Node was in `Failed` state AND no new replacement attempt has started within the last 30 minutes AND total time in failing chain > 60 minutes | **Escalate** — HyperPod has given up |
-| 11 | Instance id from the trigger event is missing from `list-cluster-nodes` AND `list-cluster-events` shows no new attempt for the last 30 minutes AND the most recent attempt failed | **Escalate** — instance vanished, no retry |
-| 12 | HMA detection event present but no corresponding `Action:*` / replacement event in the timeline within 10 minutes | **Escalate** — HMA fired without escalating; investigate why (mismatch in node-recovery config, signal didn't classify) |
-| 13 | None of the above match | **Monitor — uncategorized** (include the full timeline; flag for review) |
+| 1 | **Audit mode** AND no fault events in the 4-hour window AND no `Monitor` fault chain still open | **Suppress — periodic audit, no open incidents** (skip Phase 4 entirely or emit a minimal record; nothing actionable) |
+| 2 | A previously-`Monitor` fault chain now shows the affected instance(s) back in `Running` AND no new HMA detection for that instance in the last 30 min AND cluster status is `InService` | **Resolved — auto-recovery succeeded** (operator gets a closure email; include the original detection time and total elapsed) |
+| 3 | Trigger detail-type is `Cluster Event` with `EventLevel=Info` and the timeline shows no node-health activity | **Suppress** |
+| 4 | Cluster status is `Failed` or `RollingBack` | **Escalate** (cluster-level) |
+| 5 | `NodeRecovery=None` on the cluster AND a node has been marked `Action:*` / `UnschedulablePending*` AND no replacement has started within 5 minutes | **Escalate** — auto-recovery is off; operator must trigger replacement |
+| 6 | `xid_signature_count_7d[(<xid>, <ig>)] ≥ 3` — same Xid code has caused ≥3 replacements on the same InstanceGroup in the last 7 days (auto-recovery may be succeeding each time) | **Escalate — recurring hardware fault pattern**: HyperPod is repairing the symptom, but a hardware vendor / capacity investigation is warranted. Include the timestamps of all prior occurrences. |
+| 7 | `replacements_24h_total ≥ 5` — five or more replacements anywhere in the cluster within 24 hours | **Escalate — fleet-wide instability**: the rate of node churn is abnormal regardless of individual root causes. |
+| 8 | `replacements_7d_by_group[<ig>] ≥ 5` — five or more replacements on the same InstanceGroup in 7 days | **Escalate — instance-group instability**: the affected IG (which may be a specific SKU or topology placement) is failing more often than the rest of the cluster. |
+| 9 | Exactly one replacement attempt in flight, started within the last 30 minutes, no prior failure in the chain | **Monitor — first attempt** (next re-check in 30 min via scheduled audit) |
+| 10 | Multiple replacement attempts in the chain, total elapsed since the first failure ≤ 90 minutes, the most recent attempt is *Running* or *Started* (not yet failed) | **Monitor — elevated** (retry in progress, watch closely) |
+| 11 | Multiple replacement attempts, total elapsed > 90 minutes, no successful `Running` transition, AND no new attempt started within the last 30 minutes | **Escalate** — retry chain is stuck |
+| 12 | Node was in `Failed` state AND no new replacement attempt has started within the last 30 minutes AND total time in failing chain > 60 minutes | **Escalate** — HyperPod has given up |
+| 13 | Instance id from the trigger event is missing from `list-cluster-nodes` AND `list-cluster-events` shows no new attempt for the last 30 minutes AND the most recent attempt failed | **Escalate** — instance vanished, no retry |
+| 14 | HMA detection event present but no corresponding `Action:*` / replacement event in the timeline within 10 minutes | **Escalate** — HMA fired without escalating; investigate why (mismatch in node-recovery config, signal didn't classify) |
+| 15 | None of the above match | **Monitor — uncategorized** (include the full timeline; flag for review) |
+
+**Rule 2 (`Resolved`) closes the loop on prior `Monitor` verdicts.**
+A previous `Monitor` verdict promised a re-check; this rule provides
+that re-check via the scheduled audit. The verdict description
+should explicitly say "Incident detected at <T0> is now resolved.
+Total auto-recovery time: <duration>. No operator action required."
+This is the closure email the operator needs.
+
+**Rule 1 (`Suppress — periodic audit`) is the no-op case.** When the
+scheduled audit fires on a healthy cluster, emit a single minimal
+record acknowledging the audit ran. The email notifier filters
+`Suppress` verdicts so no email is sent.
 
 **Recurring-pattern verdicts (4–6) are `Escalate` even when the
 individual incident is auto-recovering correctly.** The reasoning is

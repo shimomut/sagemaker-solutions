@@ -2,9 +2,14 @@
 send via SES.
 
 Triggered by an EventBridge rule on `source: aws.aidevops`. The Lambda reads
-the investigation event, extracts the title, priority, verdict, and any
-agent-produced summary, then sends a single email per investigation lifecycle
-transition (created / updated / closed) to the configured SES recipients.
+the investigation event, fetches the verdict symptom + per-resource symptoms
+from the agent's journal, and sends a single email per investigation lifecycle
+transition to the configured SES recipients.
+
+Verdicts whose title starts with "Triage verdict: Suppress" are skipped to
+avoid email noise from the periodic audit firing on a healthy cluster (the
+scheduled trigger fires every 15 min and produces a Suppress verdict when
+nothing is happening).
 
 Configuration via env vars:
   EMAIL_SENDER          - SES-verified From address. Required.
@@ -15,6 +20,8 @@ Configuration via env vars:
                           Closed" — limit to the ones you want to be paged on.
   CONSOLE_URL_TEMPLATE  - Optional template that resolves an investigation URL
                           from the event id. Defaults to the Agent Space console.
+  SKIP_VERDICT_PREFIXES - Comma-separated verdict-title prefixes to skip
+                          (default: "Suppress").
 """
 import datetime
 import json
@@ -24,6 +31,7 @@ import boto3
 
 
 _ses_client = None
+_devops_client = None
 
 
 def _ses():
@@ -31,6 +39,56 @@ def _ses():
     if _ses_client is None:
         _ses_client = boto3.client("ses")
     return _ses_client
+
+
+def _devops():
+    global _devops_client
+    if _devops_client is None:
+        _devops_client = boto3.client("devops-agent")
+    return _devops_client
+
+
+def _skip_verdict_prefixes() -> list[str]:
+    raw = os.environ.get("SKIP_VERDICT_PREFIXES", "Suppress")
+    return [tok.strip() for tok in raw.split(",") if tok.strip()]
+
+
+def _fetch_verdict_and_summary(event: dict) -> tuple[str | None, str | None]:
+    """Return (verdict_title, full_description) from the investigation's
+    verdict symptom, or (None, None) if it can't be located.
+
+    The verdict symptom is identified by a title that starts with
+    "Triage verdict:" — the hyperpod-incident skill always emits one as
+    the first symptom.
+    """
+    detail = event.get("detail", {})
+    agent_space_id = detail.get("agentSpaceId") or detail.get("agentspaceId")
+    task_id = detail.get("taskId") or detail.get("backlogTaskId")
+    if not agent_space_id or not task_id:
+        return None, None
+
+    try:
+        task = _devops().get_backlog_task(agentSpaceId=agent_space_id, taskId=task_id)["task"]
+        execution_id = task.get("executionId")
+        if not execution_id:
+            return None, None
+
+        # Paginate journal records — verdict symptom is one record among many.
+        paginator = _devops().get_paginator("list_journal_records")
+        for page in paginator.paginate(agentSpaceId=agent_space_id, executionId=execution_id):
+            for record in page.get("records", []):
+                if record.get("recordType") != "symptom":
+                    continue
+                try:
+                    s = json.loads(record.get("content", "{}"))
+                except (ValueError, TypeError):
+                    continue
+                title = s.get("title", "")
+                if title.startswith("Triage verdict"):
+                    return title, s.get("description", "")
+    except Exception as e:
+        print(f"verdict lookup failed: {e!r}")
+    return None, None
 
 
 def _recipients() -> list[str]:
@@ -60,15 +118,7 @@ def _priority_emoji(priority: str) -> str:
     return {"HIGH": "[H]", "MEDIUM": "[M]", "LOW": "[L]"}.get(priority.upper(), "[?]")
 
 
-def _format_subject(event: dict) -> str:
-    detail = event.get("detail", {})
-    priority = detail.get("priority", "")
-    title = detail.get("title", "(no title)")
-    action = event.get("detail-type", "").replace("Investigation ", "")
-    return f"{_priority_emoji(priority)} HyperPod investigation {action.lower()}: {title}"
-
-
-def _format_body_text(event: dict) -> str:
+def _format_body_text(event: dict, verdict_title: str | None, verdict_description: str | None) -> str:
     detail = event.get("detail", {})
     lines = [
         f"DevOps Agent investigation update",
@@ -86,32 +136,35 @@ def _format_body_text(event: dict) -> str:
     if url:
         lines.append(f"Console URL:   {url}")
     lines.append("")
+    if verdict_title:
+        lines.append("Verdict")
+        lines.append("-------")
+        lines.append(verdict_title)
+        lines.append("")
+    if verdict_description:
+        lines.append("Details")
+        lines.append("-------")
+        lines.append(verdict_description)
+        lines.append("")
     description = detail.get("description") or detail.get("summary") or ""
-    if description:
+    if description and not verdict_description:
         lines.append("Description / summary")
         lines.append("---------------------")
         lines.append(description)
         lines.append("")
-    verdict = detail.get("verdict") or detail.get("triageVerdict")
-    if verdict:
-        lines.append("Verdict")
-        lines.append("-------")
-        lines.append(str(verdict))
-        lines.append("")
-    recommendations = detail.get("recommendations") or detail.get("recommendedActions")
-    if recommendations:
-        lines.append("Recommended actions (operator runs these)")
-        lines.append("-----------------------------------------")
-        if isinstance(recommendations, list):
-            for i, rec in enumerate(recommendations, 1):
-                lines.append(f"  {i}. {rec}")
-        else:
-            lines.append(str(recommendations))
-        lines.append("")
-    lines.append("")
-    lines.append("Raw event (for debugging):")
-    lines.append(json.dumps(event, default=str, indent=2))
     return "\n".join(lines)
+
+
+def _format_subject(event: dict, verdict_title: str | None) -> str:
+    detail = event.get("detail", {})
+    priority = detail.get("priority", "")
+    if verdict_title:
+        # Replace generic "HyperPod cluster event: k8-1 / Instance" with the
+        # verdict title for a much more actionable subject line.
+        return f"{_priority_emoji(priority)} {verdict_title}"
+    title = detail.get("title", "(no title)")
+    action = event.get("detail-type", "").replace("Investigation ", "")
+    return f"{_priority_emoji(priority)} HyperPod investigation {action.lower()}: {title}"
 
 
 def lambda_handler(event, context):
@@ -123,6 +176,15 @@ def lambda_handler(event, context):
         print(f"skipping: detail-type {detail_type!r} not in allowlist {sorted(allowed)}")
         return {"statusCode": 200, "body": json.dumps({"skipped": True, "reason": "detail-type-not-in-allowlist"})}
 
+    # Pull the verdict symptom out of the agent's journal. Filter on prefix.
+    verdict_title, verdict_description = _fetch_verdict_and_summary(event)
+    if verdict_title:
+        bare = verdict_title.replace("Triage verdict:", "").strip()
+        for prefix in _skip_verdict_prefixes():
+            if bare.startswith(prefix):
+                print(f"skipping: verdict {bare!r} starts with skip-prefix {prefix!r}")
+                return {"statusCode": 200, "body": json.dumps({"skipped": True, "reason": f"verdict-prefix-{prefix}"})}
+
     recipients = _recipients()
     if not recipients:
         raise RuntimeError("EMAIL_RECIPIENTS is empty — refusing to send")
@@ -130,8 +192,8 @@ def lambda_handler(event, context):
     if not sender:
         raise RuntimeError("EMAIL_SENDER is unset")
 
-    subject = _format_subject(event)
-    body = _format_body_text(event)
+    subject = _format_subject(event, verdict_title)
+    body = _format_body_text(event, verdict_title, verdict_description)
     print(f"sending email from={sender!r} to={recipients} subject={subject!r} bytes={len(body)}")
 
     resp = _ses().send_email(

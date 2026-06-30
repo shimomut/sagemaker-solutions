@@ -22,6 +22,11 @@ Parameters:
     Default: "https://{region}.console.aws.amazon.com/aidevops/home?region={region}#/investigations/{investigation_id}"
     Description: "Optional URL template included in emails. Tokens: {region}, {account}, {investigation_id}."
 
+  SkipVerdictPrefixes:
+    Type: String
+    Default: "Suppress"
+    Description: "Comma-separated triage-verdict title prefixes to skip (no email sent). Default skips Suppress so the 15-min periodic audit doesn't email on a healthy cluster."
+
 Resources:
 
   EmailNotifierExecutionRole:
@@ -54,6 +59,11 @@ Resources:
                 Condition:
                   StringEquals:
                     "ses:FromAddress": !Ref EmailSender
+              - Effect: Allow
+                Action:
+                  - devops-agent:GetBacklogTask
+                  - devops-agent:ListJournalRecords
+                Resource: "*"
 
   EmailNotifierFunction:
     DependsOn: EmailNotifierExecutionRole
@@ -69,6 +79,7 @@ Resources:
           EMAIL_RECIPIENTS: !Ref EmailRecipients
           EMAIL_DETAIL_TYPES: !Ref EmailDetailTypes
           CONSOLE_URL_TEMPLATE: !Ref ConsoleUrlTemplate
+          SKIP_VERDICT_PREFIXES: !Ref SkipVerdictPrefixes
       Code:
         ZipFile: |
           # LAMBDA_CODE_PLACEHOLDER

@@ -21,6 +21,7 @@ source "${HERE}/config.sh"
 : "${STACK_NAME:=hyperpod-devops-agent-email-notifier}"
 : "${EMAIL_DETAIL_TYPES:=Investigation Created,Investigation Closed}"
 : "${CONSOLE_URL_TEMPLATE:=https://{region}.console.aws.amazon.com/aidevops/home?region={region}#/investigations/{investigation_id}}"
+: "${SKIP_VERDICT_PREFIXES:=Suppress}"
 
 TEMPLATE_SRC="${ROOT}/email_notifier/template.yaml"
 TEMPLATE_OUT="${ROOT}/email_notifier/template.embedded.yaml"
@@ -66,7 +67,8 @@ aws cloudformation deploy \
         "EmailSender=${EMAIL_SENDER}" \
         "EmailRecipients=${EMAIL_RECIPIENTS}" \
         "EmailDetailTypes=${EMAIL_DETAIL_TYPES}" \
-        "ConsoleUrlTemplate=${CONSOLE_URL_TEMPLATE}"
+        "ConsoleUrlTemplate=${CONSOLE_URL_TEMPLATE}" \
+        "SkipVerdictPrefixes=${SKIP_VERDICT_PREFIXES}"
 
 echo
 echo "==> Stack outputs"
