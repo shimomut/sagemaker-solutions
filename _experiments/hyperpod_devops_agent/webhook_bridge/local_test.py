@@ -82,6 +82,32 @@ SAMPLE_EVENTS = {
             },
         },
     },
+    # A non-GPU fault category for testing whether DevOps Agent's
+    # platform-level LINK heuristic merges cross-category faults on the
+    # same cluster. The EventLevel=Error field is what the bridge Lambda
+    # uses to decide forwarding (Info is dropped). The description matches
+    # the skill's Phase 2b regex for the `lifecycle-script-failed` category.
+    "lifecycle-script-failed": {
+        "version": "0",
+        "id": "00000000-0000-0000-0000-000000000004",
+        "detail-type": "SageMaker HyperPod Cluster Event",
+        "source": "aws.sagemaker",
+        "account": "842413447717",
+        "time": "2026-06-30T22:00:00Z",
+        "region": "us-west-2",
+        "detail": {
+            "ClusterArn": "arn:aws:sagemaker:us-west-2:842413447717:cluster/lw12e0dn1hhd",
+            "EventDetails": {
+                "ClusterName": "k8-1",
+                "ResourceType": "Node",
+                "InstanceGroupName": "worker2",
+                "InstanceId": "i-0synthetic12345",
+                "EventLevel": "Error",
+                "EventTime": "1782900000000",
+                "Description": "Instance lifecycle script execution for EC2 Instance i-0synthetic12345 has Failed with exit code 42.",
+            },
+        },
+    },
 }
 
 

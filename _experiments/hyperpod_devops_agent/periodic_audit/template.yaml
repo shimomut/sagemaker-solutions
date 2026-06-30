@@ -1,6 +1,6 @@
 AWSTemplateFormatVersion: '2010-09-09'
 
-Description: "Periodic-audit Lambda + EventBridge Scheduler for hyperpod-incident skill audit mode."
+Description: "Periodic-audit Lambda + EventBridge Scheduler for hyperpod-incident-rca skill audit mode."
 
 Parameters:
 
@@ -90,7 +90,7 @@ Resources:
       FlexibleTimeWindow:
         Mode: 'OFF'
       State: ENABLED
-      Description: "Periodic invocation of the hyperpod-incident skill in audit mode."
+      Description: "Periodic invocation of the hyperpod-incident-rca skill in audit mode."
       Target:
         Arn: !GetAtt PeriodicAuditFunction.Arn
         RoleArn: !GetAtt SchedulerRole.Arn

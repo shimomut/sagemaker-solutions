@@ -52,7 +52,7 @@ help:
 	@echo
 	@echo "Periodic audit (Goal 1: monitor open incidents + Resolved closure):"
 	@echo "  deploy-periodic-audit - Deploy CFN stack: EB Scheduler + Lambda that fires the"
-	@echo "                          hyperpod-incident skill in audit mode every 15 min."
+	@echo "                          hyperpod-incident-rca skill in audit mode every 15 min."
 	@echo "                          (DevOps Agent's native scheduled triggers don't support"
 	@echo "                          full investigation tasks — see Goal 1 in the README.)"
 	@echo "  delete-periodic-audit - Delete the periodic-audit stack"

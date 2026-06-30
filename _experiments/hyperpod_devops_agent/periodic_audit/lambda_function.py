@@ -1,4 +1,4 @@
-"""Periodic-audit Lambda for the hyperpod-incident skill.
+"""Periodic-audit Lambda for the hyperpod-incident-rca skill.
 
 Fired every N minutes by an EventBridge Scheduler rule. Synthesizes a
 "periodic audit" event and POSTs it to the DevOps Agent generic webhook,
@@ -76,7 +76,7 @@ def _build_payload(cluster_name: str) -> dict:
         "title": f"HyperPod periodic audit: {cluster_name}",
         "description": (
             f"Periodic audit invocation for HyperPod cluster '{cluster_name}'. "
-            f"No specific incident is referenced. The hyperpod-incident skill "
+            f"No specific incident is referenced. The hyperpod-incident-rca skill "
             f"should run in audit mode: discover open fault chains in "
             f"list-cluster-events (7-day window), classify each, and emit "
             f"Resolved / Monitor / Escalate per classification rules. If no "

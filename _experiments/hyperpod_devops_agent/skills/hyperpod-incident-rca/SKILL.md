@@ -1,23 +1,28 @@
 ---
-name: hyperpod-incident
-description: Triage and investigate a SageMaker HyperPod incident in a single pass. Loaded when an investigation is triggered by a HyperPod EventBridge event (cluster state change, node health, cluster event). Decides whether HyperPod's built-in resiliency is recovering the situation (suppress / monitor) or whether the operator must intervene (escalate), then produces a human-readable explanation with recommended actions. Replaces the upstream `hyperpod-*` skills' on-node procedures with proxy-signal investigation that works inside the DevOps Agent permission guardrail.
+name: hyperpod-incident-rca
+description: Root-cause analysis for a SageMaker HyperPod incident, after triage has decided to PROCEED. Runs at the INCIDENT_RCA stage. Reads describe-cluster, list-cluster-nodes, list-cluster-events, and HMA CloudWatch streams; reconstructs a timeline; classifies as Suppress / Monitor / Escalate / Resolved against time budgets and recurrence statistics from the HyperPod mental model. Produces a human-readable verdict report with recommended operator actions. The complementary INCIDENT_TRIAGE skill `hyperpod-incident-triage` decides LINKED / SKIPPED / PROCEED before this skill runs.
 metadata:
-  version: "0.1.0"
-  # INCIDENT_RCA only: this skill runs at the investigation/RCA stage, NOT
-  # the platform's triage stage. The verdict-level "Suppress" / "Monitor" /
-  # "Escalate" classification in Phase 3 is logically triage-like, but the
-  # mechanism is RCA — the agent has full Phase 1 multi-API access here, which
-  # an INCIDENT_TRIAGE-typed skill would not. A separate INCIDENT_TRIAGE skill
-  # could in future move some of this dedup logic earlier (no investigation
-  # hours billed for LINKED audits); see README "Follow-ups" section.
+  version: "0.3.0"
   agent_types: ["INCIDENT_RCA"]
 ---
 
-# HyperPod incident skill
+# HyperPod incident RCA skill
 
-This skill is the **single entry point** for any investigation triggered
-by a HyperPod EventBridge event. It does triage and root-cause analysis
-in one pass because they need the same evidence: snapshot data
+This skill runs at the **INCIDENT_RCA stage**, after DevOps Agent's
+triage stage decided to `PROCEED` with a full investigation. By the
+time this skill loads, the task already has a primary investigation
+slot and the agent has full AWS API access.
+
+**The complementary triage skill** `hyperpod-incident-triage` runs at
+the INCIDENT_TRIAGE stage BEFORE this skill, and decides whether an
+incoming event should be `LINKED` / `SKIPPED` / `PROCEED`. The triage
+skill enforces the signature-set logic at task-creation time, before
+investigation hours are billed. This RCA skill assumes the triage
+skill has already filtered duplicates and stale-evidence cases.
+
+When this skill DOES run, it does triage-like classification and
+root-cause analysis in one pass because they need the same evidence:
+snapshot data
 (`describe-cluster`, `describe-cluster-node`) alone cannot distinguish
 "HyperPod is auto-recovering" from "HyperPod has given up" — only the
 cross-source timeline can.
@@ -170,7 +175,7 @@ operator can request a skill update.
 
 Over the 7-day `list-cluster-events` window from Phase 1 (and HMA
 CloudWatch stream over the same window), compute and record (used by
-Phase 3 rules 7–9):
+Phase 3 rules 6–8):
 
 - `replacements_7d_total` — count of `Replace` actions / replacement-
   started cluster events across the whole cluster in the last 7 days.
@@ -180,18 +185,18 @@ Phase 3 rules 7–9):
   fault events with the same `(category, key, ig)` tuple in the last
   7 days. Use the categorization from Phase 2b. **Exclude
   `category="unclassified"` from this map** — recurring-pattern
-  rules (Phase 3 rule 7) should only fire on signatures we
+  rules (Phase 3 rule 6) should only fire on signatures we
   understand.
 
 Include these counts in the verdict description's "What HyperPod is
 doing right now" paragraph when they're ≥2 — even if the verdict
 itself doesn't change, the operator should see the count.
 
-### Phase 2d — Compute the signature set and read the prior audit
+### Phase 2d — Compute the signature set
 
-The signature set drives both verdict-title generation (which the
-platform's 30-min dedup uses) and the rule-3 staleness check (which
-prevents long-window re-Escalate spam). Compute:
+The signature set is used for verdict-title generation. The
+`hyperpod-incident-triage` skill uses these titles to make LINK/PROCEED
+decisions at the platform triage stage for future incoming events.
 
 - `current_signature_set` — sorted, deduplicated set of strings of
   the form `"<ig>:<category>:<key>"` for every distinct fault event
@@ -207,49 +212,6 @@ prevents long-window re-Escalate spam). Compute:
   rendered as nothing (`(:cluster-failed:Failed)` → `(cluster-failed:Failed)`).
 - `current_most_recent_event_at` — the latest `EventTime` of any
   Error/Warn cluster event or HMA detection within the window.
-
-**Reading the prior audit's verdict** (audit mode only — skip for
-incident mode):
-
-1. Call `aws devops-agent list-backlog-tasks --agent-space-id <id>`.
-2. Find the most recent task whose `taskType=INVESTIGATION`, whose
-   `title` starts with `Triage verdict: ` (i.e. it's a prior audit
-   that produced a verdict — investigation-mode tasks have a
-   different title shape), and whose `createdAt` is within the
-   last 24 hours.
-3. From that prior verdict, extract:
-   - `prior_signature_set` — parse from the title's `:: (...)` suffix
-   - `prior_verdict_name` — parse from the title between
-     `Triage verdict: ` and ` :: ` (or the whole tail if no `::`).
-     Examples: `Monitor — first attempt`,
-     `Escalate — recurring gpu-xid pattern`,
-     `Suppress — periodic audit, same root cause, 3 new occurrences`
-   - `prior_most_recent_event_at` — parse from the prior verdict's
-     description (the "Timeline (UTC)" section lists events with
-     timestamps; take the latest)
-   - `prior_signature_event_counts` — parse from the prior verdict's
-     description if it contained a `Signature event counts: <ig>:<cat>:<key>=<n>, ...`
-     line; otherwise treat each prior signature as having count 1
-4. Use these as the `prior_*` inputs for rule 3 and rule 3b.
-5. If no matching prior audit is found (first-ever audit, all prior
-   audits aged out, or all are LINKED — LINKED tasks don't carry a
-   `Triage verdict:` title), skip both rule 3 and rule 3b — fall
-   through to the other rules.
-
-If `list-backlog-tasks` returns no matching prior audit, do not
-mistake the absence for "no events" — rule 1 (no fault events in
-4h window) handles the no-events case independently.
-
-**Computing the occurrence delta for rule 3b**:
-
-For each signature `s` in `current_signature_set`, count the number
-of events with that signature whose `EventTime` is **strictly
-greater than** `prior_most_recent_event_at`. Sum across signatures.
-That sum is the `N` that goes into the verdict name
-`Suppress — periodic audit, same root cause, <N> new occurrences`
-and the per-signature breakdown goes into the verdict prose as
-`Signature event counts (since last verdict): <ig>:<cat>:<key>=<n>, ...`
-so the next audit can read it back.
 
 ### Phase 3 — Classify
 
@@ -271,21 +233,30 @@ classified as `Monitor — first attempt`.
 |---|---|---|
 | 1 | **Audit mode** AND no fault events in the 4-hour window AND no `Monitor` fault chain still open | **Suppress — periodic audit, no open incidents** (skip Phase 4 entirely or emit a minimal record; nothing actionable) |
 | 2 | A previously-`Monitor` fault chain now shows the affected instance(s) back in `Running` AND no new HMA detection for that instance in the last 30 min AND cluster status is `InService` | **Resolved — auto-recovery succeeded** (operator gets a closure email; include the original detection time and total elapsed) |
-| 3 | **Audit mode** AND `current_signature_set == prior_signature_set` AND `current_most_recent_event_at == prior_most_recent_event_at` (no new fault event since the previous audit) AND no `Monitor` fault chain is still open AND none of the prior `Resolved` conditions apply | **Suppress — periodic audit, evidence is stale** (filtered by email notifier). Behavior 1: prevents re-emailing identical `Escalate` verdicts every 15 min for the full 7 days that a stale event burst remains in the cluster-events window. |
-| 3b | **Audit mode** AND `current_signature_set == prior_signature_set` AND `current_verdict_name == prior_verdict_name` (would emit the same verdict as the prior audit) AND new fault events of the **already-known** signatures have arrived but no events of any **new** signature → behavior 2 | **Suppress — periodic audit, same root cause, N new occurrences** (filtered by email notifier). Behavior 2: prevents re-emailing the same verdict for new events that share an already-notified root cause. Operator already knows the situation; new occurrences advance counters but don't warrant a new email. **Required**: the verdict prose MUST include `Occurrences since last verdict: <N>` so the count is visible if the operator opens the investigation, even without an email. |
-| 4 | Trigger detail-type is `Cluster Event` with `EventLevel=Info` and the timeline shows no node-health activity | **Suppress** |
-| 5 | Cluster status is `Failed` or `RollingBack` | **Escalate** (cluster-level) |
-| 6 | `NodeRecovery=None` on the cluster AND a node has been marked `Action:*` / `UnschedulablePending*` AND no replacement has started within 5 minutes | **Escalate** — auto-recovery is off; operator must trigger replacement |
-| 7 | `signature_count_7d[(<category>, <key>, <ig>)] ≥ 3` for ANY signature whose `category != "unclassified"` — same categorized fault has driven ≥3 replacements on the same InstanceGroup in the last 7 days (auto-recovery may be succeeding each time). Covers all fault types in Phase 2b's category table — GPU Xid, lifecycle-script failures, capacity exhaustion, EFA health-check failures, etc. | **Escalate — recurring `<category>` pattern**: HyperPod is repairing the symptom, but the underlying cause hasn't gone away. Verdict name includes the category — e.g. `Escalate — recurring gpu-xid pattern`, `Escalate — recurring lifecycle-script-failed pattern`. Include the timestamps of all prior occurrences and the discriminating operator actions appropriate for that category (vendor-exclusion request for hardware; LCS bug for lifecycle; capacity replacement / pool change for capacity). |
-| 8 | `replacements_24h_total ≥ 5` — five or more replacements anywhere in the cluster within 24 hours | **Escalate — fleet-wide instability**: the rate of node churn is abnormal regardless of individual root causes. |
-| 9 | `replacements_7d_by_group[<ig>] ≥ 5` — five or more replacements on the same InstanceGroup in 7 days | **Escalate — instance-group instability**: the affected IG (which may be a specific SKU or topology placement) is failing more often than the rest of the cluster. |
-| 10 | Exactly one replacement attempt in flight, started within the last 30 minutes, no prior failure in the chain | **Monitor — first attempt** (next re-check in 30 min via scheduled audit) |
-| 11 | Multiple replacement attempts in the chain, total elapsed since the first failure ≤ 90 minutes, the most recent attempt is *Running* or *Started* (not yet failed) | **Monitor — elevated** (retry in progress, watch closely) |
-| 12 | Multiple replacement attempts, total elapsed > 90 minutes, no successful `Running` transition, AND no new attempt started within the last 30 minutes | **Escalate** — retry chain is stuck |
-| 13 | Node was in `Failed` state AND no new replacement attempt has started within the last 30 minutes AND total time in failing chain > 60 minutes | **Escalate** — HyperPod has given up |
-| 14 | Instance id from the trigger event is missing from `list-cluster-nodes` AND `list-cluster-events` shows no new attempt for the last 30 minutes AND the most recent attempt failed | **Escalate** — instance vanished, no retry |
-| 15 | HMA detection event present but no corresponding `Action:*` / replacement event in the timeline within 10 minutes | **Escalate** — HMA fired without escalating; investigate why (mismatch in node-recovery config, signal didn't classify) |
-| 16 | None of the above match | **Monitor — uncategorized** (include the full timeline; flag for review) |
+| 3 | Trigger detail-type is `Cluster Event` with `EventLevel=Info` and the timeline shows no node-health activity | **Suppress** |
+| 4 | Cluster status is `Failed` or `RollingBack` | **Escalate** (cluster-level) |
+| 5 | `NodeRecovery=None` on the cluster AND a node has been marked `Action:*` / `UnschedulablePending*` AND no replacement has started within 5 minutes | **Escalate** — auto-recovery is off; operator must trigger replacement |
+| 6 | `signature_count_7d[(<category>, <key>, <ig>)] ≥ 3` for ANY signature whose `category != "unclassified"` — same categorized fault has driven ≥3 replacements on the same InstanceGroup in the last 7 days (auto-recovery may be succeeding each time). Covers all fault types in Phase 2b's category table — GPU Xid, lifecycle-script failures, capacity exhaustion, EFA health-check failures, etc. | **Escalate — recurring `<category>` pattern**: HyperPod is repairing the symptom, but the underlying cause hasn't gone away. Verdict name includes the category — e.g. `Escalate — recurring gpu-xid pattern`, `Escalate — recurring lifecycle-script-failed pattern`. Include the timestamps of all prior occurrences and the discriminating operator actions appropriate for that category (vendor-exclusion request for hardware; LCS bug for lifecycle; capacity replacement / pool change for capacity). |
+| 7 | `replacements_24h_total ≥ 5` — five or more replacements anywhere in the cluster within 24 hours | **Escalate — fleet-wide instability**: the rate of node churn is abnormal regardless of individual root causes. |
+| 8 | `replacements_7d_by_group[<ig>] ≥ 5` — five or more replacements on the same InstanceGroup in 7 days | **Escalate — instance-group instability**: the affected IG (which may be a specific SKU or topology placement) is failing more often than the rest of the cluster. |
+| 9 | Exactly one replacement attempt in flight, started within the last 30 minutes, no prior failure in the chain | **Monitor — first attempt** (next re-check in 30 min via scheduled audit) |
+| 10 | Multiple replacement attempts in the chain, total elapsed since the first failure ≤ 90 minutes, the most recent attempt is *Running* or *Started* (not yet failed) | **Monitor — elevated** (retry in progress, watch closely) |
+| 11 | Multiple replacement attempts, total elapsed > 90 minutes, no successful `Running` transition, AND no new attempt started within the last 30 minutes | **Escalate** — retry chain is stuck |
+| 12 | Node was in `Failed` state AND no new replacement attempt has started within the last 30 minutes AND total time in failing chain > 60 minutes | **Escalate** — HyperPod has given up |
+| 13 | Instance id from the trigger event is missing from `list-cluster-nodes` AND `list-cluster-events` shows no new attempt for the last 30 minutes AND the most recent attempt failed | **Escalate** — instance vanished, no retry |
+| 14 | HMA detection event present but no corresponding `Action:*` / replacement event in the timeline within 10 minutes | **Escalate** — HMA fired without escalating; investigate why (mismatch in node-recovery config, signal didn't classify) |
+| 15 | None of the above match | **Monitor — uncategorized** (include the full timeline; flag for review) |
+
+> **Stale-evidence suppression (the former rules 3 and 3b) is now
+> handled by the `hyperpod-incident-triage` skill** at the platform
+> triage stage, before the RCA skill runs. Earlier versions of this
+> skill included those rules; they're removed because they would
+> never reach execution in steady state — the triage skill emits
+> LINKED at task-creation time for duplicates and same-root-cause
+> recurrences. If the triage skill is ever disabled or misconfigured
+> and audits start producing duplicate Escalate emails, restore the
+> rules from the v12 git history or rely on the
+> `hyperpod-incident-triage` skill.
 
 **Rule 2 (`Resolved`) closes the loop on prior `Monitor` verdicts.**
 A previous `Monitor` verdict promised a re-check; this rule provides
@@ -299,29 +270,20 @@ case.** When the scheduled audit fires on a healthy cluster, emit a
 single minimal record acknowledging the audit ran. The email notifier
 filters `Suppress` verdicts so no email is sent.
 
-**Rules 3 and 3b together prevent two distinct duplicate-email failure modes** (call them behavior 1 and behavior 2). Without these rules, an audit at T+15 min, T+30 min, T+45 min, ... would each fire the same Escalate verdict — up to ~672 duplicate emails over 7 days for a single past event burst (behavior 1), or one duplicate email per new occurrence of an already-known root cause (behavior 2).
+**Duplicate-email suppression is handled by `hyperpod-incident-triage`.**
+The earlier versions of this skill included Phase 3 rules 3 and 3b
+to suppress same-signature / same-root-cause re-Escalation across
+periodic audits. Those rules are now removed because the platform's
+triage stage runs the `hyperpod-incident-triage` skill BEFORE this
+skill — and that skill's rule 4 (signature-set comparison) emits
+LINKED at task-creation time for the same cases. By the time this
+skill loads, the only audit tasks that arrive are ones the triage
+skill decided to PROCEED on. If the operator wants to understand
+why a stale-evidence audit didn't produce an email, the answer is
+in the triage skill's logic, not here. See
+[hyperpod-incident-triage's SKILL.md](../hyperpod-incident-triage/SKILL.md).
 
-**Behavior 1 — already-escalated, no new events.** Rule 3 fires when:
-- `current_signature_set == prior_signature_set` (no new signature)
-- AND `current_most_recent_event_at == prior_most_recent_event_at` (no new event arrival of any kind)
-
-This catches the canonical "the same old Xid 74 cluster event keeps being visible in `list-cluster-events`" case. The audit notices nothing has actually changed since the prior verdict and suppresses.
-
-**Behavior 2 — already-escalated root cause, new occurrences of the same root cause.** Rule 3b fires when:
-- `current_signature_set == prior_signature_set` (no new signature — same root cause)
-- AND `current_verdict_name == prior_verdict_name` (would emit the identical verdict)
-- BUT new fault events of the already-known signatures HAVE arrived (timestamps advanced)
-
-This catches the "Xid 74 keeps happening on worker2; we've already escalated; each new occurrence shouldn't re-email" case. The verdict still re-runs through Phase 1-3 (so the count goes up correctly), and the verdict prose includes `Occurrences since last verdict: <N>` so an operator who opens the investigation sees the activity. But no email goes out.
-
-**What breaks BOTH suppressions and re-notifies:**
-1. **A new signature appears.** A new `(category, key, IG)` triple — new category (e.g. `lifecycle-script-failed` arriving while `gpu-xid:74` is stale), new key within an existing category (a different Xid number), signature spreading to a new IG, or any combination — produces a different set. `current_signature_set != prior_signature_set` → neither rule 3 nor 3b suppresses → fresh verdict → fresh email.
-2. **The verdict name itself transitions.** If counts crossed a threshold (e.g. count went from 2 to 3, crossing rule 7's ≥3 threshold), the verdict name changes from `Monitor — first attempt` to `Escalate — recurring gpu-xid pattern`. Different `current_verdict_name` → rule 3b doesn't suppress → fresh email. This is correct: the verdict transition IS the news the operator should hear about.
-3. **Cluster recovers.** `Resolved — auto-recovery succeeded` is a different verdict name → fresh email (the closure notification).
-
-Combined with the platform's ~20-minute LINKED dedup, this covers short-window noise (LINKED) and long-window same-root-cause noise (rule 3 + 3b).
-
-**Recurring-pattern verdicts (7–9) are `Escalate` even when the
+**Recurring-pattern verdicts (6–8) are `Escalate` even when the
 individual incident is auto-recovering correctly.** The reasoning is
 in your operational goals: HyperPod's resiliency repairs the symptom,
 but a 3× recurrence of a categorized fault on the same IG is an
@@ -374,8 +336,7 @@ The agent's schema supports these record types:
    - `Triage verdict: Escalate — recurring lifecycle-script-failed pattern :: (worker3:lifecycle-script-failed:)`
    - `Triage verdict: Escalate — recurring capacity-insufficient pattern :: (worker2:capacity-insufficient:ml.g6.4xlarge)`
    - `Triage verdict: Monitor — first attempt :: (worker2:gpu-xid:74)`
-   - `Triage verdict: Suppress — periodic audit, evidence is stale :: (worker2:gpu-xid:74)` (rule 3)
-   - `Triage verdict: Suppress — periodic audit, same root cause, 3 new occurrences :: (worker2:gpu-xid:74)` (rule 3b — `<N>` is the count of new events since the prior verdict)
+   - `Triage verdict: Resolved — auto-recovery succeeded :: (worker2:gpu-xid:74)`
    - Mixed-category set: `Triage verdict: Escalate — fleet-wide instability :: (worker2:gpu-xid:74, worker2:lifecycle-script-failed:, worker3:efa-health-check:)`
    - `Triage verdict: Suppress — periodic audit, no open incidents` (no suffix when there's no signature set)
 
@@ -398,18 +359,10 @@ The agent's schema supports these record types:
    Timeline (UTC):
    <the timeline reconstructed in Phase 2, one event per line, source-tagged>
 
-   Signature event counts (since last verdict):
-   <required for rule 3b verdicts; recommended for all verdicts so the next audit
-   can read it back. Format: "<ig>:<category>:<key>=<n>" per line, one signature
-   per line. Example:
-     worker2:gpu-xid:74=3
-     worker2:lifecycle-script-failed:=1
-   Use the empty value "0" when a signature has no new events since the last verdict.>
-
    Most recent event at:
    <UTC ISO 8601 timestamp of the most recent fault event in the 4-hour window.
-   Used by the NEXT audit's rule 3 to compare against prior. Required for all
-   verdicts that contain a non-empty signature set. Example:
+   Recommended for all verdicts that contain a non-empty signature set so
+   operators reading the report can correlate with their own timelines. Example:
    2026-06-30T01:36:49Z>
 
    Next re-check:

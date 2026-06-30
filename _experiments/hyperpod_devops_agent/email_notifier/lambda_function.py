@@ -58,7 +58,7 @@ def _fetch_verdict_and_summary(event: dict) -> tuple[str | None, str | None]:
     verdict symptom, or (None, None) if it can't be located.
 
     The verdict symptom is identified by a title that starts with
-    "Triage verdict:" — the hyperpod-incident skill always emits one as
+    "Triage verdict:" — the hyperpod-incident-rca skill always emits one as
     the first symptom.
     """
     detail = event.get("detail", {})

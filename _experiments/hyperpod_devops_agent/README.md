@@ -8,7 +8,9 @@ Four stacked pieces:
 
 1. **Agent Space + EKS access** — gives the DevOps Agent read-only `kubectl` against the underlying EKS cluster (auto-discovered from the HyperPod cluster's `Orchestrator.Eks.ClusterArn`) and a console where investigations land. Slurm clusters skip the EKS step automatically.
 2. **Webhook bridge** — CloudFormation stack with an EventBridge rule on `aws.sagemaker` HyperPod events and a Lambda that POSTs them to the DevOps Agent generic webhook. Supports a cluster allowlist so customers with multiple HyperPod clusters can scope which ones trigger investigations.
-3. **`hyperpod-incident` skill** — unified triage + RCA skill that classifies each event against HyperPod's built-in resiliency model (read [docs/hyperpod-mental-model.md](../../docs/hyperpod-mental-model.md)). The skill decides per-incident whether HyperPod is auto-recovering (Suppress / Monitor) or stuck (Escalate), runs in both webhook (incident) and scheduled (audit) modes, and produces a human-readable report with recommended operator actions.
+3. **Two complementary skills** that classify each event against HyperPod's built-in resiliency model (read [docs/hyperpod-mental-model.md](../../docs/hyperpod-mental-model.md)):
+   - **`hyperpod-incident-triage`** (INCIDENT_TRIAGE) — runs FIRST on every incoming task. Decides `LINKED` / `SKIPPED` / `PROCEED` using explicit `(InstanceGroup, category, key)` signature-set logic. Replaces the platform's default AI correlator with rules that distinguish cross-category faults on the same component (which the default AI merges). Cheap: runs at task creation, no investigation hours billed for LINKED/SKIPPED.
+   - **`hyperpod-incident-rca`** (INCIDENT_RCA) — runs after triage produces PROCEED. Reads `describe-cluster`, `list-cluster-nodes`, `list-cluster-events`, and HMA CloudWatch streams; reconstructs a timeline; classifies as Suppress / Monitor / Escalate / Resolved against time budgets and recurrence statistics. Produces a human-readable verdict report with recommended operator actions.
 4. **Periodic-audit stack** — CloudFormation stack: `AWS::Scheduler::Schedule` (every 15 min) → Lambda → HMAC-signed POST to the same webhook. Fires the skill in audit mode so open fault chains get re-checked (Goal 1: monitor duration, emit closure notification on silent-success recovery, escalate stuck chains). See [Two operational goals beyond single-shot investigations](#two-operational-goals-beyond-single-shot-investigations) for why this couldn't use DevOps Agent's native scheduled triggers.
 5. **Email notifier** — CloudFormation stack: EventBridge rule on `aws.aidevops` investigation lifecycle events → Lambda → SES email. Recipients get a per-investigation message with the verdict, timeline, and recommended actions. Filters `Suppress` verdicts so periodic audits on a healthy cluster don't produce email noise.
 
@@ -36,7 +38,8 @@ Slack notifications can be added later (paused on workspace 3P approval) via Dev
 │   ├── template.yaml        - CloudFormation: EventBridge Scheduler + Lambda (Goal 1 fallback)
 │   └── lambda_function.py   - Synthesizes periodic-audit webhook event, HMAC-signs, POSTs
 ├── skills/
-│   ├── hyperpod-incident/   - the unified triage + RCA skill (ours)
+│   ├── hyperpod-incident-triage/   - INCIDENT_TRIAGE skill (decides LINKED/SKIPPED/PROCEED)
+│   ├── hyperpod-incident-rca/      - INCIDENT_RCA skill (full investigation + verdict)
 │   │   ├── SKILL.md
 │   │   └── references/hyperpod-mental-model.md  - synced from ../../docs/ at upload time
 │   └── upstream/            - awslabs/agent-plugins clone (git-ignored)
@@ -99,8 +102,9 @@ make bridge-test                                   # default: node-health event
 LOCAL_EVENT_TYPE=cluster-state-change make bridge-test
 make bridge-logs                                   # tail the Lambda logs (Ctrl-C to stop)
 
-# Step 4 - Upload the unified hyperpod-incident skill (ours)
-SKILL_DIR=skills/hyperpod-incident make upload-skill
+# Step 4 - Upload both skills (triage runs first, RCA runs after PROCEED)
+SKILL_DIR=skills/hyperpod-incident-triage make upload-skill
+SKILL_DIR=skills/hyperpod-incident-rca   make upload-skill
 
 # Step 5 - Optionally import a curated subset of upstream skills as reference
 make import-upstream-skills                        # see "Skill curation" below for defaults
@@ -186,7 +190,9 @@ Set `WEBHOOK_LOG_FULL_EVENT=true` to log the full EventBridge envelope per invoc
 
 DevOps Agent does not understand HyperPod out of the box — a HyperPod cluster is "a SageMaker resource" to its topology engine, not a composition of EKS + EC2 + FSx + lifecycle scripts. Two kinds of skill teach it the mapping:
 
-1. **`hyperpod-incident` — our unified triage + RCA skill.** The primary skill loaded on every HyperPod investigation. Reads `describe-cluster`, `list-cluster-nodes`, `list-cluster-events`, and HMA CloudWatch streams; reconstructs a timeline; classifies as Suppress / Monitor / Escalate against time budgets derived from the [HyperPod mental model](../../docs/hyperpod-mental-model.md). Bundles the mental-model doc as a reference so the agent loads it into context. See [skills/hyperpod-incident/SKILL.md](skills/hyperpod-incident/SKILL.md).
+1. **Our two skills**:
+   - **`hyperpod-incident-triage`** (INCIDENT_TRIAGE) — runs at the triage stage on every incoming task. Decides LINKED / SKIPPED / PROCEED using explicit signature-set rules. See [skills/hyperpod-incident-triage/SKILL.md](skills/hyperpod-incident-triage/SKILL.md). Why it exists: the platform's default AI correlator merges cross-category faults on the same component (verified empirically — a synthetic `lifecycle-script-failed` event was LINKED to an open `gpu-xid` primary), which causes information loss. This skill replaces that AI correlator with explicit rules.
+   - **`hyperpod-incident-rca`** (INCIDENT_RCA) — runs after the triage skill produces PROCEED. Reads `describe-cluster`, `list-cluster-nodes`, `list-cluster-events`, and HMA CloudWatch streams; reconstructs a timeline; classifies as Suppress / Monitor / Escalate against time budgets derived from the [HyperPod mental model](../../docs/hyperpod-mental-model.md). Bundles the mental-model doc as a reference. See [skills/hyperpod-incident-rca/SKILL.md](skills/hyperpod-incident-rca/SKILL.md).
 
 2. **Curated upstream skills from [awslabs/agent-plugins](https://github.com/awslabs/agent-plugins)** — supporting reference. `make import-upstream-skills` imports a **curated subset** of the `hyperpod-*` skills (see "Skill curation" below). Use the `SKILLS=...` env var to import a different subset. Subsequent runs `git pull` upstream and re-upload.
 
@@ -339,7 +345,7 @@ Integration surfaces relevant to HyperPod:
 | **Generic webhook** (HMAC) | Into the agent | Yes — webhook bridge for live HyperPod events + periodic-audit Lambda for scheduled audit-mode investigations. |
 | **EventBridge `aws.aidevops`** | From the agent | Yes — the email notifier listens on `Investigation` detail-types and sends SES email. |
 | **`AWS::Scheduler::Schedule`** → webhook | Into the agent (scheduled) | Yes — periodic-audit stack fires the skill in audit mode every 15 minutes. Replaces the native `devops-agent create-trigger` API path, which only supports `actionType: "create:task"` and produces an agent runtime without AWS API access or user-skill mounts. |
-| **Skills** (asset API) | Inside the agent | Yes — our `hyperpod-incident` skill is the primary investigation driver; a curated subset of upstream `hyperpod-*` skills is imported as supporting reference. |
+| **Skills** (asset API) | Inside the agent | Yes — our `hyperpod-incident-triage` and `hyperpod-incident-rca` skills run at the triage and RCA stages respectively; a curated subset of upstream `hyperpod-*` skills is imported as supporting reference. |
 
 Operating notes:
 
@@ -347,7 +353,7 @@ Operating notes:
 - **Quotas (per the UG)**: 100 agent spaces / region, 3 concurrent investigations / space (adjustable), 10 concurrent on-demand invocations / space.
 - **EKS access prerequisite** — the underlying EKS cluster's `authenticationMode` must be `API` or `API_AND_CONFIG_MAP`. The setup script verifies this and aborts with the corrective `update-cluster-config` command if not.
 
-## The `hyperpod-incident` skill — unified triage + RCA
+## The `hyperpod-incident-*` skills — triage + RCA
 
 The original plan called for separate triage and investigation skills. **They were merged.** A single failed instance can vanish from `list-cluster-nodes` between retry attempts, and HyperPod may auto-retry from `Failed` status — neither is a terminal signal on its own. Distinguishing "still retrying" from "stuck" requires the full timeline across `describe-cluster`, `list-cluster-nodes`, `list-cluster-events` (the canonical record of replacement attempts, including failed ones; available on EKS and on Slurm with Continuous Provisioning), and HMA CloudWatch streams. A separate triage skill that decided without all four signals would systematically miss the case where multiple replacements have already failed silently.
 
@@ -385,7 +391,7 @@ Verified end-to-end: after three injected Xid 74 faults on `worker2`, the skill 
 
 ### Goal 1 — periodic-audit stack (`make deploy-periodic-audit`)
 
-Native DevOps Agent triggers were tried first and **ruled out**. The fallback is a small CFN stack: `AWS::Scheduler::Schedule` → Lambda → HMAC-signed POST to the same webhook the bridge uses. The audit fires every 15 minutes; the same `hyperpod-incident` skill processes both audit-mode and incident-mode triggers; verdicts go through the existing email path.
+Native DevOps Agent triggers were tried first and **ruled out**. The fallback is a small CFN stack: `AWS::Scheduler::Schedule` → Lambda → HMAC-signed POST to the same webhook the bridge uses. The audit fires every 15 minutes; the `hyperpod-incident-rca` skill processes both audit-mode and incident-mode triggers (the `hyperpod-incident-triage` skill runs first to decide LINKED/SKIPPED/PROCEED); verdicts go through the existing email path.
 
 **Why the native path doesn't work (recorded so we don't redo this):**
 
@@ -417,7 +423,7 @@ Important properties:
 - **A new fault type during a stale window re-notifies.** The signature set is keyed on `(InstanceGroup, Xid-signature)` pairs. A new Xid type on the same IG, or the same Xid spreading to a new IG, produces a different set → different verdict title → breaks layer 4's dedup AND breaks layer 3's "set unchanged" check. The operator gets the new verdict.
 - **An existing-but-new occurrence of the same `(IG, Xid)` re-notifies.** Layer 3 also checks `current_most_recent_event_at != prior_most_recent_event_at`. A genuinely new event (even of an already-known signature) updates the timestamp and breaks suppression. Operators are kept current on recurrence frequency.
 - **Stable audit-event titles** (`HyperPod periodic audit: <cluster>`) are used in the bridge payload so layer 2 (platform dedup) reliably absorbs back-to-back audits without semantic computation. Variations were tried (`@ <timestamp>` suffix) and rejected as fragile — the platform's dedup is semantic, not exact-match.
-- **The platform's ~20-min triage look-back window is not a configurable knob**, but the [UG documents an official customization path](https://docs.aws.amazon.com/devopsagent/) (§"Incident triage"): a custom skill with `agent_types: ["INCIDENT_TRIAGE"]` can implement custom correlation logic and override the default LINK/SKIP/PROCEED decisions. We do NOT currently use a triage skill — our `hyperpod-incident` skill runs at the investigation (RCA) stage, after the platform's triage has already decided. Replacing layers 3+4 with a triage skill is a possible future refactor: it would move the dedup decision earlier (no investigation hours billed for LINKED/SKIPPED audits) at the cost of triage-stage skills having limited Phase 1 context.
+- **The platform's ~20-min triage look-back window is not a configurable knob**, but the [UG documents an official customization path](https://docs.aws.amazon.com/devopsagent/) (§"Incident triage"): a custom skill with `agent_types: ["INCIDENT_TRIAGE"]` implements custom correlation logic and overrides the default LINK/SKIP/PROCEED decisions. **Our `hyperpod-incident-triage` skill is exactly that** — it replaces the platform's default AI correlator with explicit signature-set rules so cross-category faults on the same component don't get silently merged.
 
 ## Follow-ups (not yet built)
 
@@ -426,5 +432,5 @@ Important properties:
 - **Slack channel for live investigation updates** — paused on workspace 3P approval. The email notifier's EventBridge listener is the template; a Slack notifier drops into the same `aws.aidevops` event stream.
 - **External diagnostic collector** (see [SSM access — the permission guardrail is a hard ceiling](#ssm-access--the-permission-guardrail-is-a-hard-ceiling) above). Would side-load on-node truth (DCGM, EFA fabric counters, kubelet journal) into CloudWatch Logs or S3 where the guardrail can read them. Build only if a future investigation hits a wall the proxy-signal path can't reach.
 
-7. **Per-failure-mode RCA skills** beyond `hyperpod-incident` — narrower skills (NCCL hang, slow storage, lifecycle-script failure) loaded only when the unified skill's classification matches. The current bet is that the unified skill plus the upstream cluster/node debuggers cover most cases; branch out only if specific failure modes prove to need deeper specialization.
+7. **Per-failure-mode RCA skills** beyond `hyperpod-incident-rca` — narrower skills (NCCL hang, slow storage, lifecycle-script failure) loaded only when the RCA skill's classification matches. The current bet is that the RCA skill plus the upstream cluster/node debuggers cover most cases; branch out only if specific failure modes prove to need deeper specialization.
 - **Slurm coverage validation end-to-end** — the skill is written to work for Slurm with Continuous Provisioning, but the empirical testing so far is EKS-only.
