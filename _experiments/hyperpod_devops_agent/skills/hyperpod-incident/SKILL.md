@@ -3,7 +3,14 @@ name: hyperpod-incident
 description: Triage and investigate a SageMaker HyperPod incident in a single pass. Loaded when an investigation is triggered by a HyperPod EventBridge event (cluster state change, node health, cluster event). Decides whether HyperPod's built-in resiliency is recovering the situation (suppress / monitor) or whether the operator must intervene (escalate), then produces a human-readable explanation with recommended actions. Replaces the upstream `hyperpod-*` skills' on-node procedures with proxy-signal investigation that works inside the DevOps Agent permission guardrail.
 metadata:
   version: "0.1.0"
-  agent_types: ["INCIDENT_TRIAGE", "INCIDENT_RCA"]
+  # INCIDENT_RCA only: this skill runs at the investigation/RCA stage, NOT
+  # the platform's triage stage. The verdict-level "Suppress" / "Monitor" /
+  # "Escalate" classification in Phase 3 is logically triage-like, but the
+  # mechanism is RCA — the agent has full Phase 1 multi-API access here, which
+  # an INCIDENT_TRIAGE-typed skill would not. A separate INCIDENT_TRIAGE skill
+  # could in future move some of this dedup logic earlier (no investigation
+  # hours billed for LINKED audits); see README "Follow-ups" section.
+  agent_types: ["INCIDENT_RCA"]
 ---
 
 # HyperPod incident skill
@@ -210,18 +217,39 @@ incident mode):
    that produced a verdict — investigation-mode tasks have a
    different title shape), and whose `createdAt` is within the
    last 24 hours.
-3. Parse the prior verdict's signature set from the title's `:: (...)`
-   suffix. Parse the prior `most_recent_event_at` from the prior
-   verdict's description (the "Timeline (UTC)" section lists events
-   with timestamps).
-4. If found, hold these as `prior_signature_set` and
-   `prior_most_recent_event_at` for use in rule 3.
-5. If not found (first-ever audit, or all prior audits aged out),
-   skip rule 3 entirely — fall through to the normal rules.
+3. From that prior verdict, extract:
+   - `prior_signature_set` — parse from the title's `:: (...)` suffix
+   - `prior_verdict_name` — parse from the title between
+     `Triage verdict: ` and ` :: ` (or the whole tail if no `::`).
+     Examples: `Monitor — first attempt`,
+     `Escalate — recurring gpu-xid pattern`,
+     `Suppress — periodic audit, same root cause, 3 new occurrences`
+   - `prior_most_recent_event_at` — parse from the prior verdict's
+     description (the "Timeline (UTC)" section lists events with
+     timestamps; take the latest)
+   - `prior_signature_event_counts` — parse from the prior verdict's
+     description if it contained a `Signature event counts: <ig>:<cat>:<key>=<n>, ...`
+     line; otherwise treat each prior signature as having count 1
+4. Use these as the `prior_*` inputs for rule 3 and rule 3b.
+5. If no matching prior audit is found (first-ever audit, all prior
+   audits aged out, or all are LINKED — LINKED tasks don't carry a
+   `Triage verdict:` title), skip both rule 3 and rule 3b — fall
+   through to the other rules.
 
 If `list-backlog-tasks` returns no matching prior audit, do not
 mistake the absence for "no events" — rule 1 (no fault events in
 4h window) handles the no-events case independently.
+
+**Computing the occurrence delta for rule 3b**:
+
+For each signature `s` in `current_signature_set`, count the number
+of events with that signature whose `EventTime` is **strictly
+greater than** `prior_most_recent_event_at`. Sum across signatures.
+That sum is the `N` that goes into the verdict name
+`Suppress — periodic audit, same root cause, <N> new occurrences`
+and the per-signature breakdown goes into the verdict prose as
+`Signature event counts (since last verdict): <ig>:<cat>:<key>=<n>, ...`
+so the next audit can read it back.
 
 ### Phase 3 — Classify
 
@@ -243,7 +271,8 @@ classified as `Monitor — first attempt`.
 |---|---|---|
 | 1 | **Audit mode** AND no fault events in the 4-hour window AND no `Monitor` fault chain still open | **Suppress — periodic audit, no open incidents** (skip Phase 4 entirely or emit a minimal record; nothing actionable) |
 | 2 | A previously-`Monitor` fault chain now shows the affected instance(s) back in `Running` AND no new HMA detection for that instance in the last 30 min AND cluster status is `InService` | **Resolved — auto-recovery succeeded** (operator gets a closure email; include the original detection time and total elapsed) |
-| 3 | **Audit mode** AND the set of `(InstanceGroup, Xid-signature)` pairs that would drive an Escalate verdict is **unchanged** since the previous audit's primary verdict for this Agent Space, AND no fault event newer than the previous audit's `most_recent_event_at` exists, AND no `Monitor` fault chain is still open, AND none of the prior `Resolved` conditions apply | **Suppress — periodic audit, evidence is stale** (filtered by email notifier). See "Computing the signature set" and "Reading the prior audit" below — this rule prevents the audit from re-emailing identical `Escalate` verdicts every 15 min for the full 7 days that a stale event burst remains in the cluster-events window. A NEW signature, a NEW InstanceGroup, or a NEW fault event since the prior audit advances state and re-opens classification through the other rules. |
+| 3 | **Audit mode** AND `current_signature_set == prior_signature_set` AND `current_most_recent_event_at == prior_most_recent_event_at` (no new fault event since the previous audit) AND no `Monitor` fault chain is still open AND none of the prior `Resolved` conditions apply | **Suppress — periodic audit, evidence is stale** (filtered by email notifier). Behavior 1: prevents re-emailing identical `Escalate` verdicts every 15 min for the full 7 days that a stale event burst remains in the cluster-events window. |
+| 3b | **Audit mode** AND `current_signature_set == prior_signature_set` AND `current_verdict_name == prior_verdict_name` (would emit the same verdict as the prior audit) AND new fault events of the **already-known** signatures have arrived but no events of any **new** signature → behavior 2 | **Suppress — periodic audit, same root cause, N new occurrences** (filtered by email notifier). Behavior 2: prevents re-emailing the same verdict for new events that share an already-notified root cause. Operator already knows the situation; new occurrences advance counters but don't warrant a new email. **Required**: the verdict prose MUST include `Occurrences since last verdict: <N>` so the count is visible if the operator opens the investigation, even without an email. |
 | 4 | Trigger detail-type is `Cluster Event` with `EventLevel=Info` and the timeline shows no node-health activity | **Suppress** |
 | 5 | Cluster status is `Failed` or `RollingBack` | **Escalate** (cluster-level) |
 | 6 | `NodeRecovery=None` on the cluster AND a node has been marked `Action:*` / `UnschedulablePending*` AND no replacement has started within 5 minutes | **Escalate** — auto-recovery is off; operator must trigger replacement |
@@ -270,36 +299,27 @@ case.** When the scheduled audit fires on a healthy cluster, emit a
 single minimal record acknowledging the audit ran. The email notifier
 filters `Suppress` verdicts so no email is sent.
 
-**Rule 3 (`Suppress — periodic audit, evidence is stale`) prevents
-duplicate-Escalate spam.** The 7-day `list-cluster-events` window
-keeps old fault events visible long after the operator has been
-notified once. Without this rule, an audit at T+15 min, T+30 min,
-T+45 min, ... would each fire the same Escalate verdict against
-the same stale evidence — up to ~672 duplicate emails over 7 days
-for a single past event burst.
+**Rules 3 and 3b together prevent two distinct duplicate-email failure modes** (call them behavior 1 and behavior 2). Without these rules, an audit at T+15 min, T+30 min, T+45 min, ... would each fire the same Escalate verdict — up to ~672 duplicate emails over 7 days for a single past event burst (behavior 1), or one duplicate email per new occurrence of an already-known root cause (behavior 2).
 
-The rule has two protection layers:
+**Behavior 1 — already-escalated, no new events.** Rule 3 fires when:
+- `current_signature_set == prior_signature_set` (no new signature)
+- AND `current_most_recent_event_at == prior_most_recent_event_at` (no new event arrival of any kind)
 
-1. **Signature-set comparison** (precise): Suppress only when
-   `current_signature_set == prior_signature_set`. A new
-   `(category, key, IG)` signature — a new category (e.g.
-   `lifecycle-script-failed` arriving while `gpu-xid:74` is stale),
-   a new key within an existing category (a different Xid number), a
-   signature spreading to a new IG, or any combination — produces a
-   different set, **breaks the suppression**, and re-Escalates
-   regardless of the time window. This is the answer to "what if a
-   new type of issue arrives during the 4h window?" — it's not
-   suppressed.
+This catches the canonical "the same old Xid 74 cluster event keeps being visible in `list-cluster-events`" case. The audit notices nothing has actually changed since the prior verdict and suppresses.
 
-2. **Time-based fallback** (safety net): Suppress requires
-   `current_most_recent_event_at == prior_most_recent_event_at` (no
-   newer fault event since the previous audit). Even if the
-   signature set is unchanged but a fresh event of the same
-   signature has arrived, the operator gets the updated verdict.
+**Behavior 2 — already-escalated root cause, new occurrences of the same root cause.** Rule 3b fires when:
+- `current_signature_set == prior_signature_set` (no new signature — same root cause)
+- AND `current_verdict_name == prior_verdict_name` (would emit the identical verdict)
+- BUT new fault events of the already-known signatures HAVE arrived (timestamps advanced)
 
-Combined with the platform's 30-minute title-based dedup (which
-sees the signature set in the verdict title), the staleness logic
-covers both short-window noise and long-window stale-replay noise.
+This catches the "Xid 74 keeps happening on worker2; we've already escalated; each new occurrence shouldn't re-email" case. The verdict still re-runs through Phase 1-3 (so the count goes up correctly), and the verdict prose includes `Occurrences since last verdict: <N>` so an operator who opens the investigation sees the activity. But no email goes out.
+
+**What breaks BOTH suppressions and re-notifies:**
+1. **A new signature appears.** A new `(category, key, IG)` triple — new category (e.g. `lifecycle-script-failed` arriving while `gpu-xid:74` is stale), new key within an existing category (a different Xid number), signature spreading to a new IG, or any combination — produces a different set. `current_signature_set != prior_signature_set` → neither rule 3 nor 3b suppresses → fresh verdict → fresh email.
+2. **The verdict name itself transitions.** If counts crossed a threshold (e.g. count went from 2 to 3, crossing rule 7's ≥3 threshold), the verdict name changes from `Monitor — first attempt` to `Escalate — recurring gpu-xid pattern`. Different `current_verdict_name` → rule 3b doesn't suppress → fresh email. This is correct: the verdict transition IS the news the operator should hear about.
+3. **Cluster recovers.** `Resolved — auto-recovery succeeded` is a different verdict name → fresh email (the closure notification).
+
+Combined with the platform's ~20-minute LINKED dedup, this covers short-window noise (LINKED) and long-window same-root-cause noise (rule 3 + 3b).
 
 **Recurring-pattern verdicts (7–9) are `Escalate` even when the
 individual incident is auto-recovering correctly.** The reasoning is
@@ -354,7 +374,8 @@ The agent's schema supports these record types:
    - `Triage verdict: Escalate — recurring lifecycle-script-failed pattern :: (worker3:lifecycle-script-failed:)`
    - `Triage verdict: Escalate — recurring capacity-insufficient pattern :: (worker2:capacity-insufficient:ml.g6.4xlarge)`
    - `Triage verdict: Monitor — first attempt :: (worker2:gpu-xid:74)`
-   - `Triage verdict: Suppress — periodic audit, evidence is stale :: (worker2:gpu-xid:74)`
+   - `Triage verdict: Suppress — periodic audit, evidence is stale :: (worker2:gpu-xid:74)` (rule 3)
+   - `Triage verdict: Suppress — periodic audit, same root cause, 3 new occurrences :: (worker2:gpu-xid:74)` (rule 3b — `<N>` is the count of new events since the prior verdict)
    - Mixed-category set: `Triage verdict: Escalate — fleet-wide instability :: (worker2:gpu-xid:74, worker2:lifecycle-script-failed:, worker3:efa-health-check:)`
    - `Triage verdict: Suppress — periodic audit, no open incidents` (no suffix when there's no signature set)
 
@@ -376,6 +397,20 @@ The agent's schema supports these record types:
 
    Timeline (UTC):
    <the timeline reconstructed in Phase 2, one event per line, source-tagged>
+
+   Signature event counts (since last verdict):
+   <required for rule 3b verdicts; recommended for all verdicts so the next audit
+   can read it back. Format: "<ig>:<category>:<key>=<n>" per line, one signature
+   per line. Example:
+     worker2:gpu-xid:74=3
+     worker2:lifecycle-script-failed:=1
+   Use the empty value "0" when a signature has no new events since the last verdict.>
+
+   Most recent event at:
+   <UTC ISO 8601 timestamp of the most recent fault event in the 4-hour window.
+   Used by the NEXT audit's rule 3 to compare against prior. Required for all
+   verdicts that contain a non-empty signature set. Example:
+   2026-06-30T01:36:49Z>
 
    Next re-check:
    <only for Monitor verdicts: UTC timestamp 30 min from now if "first attempt",
