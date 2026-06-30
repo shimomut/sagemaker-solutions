@@ -400,6 +400,24 @@ So the native trigger fires but creates an agent invocation that can't run the a
 
 When AWS extends the trigger API to accept `actionType: "create:investigation"` or equivalent (the API error wording — *"supported actionType values: create:task"* — implies this list is expected to grow), we can replace the EB Scheduler stack with a single `aws devops-agent create-trigger` call. The skill itself doesn't change.
 
+#### Avoiding duplicate-Escalate spam: the 5-layer dedup architecture
+
+A naive periodic audit re-Escalates the same evidence every 15 minutes for the full 7-day `list-cluster-events` window — ~672 duplicate emails per stale event burst. Five layers prevent this:
+
+| Layer | Mechanism | Where | Window |
+|---|---|---|---|
+| 1. **Bridge Info-filter** | Webhook bridge drops `EventLevel=Info` events | Lambda before webhook POST | Instant |
+| 2. **Platform task dedup (audit event)** | DevOps Agent merges audits with the same audit-event title into the existing primary task | Inside DevOps Agent | ~30 min observed |
+| 3. **Skill rule 3** | Skill emits `Suppress — periodic audit, evidence is stale` when the current signature set equals the prior audit's signature set AND no new fault event since the prior audit's `most_recent_event_at` | Inside the skill | 30 min — 7 days |
+| 4. **Platform verdict-title dedup** | Verdict title includes a `(IG:Xid, ...)` signature set so identical sets produce identical titles → platform dedups | Inside DevOps Agent, second layer | ~30 min |
+| 5. **Email notifier prefix-skip** | Email notifier filters `Triage verdict: Suppress —*` from email delivery | After verdict produced | After Phase 4 |
+
+Important properties:
+
+- **A new fault type during a stale window re-notifies.** The signature set is keyed on `(InstanceGroup, Xid-signature)` pairs. A new Xid type on the same IG, or the same Xid spreading to a new IG, produces a different set → different verdict title → breaks layer 4's dedup AND breaks layer 3's "set unchanged" check. The operator gets the new verdict.
+- **An existing-but-new occurrence of the same `(IG, Xid)` re-notifies.** Layer 3 also checks `current_most_recent_event_at != prior_most_recent_event_at`. A genuinely new event (even of an already-known signature) updates the timestamp and breaks suppression. Operators are kept current on recurrence frequency.
+- **Stable audit-event titles** (`HyperPod periodic audit: <cluster>`) are used in the bridge payload so layer 2 (platform dedup) reliably absorbs back-to-back audits without semantic computation. Variations were tried (`@ <timestamp>` suffix) and rejected as fragile — the platform's dedup is semantic, not exact-match.
+
 ## Follow-ups (not yet built)
 
 - **CloudWatch Logs subscription filter on the HMA stream as an additional trigger source.** Faster + more granular than the SageMaker EventBridge `Cluster Event` Warn — catches HMA detections that don't always surface as control-plane events. Lets us filter on specific Xid codes / ECC counts / LCS-script failures. Worth doing if any future investigation reveals a missed signal.

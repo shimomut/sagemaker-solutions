@@ -60,12 +60,19 @@ def _load_webhook_credentials() -> tuple[str, str]:
 
 def _build_payload(cluster_name: str) -> dict:
     now_iso = datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S.000Z")
-    incident_id = f"hyperpod-audit-{datetime.datetime.utcnow().strftime('%Y%m%dT%H%M%SZ')}"
+    now_compact = datetime.datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
+    incident_id = f"hyperpod-audit-{now_compact}"
     return {
         "eventType": "incident",
         "incidentId": incident_id,
         "action": "created",
         "priority": "LOW",
+        # Stable audit-event title so DevOps Agent's automatic task
+        # deduplication (~30 minute window) reliably absorbs back-to-back
+        # audits — that's free idle-cluster cost reduction. When the platform
+        # dedup window expires and a fresh audit DOES run the skill, the
+        # skill's rule-3 (stale-evidence Suppress) provides the second
+        # protection layer based on signature-set comparison.
         "title": f"HyperPod periodic audit: {cluster_name}",
         "description": (
             f"Periodic audit invocation for HyperPod cluster '{cluster_name}'. "
