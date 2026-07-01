@@ -12,7 +12,7 @@ EventId: `127b07cf-9f00-4bdf-801e-11481419c562`
 Fixed in `webhook_bridge/lambda_function.py`. Verified: re-invoking with the same EventId now produces title `"HyperPod cluster / Request to service failed. If failure persists after retry, contact customer support."` instead of falling back to the generic Description text.
 
 
-## Getting Warning "1 node(s) lost orchestration-ready status" when scaling down [in-progress]
+## Getting Warning "1 node(s) lost orchestration-ready status" when scaling down [done]
 
 I manually initiated scaling down by calling UpdateCluster API. Make sure the DevOps Agent recognize it and triage correctly.
 
@@ -31,7 +31,12 @@ Root cause: our concat-signature `<ig>:<Description + FailureMessage>` treats th
 - Triage skill v0.3.0 rule 3 (new): SKIP with reason `"Cluster scale-in-progress: <IG> is <cur>/<target>. 'lost orchestration-ready' events during scaling operations are progress updates, not incidents."`
 - Mental-model doc new section "Scale-in-progress emits spurious `Warn` events with misleading FailureMessage" — documents the ambient FailureMessage `"Request to service failed..."` HyperPod attaches to these events, so future skills don't misread it as a fault signal.
 
-Waiting on verification: next customer-initiated scale-up or scale-down producing "lost orchestration-ready" Warn events should now SKIP at triage (no investigation, no email).
+**Verified 2026-07-01T03:20Z on scale-down worker4 3→0** (immediately after the LCS-failure test):
+- One Warn "lost orchestration-ready" event fired at 03:20:31Z — `EventId=8a90a42e-47cb-44ed-ba5e-ae7196d025ea`, Description `"1 node(s) lost orchestration-ready status. Current: 5/5 orchestration-ready across 4 instance group(s)."`, FailureMessage `"Request to service failed..."`.
+- Bridge forwarded it (Warn, not filtered), task `0ee22f60-5892-46ed-b47a-0d8283b96acc` created at 03:20:49Z.
+- Triage set **`status=SKIPPED`** with reason: *"[hyperpod-incident-triage] rule 3: Cluster scale-in-progress or node replacement. 'lost orchestration-ready status' event with FailureMessage 'Request to service failed' during active worker4 lifecycle failures and deletion operations. Status already recovered (Current: 5/5 orchestration-ready). This is a transient progress update, not an incident requiring investigation."*
+- Notable: the event fired *after* the cluster had already returned to 5/5, but triage still reasoned about the recently-completed replacement activity and SKIPPED — smarter than a hard `CurrentCount != TargetCount` gate. No email, no RCA billed.
+- Related follow-up: `"deletion request received"` events during scale-down (task `f512a354`) — see [Triage rule for "deletion request was received" during scale-down](#triage-rule-for-deletion-request-was-received-during-scale-down) below.
 
 
 ## We should test real repeated lifecycle script errors [done]
@@ -50,6 +55,29 @@ Observations:
 - **Investigation gap surfaced.** The RCA correctly flagged `s3-script-content-inaccessible` as a gap: `DevOpsAgentRole-AgentSpace` lacks `s3:GetObject`/`s3:ListBucket` on the LCS bucket, so the agent couldn't read the current `on_create.sh` to confirm the injection or find *when* it was added. Adding `s3:GetObject` on the LCS bucket (via the guardrail's opt-in allowlist) would close this.
 
 Backup + fault-injected LCS retained locally at `/tmp/lcs_test/backup_20260701T024847Z/` and `/tmp/lcs_test/on_create_broken.sh` (not checked in) for future re-runs.
+
+
+## Triage rule for "deletion request was received" during scale-down
+
+Task `f512a354-175e-490f-b18e-b8f6eebf4116` (2026-07-01T03:12:55Z, worker4) PROCEEDed through triage and reached RCA — final symptom title `"Triage verdict: Escalate — recurring fault pattern"`. RCA correctly identified the deletion-during-provisioning as benign (`"expected HyperPod behavior when a scale-down overlaps with active provisioning"`), but rolled it into the escalate verdict alongside the still-open LCS loop. A full RCA is wasted work when the FailureMessage is caused by an operator-initiated scale-down that overlaps in-flight provisioning.
+
+**Proposed triage rule**: SKIP when `FailureMessage` contains `"instance provisioning could not be complete because a deletion request was received"` AND `describe-cluster` shows the same instance group with `ActiveOperations.Scaling` present and `TargetCount < CurrentCount` (or the failing instance's `LaunchTime` is within N seconds of a CloudTrail `UpdateCluster` call that reduced `TargetCount`). Same shape as rule 3 (scale-in-progress) but for the deletion-during-provisioning surface.
+
+Edge case to preserve: if `ActiveOperations.Scaling` is absent by the time the event fires (scale-down already completed), the correlation window against CloudTrail is what saves it — don't rely only on the live describe-cluster snapshot.
+
+
+## `s3:GetObject` on the LCS bucket to prevent RCA hallucination
+
+Task `f512a354` RCA fabricated a plausible-but-wrong root cause (`configure-efa-fsx-lustre-client.service failing on ml.g5.8xlarge, a non-EFA type`) because `DevOpsAgentRole-AgentSpace` can't read `s3://sagemaker-k8-1-1bd2626f-bucket/on_create.sh`. The actual LCS at the time was our missing-binary fault injection. The agent tagged the finding `[proxy]` and listed `lifecycle-script-source-code` as an `investigation_gap`, but still produced a confident-looking EFA/FSx hypothesis in the final report.
+
+**`s3:GetObject` is in the guardrail's opt-in allowlist** (from the AWS DevOps Agent UG). Adding it — scoped to `arn:aws:s3:::sagemaker-<cluster>-*/on_create*.sh` and any other referenced LCS paths — would let the agent read the actual script content instead of guessing.
+
+Scoping options:
+- Wildcard per HyperPod-created LCS bucket: `arn:aws:s3:::sagemaker-*-bucket/*` (simple but broad — includes any script/config in that bucket)
+- Path-scoped to LCS entrypoints: `arn:aws:s3:::sagemaker-*-bucket/on_create*` + `.../lifecycle*` (narrower; may miss custom scripts)
+- Discovered per-cluster at foundation-stack deploy time from `describe-cluster.InstanceGroups[].LifeCycleConfig.SourceS3Uri` (tightest; adds bootstrap dependency)
+
+Would add to `foundation/template.yaml` under `DevOpsAgentRole-AgentSpace` as an inline policy. Verify by re-running the LCS-failure test after the change and confirming the RCA cites the actual script content instead of the EFA hypothesis.
 
 
 ## String truncation logics in the Lambda function
