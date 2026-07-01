@@ -80,22 +80,35 @@ echo "Skill name:     ${SKILL_NAME}"
 echo "Agent types:    ${SKILL_AGENT_TYPES}"
 echo
 
-# Sync the canonical HyperPod mental-model doc into the skill's references/
-# directory before zipping. The repo's docs/hyperpod-mental-model.md is the
-# single source of truth; the skill carries a copy so it's loaded into the
-# agent's context when the skill fires. Only refresh if the skill already
-# has a placeholder/copy of this file under references/.
+# Stage the skill contents into a temp directory before zipping. This lets us
+# bundle shared references (like the canonical HyperPod mental-model doc)
+# that live outside the skill directory, without polluting the source-controlled
+# skill directory. The repo's docs/hyperpod-mental-model.md remains the single
+# source of truth; a fresh copy is dropped into <staging>/references/ when the
+# skill's SKILL.md references it.
+STAGE_DIR="$(mktemp -d)"
+ZIP_DIR="$(mktemp -d)"
+ZIP_PATH="${ZIP_DIR}/${SKILL_NAME}.zip"
+INPUT_JSON_PATH="$(mktemp).json"
+trap 'rm -rf "${STAGE_DIR}" "${ZIP_DIR}"; rm -f "${INPUT_JSON_PATH}"' EXIT
+
+echo "==> Staging skill to ${STAGE_DIR}"
+( cd "${SKILL_PATH}" && tar -cf - --exclude='.DS_Store' --exclude='__pycache__' . ) \
+    | ( cd "${STAGE_DIR}" && tar -xf - )
+
 REPO_MENTAL_MODEL="$(cd "${ROOT}/../.." && pwd)/docs/hyperpod-mental-model.md"
-SKILL_MENTAL_MODEL="${SKILL_PATH}/references/hyperpod-mental-model.md"
-if [[ -f "${SKILL_MENTAL_MODEL}" && -f "${REPO_MENTAL_MODEL}" ]]; then
-    echo "==> Refreshing references/hyperpod-mental-model.md from ${REPO_MENTAL_MODEL}"
-    cp "${REPO_MENTAL_MODEL}" "${SKILL_MENTAL_MODEL}"
+if grep -q 'hyperpod-mental-model\.md' "${SKILL_PATH}/SKILL.md"; then
+    if [[ ! -f "${REPO_MENTAL_MODEL}" ]]; then
+        echo "Error: SKILL.md references hyperpod-mental-model.md but source doc not found at ${REPO_MENTAL_MODEL}" >&2
+        exit 1
+    fi
+    echo "==> Bundling references/hyperpod-mental-model.md (fresh copy from ${REPO_MENTAL_MODEL})"
+    mkdir -p "${STAGE_DIR}/references"
+    cp "${REPO_MENTAL_MODEL}" "${STAGE_DIR}/references/hyperpod-mental-model.md"
 fi
 
-# Build the zip with deterministic relative paths.
-ZIP_PATH="$(mktemp -d)/${SKILL_NAME}.zip"
 echo "==> Zipping skill -> ${ZIP_PATH}"
-( cd "${SKILL_PATH}" && zip -r -q "${ZIP_PATH}" . -x '*.DS_Store' '*/__pycache__/*' )
+( cd "${STAGE_DIR}" && zip -r -q "${ZIP_PATH}" . -x '*.DS_Store' '*/__pycache__/*' )
 echo "    zip size: $(wc -c < "${ZIP_PATH}") bytes"
 
 # Look up an existing asset by name.
@@ -118,9 +131,7 @@ PY
 
 # The --content blob argument needs the bytes; passing as fileb:// avoids
 # stuffing the whole zip onto the command line. Use cli-input-json instead for
-# clean blob handling.
-INPUT_JSON_PATH="$(mktemp).json"
-trap 'rm -f "${INPUT_JSON_PATH}"' EXIT
+# clean blob handling. INPUT_JSON_PATH is cleaned up by the EXIT trap set above.
 
 if [[ -n "${EXISTING_ID}" && "${EXISTING_ID}" != "None" ]]; then
     echo "    updating existing asset ${EXISTING_ID}"
@@ -177,6 +188,5 @@ aws devops-agent list-assets \
     --query "items[?assetType=='skill'].{assetId:assetId,name:metadata.name,version:version,status:metadata.status,type:metadata.skill_type}" \
     --output table
 
-rm -f "${ZIP_PATH}"
 echo
 echo "Done."
