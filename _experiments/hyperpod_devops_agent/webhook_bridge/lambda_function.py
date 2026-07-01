@@ -228,23 +228,49 @@ def _title_and_description(event: dict) -> tuple[str, str]:
         # For non-Info events, enrich the description with fields the
         # EventBridge envelope omits (notably FailureMessage). See
         # README + engineering-team report for why this workaround exists.
+        #
+        # Walk EVERY subtree under EventMetadata (Cluster, Instance,
+        # InstanceGroup, InstanceGroupScaling, InstanceMonitor,
+        # InstanceHealth, etc.) — different fault classes populate
+        # different subtrees. Cluster-level events put FailureMessage
+        # under EventMetadata.Cluster; instance-level under
+        # EventMetadata.Instance; a similar pattern likely holds for
+        # the other subtrees when populated.
+        # Keys are prefixed with the subtree name so
+        # `Cluster.FailureMessage` and `Instance.FailureMessage` are
+        # distinguishable, and either can drive the title.
         enriched = {}
         if ev_details.get("EventLevel", "").lower() != "info" and sm_event_id:
             api_ev = _describe_cluster_event(cluster_name, sm_event_id)
-            # Extract populated fields under EventMetadata.Instance
-            api_instance = (
-                api_ev.get("EventDetails", {})
-                .get("EventMetadata", {})
-                .get("Instance", {})
-                or {}
+            api_metadata = (
+                api_ev.get("EventDetails", {}).get("EventMetadata", {}) or {}
             )
-            for k, v in api_instance.items():
-                if v not in (None, "", {}, []):
-                    enriched[k] = v
+            for subtree_name, subtree in api_metadata.items():
+                if not isinstance(subtree, dict):
+                    continue
+                for k, v in subtree.items():
+                    if v not in (None, "", {}, []):
+                        enriched[f"{subtree_name}.{k}"] = v
 
         # Title picks the most operator-actionable text available:
-        # FailureMessage > event Description > resource-type fallback.
-        failure_message = enriched.get("FailureMessage", "").strip() if isinstance(enriched.get("FailureMessage"), str) else ""
+        # any *.FailureMessage > event Description > resource-type fallback.
+        # If multiple subtrees carry a FailureMessage, prefer Instance
+        # (most fault-specific), then Cluster, then whatever alphabetical
+        # order gives us.
+        def _pick_failure_message() -> str:
+            preferred = ["Instance.FailureMessage", "Cluster.FailureMessage"]
+            for key in preferred:
+                v = enriched.get(key)
+                if isinstance(v, str) and v.strip():
+                    return v.strip()
+            for key in sorted(enriched):
+                if key.endswith(".FailureMessage"):
+                    v = enriched[key]
+                    if isinstance(v, str) and v.strip():
+                        return v.strip()
+            return ""
+
+        failure_message = _pick_failure_message()
         if failure_message:
             title_fault = _shorten(failure_message)
         elif description_text:
@@ -261,17 +287,20 @@ def _title_and_description(event: dict) -> tuple[str, str]:
             f"EventId={sm_event_id or 'n/a'}. "
             f"Description: {description_text or 'n/a'}."
         )
-        if "FailureMessage" in enriched:
-            description += f" FailureMessage: {enriched['FailureMessage']}."
-        # Include any other populated Instance fields, one per line, so
+        if failure_message:
+            description += f" FailureMessage: {failure_message}."
+        # Include any other populated fields (from any subtree) so
         # downstream categorization keys benefit from them too.
-        extras = {k: v for k, v in enriched.items() if k != "FailureMessage"}
+        extras = {
+            k: v for k, v in enriched.items()
+            if not k.endswith(".FailureMessage")
+        }
         if extras:
             extras_str = ", ".join(
                 f"{k}={json.dumps(v, default=str) if isinstance(v, (dict, list)) else v}"
-                for k, v in extras.items()
+                for k, v in sorted(extras.items())
             )
-            description += f" InstanceMetadata: {extras_str}."
+            description += f" EventMetadata: {extras_str}."
         return title, description
 
     return (
