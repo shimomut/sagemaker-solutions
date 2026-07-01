@@ -624,6 +624,173 @@ The principal you see in CloudTrail tells you who initiated an action:
 `AWSServiceRoleForSageMakerHyperPod`), `AWS::EC2::VPC`,
 `AWS::CloudFormation::Stack`, `AWS::Lambda::Function`, `Custom::Resource`.
 
+## Event surfaces — EventBridge, `list-cluster-events`, `describe-cluster-event`
+
+Three overlapping surfaces expose HyperPod cluster events. They agree
+on the identity of an event but NOT on the content — different consumers
+see different fields populated. Choosing the right surface for a given
+task matters.
+
+### `FailureMessage` is only in `describe-cluster-event` today
+
+*(Both — verified on EKS 2026-06-30/2026-07-01)*
+
+> ⚠️ **Bug — reported to the HyperPod engineering team; subject to
+> change.** The findings below describe the state as of early July 2026.
+> When this is fixed, the EventBridge envelope should carry the same
+> `EventMetadata` content that `describe-cluster-event` returns.
+
+For non-Info events, HyperPod populates a `FailureMessage` field under
+`EventDetails.EventMetadata.<subtree>` — where `<subtree>` is one of
+`Cluster`, `Instance`, `InstanceGroup`, `InstanceGroupScaling`,
+`InstanceMonitor`, or `InstanceHealth`. **The EventBridge envelope
+delivers this subtree as `null` even when the API returns a populated
+value.** The only way to see the actual failure message today is to
+call `describe-cluster-event --event-id <eid> --cluster-name <name>`
+after receiving the EventBridge event.
+
+Concrete example — a capacity error on `worker4`:
+
+```
+$ aws sagemaker describe-cluster-event --cluster-name k8-1 \
+    --event-id f17f580b-2d73-4615-8957-c09ef6991182
+{
+  "EventDetails": {
+    "EventDetails": {
+      "EventMetadata": {
+        "Instance": {
+          "FailureMessage": "We currently do not have sufficient
+            capacity to launch new ml.g5.8xlarge instances.
+            Please try again.",
+          "NodeLogicalId": "50be05d5-c749-4023-9fde-4ce95ff0e6cb"
+        }
+      }
+    },
+    "Description": "Failed to provision EC2 Instance in Cluster k8-1
+      and InstanceGroup worker4",
+    ...
+  }
+}
+```
+
+The same event on EventBridge shows `EventMetadata.Instance: null` and
+just the generic `Description` field. Consumers that only read the
+EventBridge envelope get the "what happened" (a generic string) but
+NOT the "why" (the specific capacity failure).
+
+`describe-cluster-event` requires **`NodeProvisioningMode: Continuous`**
+on the cluster. Non-Continuous clusters return
+`ValidationException` — the FailureMessage is genuinely unreachable
+on those clusters, so consumers must build with description-only as
+a fallback path.
+
+### EventBridge envelope has null-placeholder subtrees for the full `EventMetadata` shape
+
+*(Both — verified on EKS)*
+
+Even when `EventMetadata.<subtree>` is `null`, the envelope always
+includes the FULL set of six subtree keys as placeholders:
+
+```
+"EventMetadata": {
+  "Cluster": null,
+  "Instance": null,
+  "InstanceGroup": null,
+  "InstanceGroupScaling": null,
+  "InstanceMonitor": null,
+  "InstanceHealth": null
+}
+```
+
+Different fault types populate DIFFERENT subtrees when the bug above
+gets fixed:
+
+| Fault class | Populated subtree(s) observed |
+|---|---|
+| Per-instance provisioning failure (capacity, EFA health-check, etc.) | `EventMetadata.Instance.FailureMessage`, sometimes `.NodeLogicalId` |
+| Cluster-level scaling operations, "lost orchestration-ready", etc. | `EventMetadata.Cluster.FailureMessage` |
+| (Others TBD as we observe them) | `InstanceGroup`, `InstanceGroupScaling`, `InstanceMonitor`, `InstanceHealth` — schema exists, contents not yet characterized |
+
+Consumers that want to extract fault content MUST walk all six
+subtrees, not just `Instance` — the useful FailureMessage may be in
+any of them. A common bug shape is code like `EventMetadata.get("Instance", {}).get("FailureMessage")`
+that silently misses cluster-level failures.
+
+### HyperPod emits paired events for the same underlying fault
+
+*(Both — verified on EKS)*
+
+A single provisioning fault produces TWO SageMaker EventIds within
+~1 second, both `EventLevel=Error`, describing the same underlying
+event from different angles:
+
+```
+EventId d906a77c-...  Description="Failed to provision EC2 Instance in Cluster k8-1 and InstanceGroup worker4"
+EventId 2ed1305e-...  Description="Instance creation in Cluster k8-1 and InstanceGroup worker4 failed"
+```
+
+Both fire on EventBridge, so a naive one-event-per-investigation
+pipeline creates TWO investigations for what an operator would call
+one incident. Dedup logic that keys on `(IG, description)` or
+`(IG, description + failure_message)` will treat them as distinct
+signatures (different descriptions).
+
+Options for dedup consumers:
+- Time-window collapse: within N seconds of the same fault type on the
+  same IG, treat as one.
+- Prefer the "Failed to provision" event (it's typically emitted first
+  and can be enriched with FailureMessage via `describe-cluster-event`);
+  ignore the paired "Instance creation ... failed" as a duplicate.
+- Widen the signature to strip descriptions and use only
+  `<IG>:<FailureMessage>` — but that fails when FailureMessage is
+  `null` on the EventBridge envelope (see previous callout).
+
+### SageMaker `EventId` vs EventBridge `id` are different values
+
+*(Both)*
+
+The EventBridge envelope's top-level `id` field is EventBridge's own
+UUID for the delivered event. The SageMaker `EventId` — the one that
+works with `describe-cluster-event` and appears in `list-cluster-events`
+— is nested at `detail.EventDetails.EventId`. Both are UUIDs; they
+look identical in shape. Using the EventBridge `id` in
+`describe-cluster-event` returns `ResourceNotFoundException`.
+
+Downstream tooling should extract the SageMaker EventId from the
+nested field, not the top-level envelope field.
+
+### `ClusterStatus == InService` does NOT mean "nothing is scaling" (Continuous Provisioning mode)
+
+*(Both — verified on EKS with `NodeProvisioningMode: Continuous`)*
+
+In **Continuous Provisioning mode**, `describe-cluster` returns
+`ClusterStatus: InService` throughout customer-initiated
+`UpdateCluster` scaling operations — the status does NOT flip to
+`Updating` even while instances are being added or removed. This is
+the documented behavior of Continuous mode, not a bug.
+
+To detect a scaling operation in progress on a Continuous-mode
+cluster, iterate `InstanceGroups[]` and compare `CurrentCount` vs
+`TargetCount`:
+
+- `CurrentCount < TargetCount` → **scaling up** (waiting for new
+  instances to provision)
+- `CurrentCount > TargetCount` → **scaling down** (waiting for
+  instances to terminate)
+- `CurrentCount == TargetCount` on every IG → **steady state**
+
+**Do not rely on ClusterStatus alone** for the "am I scaling?"
+signal. Consumers building on Continuous-mode clusters (which
+includes any cluster using `describe-cluster-event`, since that API
+requires Continuous mode — see "FailureMessage" callout above) must
+key their scaling detection on `CurrentCount` vs `TargetCount`.
+
+Note: this is distinct from — but related to — the pre-existing
+`describe-cluster` / `list-cluster-nodes` divergence callout below
+(under "Common AI-confusing details"). That entry covers node-list
+vs count-of-nodes disagreement during any transition. This entry
+is specifically about ClusterStatus behavior under Continuous mode.
+
 ## Common AI-confusing details
 
 Each entry below is tagged with whether it applies to Slurm, EKS, or
