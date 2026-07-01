@@ -2,7 +2,7 @@
 name: hyperpod-incident-triage
 description: Triage stage decisions (LINKED / SKIPPED / PROCEED) for SageMaker HyperPod incident tasks. Replaces DevOps Agent's default AI correlator with explicit signature-string rules that use the concatenated Description + FailureMessage as the signature, distinguishing cross-fault-type faults on the same component (which the default AI merges). Runs at the INCIDENT_TRIAGE stage before any investigation hours are billed. The complementary INCIDENT_RCA skill `hyperpod-incident-rca` runs after this skill produces PROCEED.
 metadata:
-  version: "0.2.0"
+  version: "0.3.0"
   agent_types: ["INCIDENT_TRIAGE"]
 ---
 
@@ -121,9 +121,24 @@ In order, stop at first match:
 |---|---|---|
 | 1 | Trigger type is `audit` AND there is an existing audit primary (any primary whose triggering description contains `triggerMode == audit`) within the look-back window | **LINKED** to that existing audit primary. Reason: "Periodic audit duplicates within look-back window are absorbed; rule applied: hyperpod-incident-triage audit-to-audit." |
 | 2 | Trigger type is `audit` AND no audit primary in look-back window | **PROCEED**. Reason: "Scheduled periodic audit; no concurrent audit primary; runs RCA in audit mode." |
-| 3 | Trigger type is `incident` AND no open primary in look-back window | **PROCEED**. Reason: "Fresh fault signature, no concurrent investigation." |
-| 4 | Trigger type is `incident` AND incoming signature (exact string equality after normalization) matches an open primary's `pending_primary_signature` OR appears in an open primary's `prior_signature_set` | **LINKED** to that primary. Reason: `Same signature <sig> already covered by primary <task-id>.` |
-| 5 | Default fall-through | **PROCEED**. Reason: `No matching primary; runs as new investigation.` |
+| 3 | Trigger type is `incident` AND Description contains `lost orchestration-ready status` AND `describe-cluster` shows any InstanceGroup with `CurrentCount != TargetCount` (i.e. a scale-in-progress) | **SKIPPED**. Reason: `Cluster scale-in-progress: <IG-name> is <CurrentCount>/<TargetCount>. "lost orchestration-ready" events during scaling operations are progress updates, not incidents.` See mental-model "Scale-in-progress emits spurious warns" and the `HyperPod scale-in-progress` idea in IDEAS.md. |
+| 4 | Trigger type is `incident` AND no open primary in look-back window | **PROCEED**. Reason: "Fresh fault signature, no concurrent investigation." |
+| 5 | Trigger type is `incident` AND incoming signature (exact string equality after normalization) matches an open primary's `pending_primary_signature` OR appears in an open primary's `prior_signature_set` | **LINKED** to that primary. Reason: `Same signature <sig> already covered by primary <task-id>.` |
+| 6 | Default fall-through | **PROCEED**. Reason: `No matching primary; runs as new investigation.` |
+
+**Rule 3 (SKIP for scale-in-progress) requires one extra API call**:
+`aws sagemaker describe-cluster --cluster-name <name>`, then check
+`InstanceGroups[].CurrentCount vs .TargetCount`. Only invoke this API
+when the Description contains `lost orchestration-ready status` — for
+all other events, skip the API call and proceed to rules 4-6. This
+keeps the triage-stage latency low for normal fault events.
+
+**Do NOT SKIP other fault types during a scaling operation.** A real
+`Failed to provision`, `EFA health checks did not run successfully`,
+or `lifecycle-script-failed` event during a scale-up IS a legitimate
+incident even though the cluster is Updating. Rule 3's Description
+regex must specifically match `lost orchestration-ready status`; all
+other events flow through to rules 4-6.
 
 ### Step 5 — Emit the decision
 
@@ -185,5 +200,17 @@ investigation stage.
    window LINK together (rule 1), so only one audit-mode RCA runs per
    look-back window. The first audit produces the verdict; subsequent
    audits within the window are absorbed.
-5. **First-ever incidents on a quiet cluster** still PROCEED (rule 3),
+5. **First-ever incidents on a quiet cluster** still PROCEED (rule 4),
    so the first signal always triggers an investigation.
+6. **Scale-in-progress noise.** During customer-initiated
+   `UpdateCluster` operations (scale-up or scale-down), HyperPod
+   emits `Warn`-level events like `"N node(s) lost orchestration-ready
+   status. Current: X/Y orchestration-ready across N instance
+   group(s)."` — with the misleading FailureMessage
+   `"Request to service failed. If failure persists after retry,
+   contact customer support."` Each event carries a different node
+   count (N=1,3,4,...) as scaling progresses, so the concat-signature
+   sees them as distinct → without rule 3 they'd each spawn a
+   primary investigation. Rule 3's SKIP prevents this by checking
+   `describe-cluster` for any IG in a scaling transition. Real fault
+   events with different descriptions still PROCEED normally.

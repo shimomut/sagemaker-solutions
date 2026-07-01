@@ -691,6 +691,54 @@ timelines from per-cycle pairs, not from a single snapshot. A node
 disappearing from `list-cluster-nodes` while still counted in
 `describe-cluster.CurrentCount` is the normal mid-transition shape.
 
+### Scale-in-progress emits spurious `Warn` events with misleading FailureMessage
+
+*(Both — verified on EKS)*
+
+During customer-initiated `UpdateCluster` scaling operations
+(scale-up OR scale-down), HyperPod emits a stream of `Warn`-level
+`SageMaker HyperPod Cluster Event` entries with descriptions like:
+
+> *"N node(s) lost orchestration-ready status. Current: X/Y
+> orchestration-ready across M instance group(s)."*
+
+Each event carries a different `N` as the scaling progresses (e.g.
+`1 node(s) lost...`, then `3 node(s) lost...`, then `4 node(s)
+lost...`). These are **progress updates during a customer-initiated
+operation, not incident signals**.
+
+`DescribeClusterEvent` on any of these events returns a
+`FailureMessage` under `EventMetadata.Cluster`:
+
+> *"Request to service failed. If failure persists after retry,
+> contact customer support."*
+
+**That FailureMessage is misleading.** No customer-visible service
+failed — the message appears for scale-in-progress events regardless
+of whether anything is actually broken. Consumers of the event stream
+must NOT treat this as a hard-fault signal on its own.
+
+**How to distinguish "spurious scale-in-progress" from a real fault:**
+
+- **`describe-cluster`** — if any `InstanceGroups[].CurrentCount !=
+  TargetCount`, the cluster is mid-scaling. "lost orchestration-ready"
+  events during this window are progress noise.
+- **CloudTrail** (secondary signal) — a customer-principal
+  `UpdateCluster` API call in the last ~10 minutes is strong evidence
+  the noise is customer-driven.
+- **What's NOT sufficient**: cluster `ClusterStatus == InService`
+  during scaling is common (HyperPod does not always flip to
+  `Updating` for small scaling operations). Do not use `ClusterStatus`
+  alone as the "am I scaling?" signal.
+
+The `hyperpod-incident-triage` skill (rule 3 as of v0.3.0) uses this
+detection to `SKIP` "lost orchestration-ready" events during scaling
+operations. Non-scaling `Warn`/`Error` events with different
+descriptions (e.g. `"Failed to provision EC2 Instance"`,
+`"EFA health checks did not run successfully"`) still PROCEED as
+normal incidents — those are real faults that can happen during a
+scale-up.
+
 ### `Failed` instance status is not necessarily terminal
 
 *(Both)*
