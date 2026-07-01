@@ -28,6 +28,42 @@ _DEFAULT_DROP_LEVELS = {"info"}
 
 
 _secrets_cache: dict[str, str] = {}
+_sagemaker_client = None
+
+
+def _sagemaker():
+    """SageMaker client, lazily created + reused across warm invocations."""
+    global _sagemaker_client
+    if _sagemaker_client is None:
+        _sagemaker_client = boto3.client("sagemaker")
+    return _sagemaker_client
+
+
+def _describe_cluster_event(cluster_name: str, event_id: str) -> dict:
+    """Fetch the enriched event detail via DescribeClusterEvent.
+
+    The EventBridge envelope carries EventMetadata.Instance as null even for
+    events (e.g. capacity failures) where DescribeClusterEvent returns a
+    populated FailureMessage. Bridge calls this API for every non-Info
+    event so the enriched fields can be forwarded to the webhook.
+
+    Returns the top-level EventDetails dict or an empty dict on failure.
+    Failure modes handled: ValidationException (not Continuous
+    NodeProvisioningMode), throttling, transient network errors.
+    """
+    if not (cluster_name and event_id):
+        return {}
+    try:
+        resp = _sagemaker().describe_cluster_event(
+            ClusterName=cluster_name,
+            EventId=event_id,
+        )
+        return resp.get("EventDetails", {}) or {}
+    except Exception as e:
+        # Log but don't fail the invocation — description-only forwarding is
+        # the fallback behaviour. Never silently drop the event.
+        print(f"describe_cluster_event failed cluster={cluster_name!r} eventId={event_id!r} err={e!r}")
+        return {}
 
 
 def _load_webhook_credentials() -> tuple[str, str]:
@@ -112,6 +148,23 @@ def _priority_for(event: dict) -> str:
     return "MEDIUM"
 
 
+def _shorten(text: str, limit: int = 120) -> str:
+    """Trim a fault-summary string for use in the incident title.
+
+    Whitespace-collapse first, then truncate at word boundary if possible,
+    then append an ellipsis if trimmed. 120 chars fits the operator-visible
+    FailureMessage lengths we've observed (e.g. the capacity error at 91
+    chars) while staying under most dashboard title-column widths.
+    """
+    text = " ".join((text or "").split())
+    if len(text) <= limit:
+        return text
+    cut = text.rfind(" ", 0, limit - 1)
+    if cut <= limit // 2:
+        cut = limit - 1
+    return text[:cut].rstrip(".,;: ") + "…"
+
+
 def _title_and_description(event: dict) -> tuple[str, str]:
     detail = event.get("detail", {})
     detail_type = event.get("detail-type", "unknown")
@@ -126,10 +179,17 @@ def _title_and_description(event: dict) -> tuple[str, str]:
     if detail_type == "SageMaker HyperPod Cluster Node Health Event":
         health = detail.get("HealthSummary", {})
         instance_id = detail.get("InstanceId", "unknown-instance")
-        title = (
-            f"HyperPod node health: {cluster_name}/{instance_id} "
-            f"-> {health.get('HealthStatus', 'unknown')}"
-        )
+        instance_group = detail.get("InstanceGroupName") or "cluster"
+        # Short fault summary from HMA fields for the title.
+        health_reason = health.get("HealthStatusReason", "").strip()
+        repair_action = health.get("RepairAction", "").strip()
+        summary_parts = []
+        if health_reason:
+            summary_parts.append(health_reason)
+        if repair_action:
+            summary_parts.append(f"Repair action: {repair_action}")
+        fault_summary = _shorten(" — ".join(summary_parts) or health.get("HealthStatus", "unknown"))
+        title = f"HyperPod {instance_group} / {fault_summary}"
         description = (
             f"HyperPod cluster '{cluster_name}' (account {account}, {region}) reported a node "
             f"health event for instance {instance_id}. "
@@ -145,7 +205,7 @@ def _title_and_description(event: dict) -> tuple[str, str]:
 
     if detail_type == "SageMaker HyperPod Cluster State Change":
         status = detail.get("ClusterStatus", "unknown")
-        title = f"HyperPod cluster state: {cluster_name} -> {status}"
+        title = f"HyperPod {cluster_name} / cluster status → {status}"
         groups = detail.get("InstanceGroups", []) or []
         groups_summary = ", ".join(
             f"{g.get('InstanceGroupName')}: {g.get('CurrentCount')}/{g.get('TargetCount')} ({g.get('Status')})"
@@ -162,14 +222,56 @@ def _title_and_description(event: dict) -> tuple[str, str]:
         ev_details = detail.get("EventDetails", {})
         resource_type = ev_details.get("ResourceType", "n/a")
         description_text = ev_details.get("Description", "")
-        title = f"HyperPod cluster event: {cluster_name} / {resource_type}"
+        sm_event_id = ev_details.get("EventId", "")
+        instance_group = ev_details.get("InstanceGroupName") or "cluster"
+
+        # For non-Info events, enrich the description with fields the
+        # EventBridge envelope omits (notably FailureMessage). See
+        # README + engineering-team report for why this workaround exists.
+        enriched = {}
+        if ev_details.get("EventLevel", "").lower() != "info" and sm_event_id:
+            api_ev = _describe_cluster_event(cluster_name, sm_event_id)
+            # Extract populated fields under EventMetadata.Instance
+            api_instance = (
+                api_ev.get("EventDetails", {})
+                .get("EventMetadata", {})
+                .get("Instance", {})
+                or {}
+            )
+            for k, v in api_instance.items():
+                if v not in (None, "", {}, []):
+                    enriched[k] = v
+
+        # Title picks the most operator-actionable text available:
+        # FailureMessage > event Description > resource-type fallback.
+        failure_message = enriched.get("FailureMessage", "").strip() if isinstance(enriched.get("FailureMessage"), str) else ""
+        if failure_message:
+            title_fault = _shorten(failure_message)
+        elif description_text:
+            title_fault = _shorten(description_text)
+        else:
+            title_fault = resource_type
+        title = f"HyperPod {instance_group} / {title_fault}"
+
         description = (
             f"HyperPod cluster '{cluster_name}' (account {account}, {region}) emitted a cluster "
             f"event for resource type {resource_type}. "
             f"InstanceGroup={ev_details.get('InstanceGroupName', 'n/a')}; "
-            f"InstanceId={ev_details.get('InstanceId', 'n/a')}. "
+            f"InstanceId={ev_details.get('InstanceId', 'n/a')}; "
+            f"EventId={sm_event_id or 'n/a'}. "
             f"Description: {description_text or 'n/a'}."
         )
+        if "FailureMessage" in enriched:
+            description += f" FailureMessage: {enriched['FailureMessage']}."
+        # Include any other populated Instance fields, one per line, so
+        # downstream categorization keys benefit from them too.
+        extras = {k: v for k, v in enriched.items() if k != "FailureMessage"}
+        if extras:
+            extras_str = ", ".join(
+                f"{k}={json.dumps(v, default=str) if isinstance(v, (dict, list)) else v}"
+                for k, v in extras.items()
+            )
+            description += f" InstanceMetadata: {extras_str}."
         return title, description
 
     return (

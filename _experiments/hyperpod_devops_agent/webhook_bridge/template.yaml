@@ -54,6 +54,14 @@ Resources:
                   - "arn:aws:logs:*:*:log-group:/aws/lambda/*"
                   - "arn:aws:logs:*:*:log-group:/aws/lambda/*:log-stream:*"
 
+              # Needed to fetch FailureMessage + other EventMetadata.Instance
+              # fields for non-Info events. The EventBridge envelope omits
+              # these fields; describe-cluster-event returns them.
+              - Effect: Allow
+                Action:
+                  - sagemaker:DescribeClusterEvent
+                Resource: "*"
+
   EventBridgeTargetRole:
     Type: AWS::IAM::Role
     Properties:
