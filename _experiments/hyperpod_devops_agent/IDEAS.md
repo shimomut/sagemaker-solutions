@@ -22,10 +22,14 @@ Investigation: `e281cd02-2df7-4245-8249-5860f4dd7e4a`
 ## We should test real repeated lifecycle script errors
 
 repeated lifecycle script errors is one of typical issues we should notify.
-Let's modify the lifecycle script so that it fails, then replace multiple instances. Instance replacements should fail and keep retrying. Check what happens.
+Let's modify the lifecycle script so that it fails, then replace multiple instances. Instance replacements should fail and keep retrying. Check what happens. Especially want to confirm the DevOps Agent can understand why Lifecycle script is failing by accessing CloudWatch Logs.
 
 
 ## String truncation logics in the Lambda function
 
 Review string truncation logics in the Lambda function and make sure they are consistent
 
+
+## Notification integration
+
+Want to setup email and slack notification, and see end-to-end experience
