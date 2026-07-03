@@ -520,6 +520,38 @@ volumes.
 > rollback and find a journal explaining what killed the previous
 > attempt — it's gone with the old root volume.
 
+### `UpdateClusterSoftware` operational semantics (Continuous Provisioning mode)
+
+Even after the "root EBS gets wiped" callout above, several `UpdateClusterSoftware` behaviors surprise testers and customer-facing tooling on the first encounter. Consolidated here:
+
+**`SoftwareUpdateStatus` field on `describe-cluster` `InstanceGroups[]`.** This is the canonical per-IG signal for "an AMI update is in flight"; distinct from the generic `Status: Updating` that both `UpdateCluster` and `UpdateClusterSoftware` produce. Observed transitions:
+- `n/a` (absent) → `InProgress` → `Succeeded` on the happy path.
+- `n/a` → `InProgress` → `RollbackInProgress` (transient, visible only briefly) → `Failed` on failure.
+
+`InProgress` alone is not enough to know the update is healthy; watch for `RollbackInProgress` or `Failed` at the tail. Poll every ~60 seconds; the terminal state usually lands 20–30 minutes after `update-cluster-software` returns.
+
+**`InstanceStatus.Message` is sticky across retries.** When `UpdateClusterSoftware` retries after a first-attempt failure, `InstanceStatus.Status` transitions back to `SystemUpdating`, but `InstanceStatus.Message` retains the failure text from the previous attempt (e.g. `"Lifecycle scripts did not run successfully..."`). During the retry window an operator sees `Status=SystemUpdating` AND a failure `Message` simultaneously. Two readings are possible: (a) it's a bug — the message should clear at retry start; (b) it's intentional — the message is a last-failure-cause preserving debugability across retries. Either way, treat `Message` as "most recent failure cause, may or may not still be current" rather than "current status." Runbooks pinning on `Status` alone are safer than combining `Status` + `Message`.
+
+**⚠ Likely bug (behavior subject to change): `DesiredImageId` shows the data-plane's shared AMI ID, not the tester's.** On `describe-cluster-node` / `describe-cluster` during an `UpdateClusterSoftware` operation:
+- `create-cluster` and `update-cluster` code paths: `CurrentImageId` / `DesiredImageId` show the AMI ID **the customer passed** (their owned AMI).
+- `update-cluster-software` code path: `DesiredImageId` shows the **data-plane's shared copy** of the customer's AMI, which is a different AMI ID that `describe-images --profile <customer>` cannot resolve (the customer doesn't own it and can't see it).
+
+Reported to the service team as a bug — expected to be fixed so `DesiredImageId` returns the customer's AMI ID consistently across all three code paths. Until then, a customer comparing `DesiredImageId` against the value they passed to `--image-id` will see a mismatch on this API path even when everything is working correctly. Cross-checks on `CurrentImageId` after the update settles are safe — that returns to the customer's owned AMI.
+
+**Retry-then-rollback semantics on failure.** `UpdateClusterSoftware` has a built-in **auto-retry loop before it gives up** — unlike node replacement, which does NOT auto-retry out of `Failed` (see "Common AI-confusing details" for the replacement case). The observed sequence when the first LCS attempt on the new AMI fails:
+
+1. **Multiple LCS attempts on the target AMI.** Each attempt fully re-images the node from the target AMI and re-runs the LCS bundle from scratch. Multiple `[SageMaker] Downloading lifecycle scripts` markers appear in the CloudWatch LCS stream (`/aws/sagemaker/Clusters/<name>/<id>/LifecycleConfig/<group>/<id>`) without matching `succeeded` markers between them. Each attempt is a fresh root-EBS rewrite.
+2. **Rollback to the pre-update AMI** once the retry budget is exhausted. Rollback target is whatever the node was on before the update was invoked (e.g. `default → custom` fails → rolls back to `default`; `custom v1 → custom v2` would roll back to `custom v1`; old `default → new default` would roll back to old `default`). Only the `default → custom` failure path has been directly observed; the rollback shape for other directions is inferred from the observed case, not directly measured.
+3. **Final LCS run on the rolled-back AMI**, which typically succeeds — same bundle, same target as the original boot — and emits a normal `[SageMaker] The lifecycle scripts succeeded.` marker in CloudWatch.
+4. **Terminal state**: `SoftwareUpdateStatus=Failed` on the target IG. `CurrentImageId` and `DesiredImageId` both back to the pre-update value. EC2 instance ID preserved (rollback is software-state, not EC2 replacement).
+
+Practical implications:
+
+- **The CloudWatch LCS stream carries the whole history in one place.** Count `[SageMaker] Downloading lifecycle scripts` markers to see how many attempts were made; count `succeeded` markers to see how many completed. `attempts − succeeded > 1` means a real retry happened. The final `succeeded` (if any) is usually the rollback, not the last update attempt.
+- **`SoftwareUpdateStatus=InProgress` covers the entire retry window**, not just a single attempt. If you're polling and see `InProgress` for 20+ minutes with the node cycling through `SystemUpdating` → transient `Failed` → `SystemUpdating` again, that's the auto-retry loop at work. Don't conclude the update is stuck just because you saw `Failed` briefly.
+- **A `[SageMaker] The lifecycle scripts succeeded.` marker in CloudWatch doesn't mean the AMI update succeeded** — it might be the rollback's LCS run. To distinguish, check `SoftwareUpdateStatus`: `Succeeded` vs `Failed`. On-node, whether the "new" AMI's marker / customization is present is the most reliable "did the AMI update actually stick?" test — but the specific file to check depends on which direction the update was going.
+- The retry budget (how many attempts before rollback, and by what time budget) has not been precisely characterized. Observed in one failure campaign: ~4 LCS attempts spread across ~18 minutes before rollback, on an `ml.m5.xlarge` worker. Treat as approximate; different regions, instance types, or provisioning-mode variants may differ.
+
 ## Storage layout — survives reboot vs. replace
 
 HyperPod nodes typically have multiple volumes mounted:
