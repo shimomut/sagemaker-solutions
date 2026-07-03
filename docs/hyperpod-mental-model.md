@@ -532,11 +532,14 @@ Even after the "root EBS gets wiped" callout above, several `UpdateClusterSoftwa
 
 **`InstanceStatus.Message` is sticky across retries.** When `UpdateClusterSoftware` retries after a first-attempt failure, `InstanceStatus.Status` transitions back to `SystemUpdating`, but `InstanceStatus.Message` retains the failure text from the previous attempt (e.g. `"Lifecycle scripts did not run successfully..."`). During the retry window an operator sees `Status=SystemUpdating` AND a failure `Message` simultaneously. Two readings are possible: (a) it's a bug — the message should clear at retry start; (b) it's intentional — the message is a last-failure-cause preserving debugability across retries. Either way, treat `Message` as "most recent failure cause, may or may not still be current" rather than "current status." Runbooks pinning on `Status` alone are safer than combining `Status` + `Message`.
 
-**⚠ Likely bug (behavior subject to change): `DesiredImageId` shows the data-plane's shared AMI ID, not the tester's.** On `describe-cluster-node` / `describe-cluster` during an `UpdateClusterSoftware` operation:
-- `create-cluster` and `update-cluster` code paths: `CurrentImageId` / `DesiredImageId` show the AMI ID **the customer passed** (their owned AMI).
-- `update-cluster-software` code path: `DesiredImageId` shows the **data-plane's shared copy** of the customer's AMI, which is a different AMI ID that `describe-images --profile <customer>` cannot resolve (the customer doesn't own it and can't see it).
+**⚠ Likely bug (behavior subject to change): `describe-cluster-node` — but NOT `describe-cluster` — surfaces the data-plane's shared AMI ID during `update-cluster-software`.** Observed behavior during an in-flight `UpdateClusterSoftware` operation:
 
-Reported to the service team as a bug — expected to be fixed so `DesiredImageId` returns the customer's AMI ID consistently across all three code paths. Until then, a customer comparing `DesiredImageId` against the value they passed to `--image-id` will see a mismatch on this API path even when everything is working correctly. Cross-checks on `CurrentImageId` after the update settles are safe — that returns to the customer's owned AMI.
+- `describe-cluster` → `InstanceGroups[].DesiredImageId` returns the AMI ID **the customer passed** to `--image-id`. Consistent across all three code paths (`create-cluster`, `update-cluster`, `update-cluster-software`).
+- `describe-cluster-node` → `DesiredImageId` behavior depends on the code path:
+  - `create-cluster` and `update-cluster` paths: returns the AMI ID **the customer passed** (their owned AMI).
+  - `update-cluster-software` path: returns the **data-plane's shared copy** of the customer's AMI, which is a different AMI ID that `describe-images --profile <customer>` cannot resolve (the customer doesn't own it and can't see it).
+
+Reported to the service team as a bug — expected to be fixed so `describe-cluster-node.DesiredImageId` returns the customer's AMI ID consistently across all three code paths. Until then, a customer comparing `describe-cluster-node.DesiredImageId` against the value they passed to `--image-id` will see a mismatch even when everything is working correctly. Two safe cross-checks: (a) use `describe-cluster` — its `DesiredImageId` matches the customer's input; (b) check `CurrentImageId` after the update settles — that returns to the customer's owned AMI on both APIs.
 
 **Retry-then-rollback semantics on failure.** `UpdateClusterSoftware` has a built-in **auto-retry loop before it gives up** — unlike node replacement, which does NOT auto-retry out of `Failed` (see "Common AI-confusing details" for the replacement case). The observed sequence when the first LCS attempt on the new AMI fails:
 
