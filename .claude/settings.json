@@ -5,6 +5,10 @@
       "Bash(aws sagemaker describe-*)",
       "Bash(aws sagemaker get-*)",
       "Bash(aws sagemaker search:*)",
+      "Bash(aws devops-agent list-*)",
+      "Bash(aws devops-agent describe-*)",
+      "Bash(aws devops-agent get-*)",
+      "Bash(aws devops-agent validate-*)",
       "WebFetch(domain:github.com)",
       "WebFetch(domain:raw.githubusercontent.com)"
     ],
