@@ -19,8 +19,8 @@ ROOT="$(cd "${HERE}/.." && pwd)"
 source "${HERE}/config.sh"
 
 : "${STACK_NAME:=hyperpod-devops-agent-email-notifier}"
-: "${EMAIL_DETAIL_TYPES:=Investigation Created,Investigation Closed}"
-: "${CONSOLE_URL_TEMPLATE:=https://{region}.console.aws.amazon.com/aidevops/home?region={region}#/investigations/{investigation_id}}"
+: "${EMAIL_DETAIL_TYPES:=Investigation Created,Investigation Completed}"
+: "${CONSOLE_URL_TEMPLATE:=https://%region%.console.aws.amazon.com/aidevops/home?region=%region%#/investigations/%investigation_id%}"
 : "${SKIP_VERDICT_PREFIXES:=Suppress}"
 
 TEMPLATE_SRC="${ROOT}/email_notifier/template.yaml"

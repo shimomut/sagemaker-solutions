@@ -19,7 +19,8 @@ Configuration via env vars:
                           Created", "Investigation Updated", "Investigation
                           Closed" — limit to the ones you want to be paged on.
   CONSOLE_URL_TEMPLATE  - Optional template that resolves an investigation URL
-                          from the event id. Defaults to the Agent Space console.
+                          from the event id. Uses %token% placeholders (%region%,
+                          %account%, %investigation_id%). Defaults to Agent Space console.
   SKIP_VERDICT_PREFIXES - Comma-separated verdict-title prefixes to skip
                           (default: "Suppress").
 """
@@ -106,11 +107,15 @@ def _console_url(event: dict) -> str:
     template = os.environ.get("CONSOLE_URL_TEMPLATE", "")
     if not template:
         return ""
-    return template.format(
-        region=event.get("region", ""),
-        account=event.get("account", ""),
-        investigation_id=event.get("detail", {}).get("investigationId", ""),
-    )
+    replacements = {
+        "%region%": event.get("region", ""),
+        "%account%": event.get("account", ""),
+        "%investigation_id%": event.get("detail", {}).get("investigationId") or event.get("detail", {}).get("taskId", ""),
+    }
+    result = template
+    for token, value in replacements.items():
+        result = result.replace(token, value or "")
+    return result
 
 
 def _priority_emoji(priority: str) -> str:
@@ -118,16 +123,15 @@ def _priority_emoji(priority: str) -> str:
     return {"HIGH": "[H]", "MEDIUM": "[M]", "LOW": "[L]"}.get(priority.upper(), "[?]")
 
 
-def _format_body_text(event: dict, verdict_title: str | None, verdict_description: str | None) -> str:
-    detail = event.get("detail", {})
+def _format_body_text(event: dict, fields: dict, verdict_title: str | None, verdict_description: str | None) -> str:
     lines = [
         f"DevOps Agent investigation update",
         f"================================",
         "",
         f"Action:        {event.get('detail-type', '')}",
-        f"Priority:      {detail.get('priority', 'n/a')}",
-        f"Title:         {detail.get('title', '(no title)')}",
-        f"Investigation: {detail.get('investigationId', 'n/a')}",
+        f"Priority:      {fields['priority'] or 'n/a'}",
+        f"Title:         {fields['title']}",
+        f"Investigation: {fields['investigationId'] or 'n/a'}",
         f"Account:       {event.get('account', 'n/a')}",
         f"Region:        {event.get('region', 'n/a')}",
         f"Timestamp:     {event.get('time', 'n/a')}",
@@ -146,7 +150,7 @@ def _format_body_text(event: dict, verdict_title: str | None, verdict_descriptio
         lines.append("-------")
         lines.append(verdict_description)
         lines.append("")
-    description = detail.get("description") or detail.get("summary") or ""
+    description = fields["description"]
     if description and not verdict_description:
         lines.append("Description / summary")
         lines.append("---------------------")
@@ -155,21 +159,43 @@ def _format_body_text(event: dict, verdict_title: str | None, verdict_descriptio
     return "\n".join(lines)
 
 
-def _format_subject(event: dict, verdict_title: str | None) -> str:
-    detail = event.get("detail", {})
-    priority = detail.get("priority", "")
+def _format_subject(event: dict, fields: dict, verdict_title: str | None) -> str:
+    priority = fields["priority"]
     if verdict_title:
-        # Replace generic "HyperPod cluster event: k8-1 / Instance" with the
-        # verdict title for a much more actionable subject line.
         return f"{_priority_emoji(priority)} {verdict_title}"
-    title = detail.get("title", "(no title)")
+    title = fields["title"]
     action = event.get("detail-type", "").replace("Investigation ", "")
     return f"{_priority_emoji(priority)} HyperPod investigation {action.lower()}: {title}"
 
 
+def _extract_detail_fields(event: dict) -> dict:
+    """Normalize event detail fields regardless of the nesting structure.
+
+    DevOps Agent's EventBridge events may use flat top-level keys or
+    nest them under 'backlogTask' or similar. We try multiple paths.
+    """
+    detail = event.get("detail", {})
+    task = detail.get("backlogTask") or detail.get("task") or {}
+    return {
+        "title": detail.get("title") or task.get("title") or "(no title)",
+        "priority": detail.get("priority") or task.get("priority") or "",
+        "investigationId": (
+            detail.get("investigationId")
+            or detail.get("taskId")
+            or task.get("taskId")
+            or ""
+        ),
+        "agentSpaceId": detail.get("agentSpaceId") or task.get("agentSpaceId") or "",
+        "taskId": detail.get("taskId") or task.get("taskId") or "",
+        "description": detail.get("description") or task.get("description") or "",
+    }
+
+
 def lambda_handler(event, context):
     detail_type = event.get("detail-type", "")
-    print(f"received event detail-type={detail_type!r} id={event.get('id')!r}")
+    detail = event.get("detail", {})
+    print(f"received event detail-type={detail_type!r} id={event.get('id')!r} detail-keys={sorted(detail.keys())}")
+    print(f"detail snapshot: {json.dumps(detail)[:500]}")
 
     allowed = _allowed_detail_types()
     if allowed and detail_type not in allowed:
@@ -185,6 +211,8 @@ def lambda_handler(event, context):
                 print(f"skipping: verdict {bare!r} starts with skip-prefix {prefix!r}")
                 return {"statusCode": 200, "body": json.dumps({"skipped": True, "reason": f"verdict-prefix-{prefix}"})}
 
+    fields = _extract_detail_fields(event)
+
     recipients = _recipients()
     if not recipients:
         raise RuntimeError("EMAIL_RECIPIENTS is empty — refusing to send")
@@ -192,8 +220,8 @@ def lambda_handler(event, context):
     if not sender:
         raise RuntimeError("EMAIL_SENDER is unset")
 
-    subject = _format_subject(event, verdict_title)
-    body = _format_body_text(event, verdict_title, verdict_description)
+    subject = _format_subject(event, fields, verdict_title)
+    body = _format_body_text(event, fields, verdict_title, verdict_description)
     print(f"sending email from={sender!r} to={recipients} subject={subject!r} bytes={len(body)}")
 
     resp = _ses().send_email(

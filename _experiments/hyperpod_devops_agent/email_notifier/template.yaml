@@ -14,13 +14,13 @@ Parameters:
 
   EmailDetailTypes:
     Type: String
-    Default: "Investigation Created,Investigation Closed"
-    Description: "Comma-separated EventBridge detail-types to send on. Default sends on creation and closure only (skips noisy 'Investigation Updated')."
+    Default: "Investigation Created,Investigation Completed"
+    Description: "Comma-separated EventBridge detail-types to send on. Default sends on creation and completion only (skips noisy 'Investigation In Progress' / 'Investigation Linked')."
 
   ConsoleUrlTemplate:
     Type: String
-    Default: "https://{region}.console.aws.amazon.com/aidevops/home?region={region}#/investigations/{investigation_id}"
-    Description: "Optional URL template included in emails. Tokens: {region}, {account}, {investigation_id}."
+    Default: "https://%region%.console.aws.amazon.com/aidevops/home?region=%region%#/investigations/%investigation_id%"
+    Description: "Optional URL template included in emails. Tokens: %region%, %account%, %investigation_id%."
 
   SkipVerdictPrefixes:
     Type: String
@@ -61,8 +61,8 @@ Resources:
                     "ses:FromAddress": !Ref EmailSender
               - Effect: Allow
                 Action:
-                  - devops-agent:GetBacklogTask
-                  - devops-agent:ListJournalRecords
+                  - aidevops:GetBacklogTask
+                  - aidevops:ListJournalRecords
                 Resource: "*"
 
   EmailNotifierFunction:
