@@ -102,6 +102,22 @@ def _event_level(event: dict) -> str | None:
     )
 
 
+def _is_scale_progress_noise(event: dict) -> bool:
+    """Detect 'lost orchestration-ready' Warn events emitted during scaling.
+
+    These are progress updates during customer-initiated UpdateCluster
+    operations, not incident signals. Filtering here avoids forwarding
+    noise to the DevOps Agent webhook. See the mental-model doc section
+    "Scale-in-progress emits spurious Warn events with misleading
+    FailureMessage" for details. Interim until HyperPod engineering
+    removes these from the Warn-level stream.
+    """
+    detail = event.get("detail", {})
+    ev_details = detail.get("EventDetails", {})
+    description = ev_details.get("Description", "")
+    return "lost orchestration-ready status" in description
+
+
 def _should_drop(event: dict) -> tuple[bool, str | None]:
     level = _event_level(event)
     if level is None:
@@ -400,6 +416,10 @@ def lambda_handler(event, context):
     if drop:
         print(f"dropping event: EventLevel={level!r} is in WEBHOOK_DROP_EVENT_LEVELS")
         return {"statusCode": 200, "body": json.dumps({"dropped": True, "eventLevel": level})}
+
+    if _is_scale_progress_noise(event):
+        print("dropping event: scale-in-progress 'lost orchestration-ready' noise")
+        return {"statusCode": 200, "body": json.dumps({"dropped": True, "reason": "scale-progress-noise"})}
 
     webhook_url, secret = _load_webhook_credentials()
     payload = _build_payload(event)

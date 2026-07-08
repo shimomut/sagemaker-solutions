@@ -199,6 +199,11 @@ Phase 3 rules 6–8):
 - `signature_count_7d[<signature>]` — count of distinct fault events
   with the same signature string in the last 7 days. Uses the
   Phase 2b signature format `<ig>:<content>`.
+  **Exclusion**: events whose Description contains
+  `"lost orchestration-ready status"` MUST be excluded from
+  signature counting. These are scale-in-progress noise (see
+  mental-model § "Scale-in-progress emits spurious Warn events"),
+  not fault signals. Do NOT count them toward rule 6 thresholds.
 
 Include these counts in the verdict description's "What HyperPod is
 doing right now" paragraph when they're ≥2 — even if the verdict

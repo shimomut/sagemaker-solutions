@@ -38,6 +38,10 @@ Root cause: our concat-signature `<ig>:<Description + FailureMessage>` treats th
 - Notable: the event fired *after* the cluster had already returned to 5/5, but triage still reasoned about the recently-completed replacement activity and SKIPPED — smarter than a hard `CurrentCount != TargetCount` gate. No email, no RCA billed.
 - Related follow-up: `"deletion request received"` events during scale-down (task `f512a354`) — see [Triage rule for "deletion request was received" during scale-down](#triage-rule-for-deletion-request-was-received-during-scale-down) below.
 
+**Re-verified 2026-07-07T23:40Z on scale-down worker2 2→0**: the v0.3.0 triage rule 3 (describe-cluster check) failed to fire — the describe-cluster call sees Cur==Tgt by the time it executes (race). The first event `ec19d171` PROCEEDed as a new primary, the second `ffad8da7` LINKED by the default AI correlator (not our rule).
+
+**Revised approach (v0.4.0)**: moved filtering upstream to the bridge Lambda — events with Description containing `"lost orchestration-ready status"` are now dropped before they reach the webhook. The RCA skill also excludes them from `signature_count_7d` so they don't trigger rule 6 Escalate verdicts during audit walks. Triage rule 3 removed (superseded). Asking engineering to fix the underlying spurious-event issue.
+
 
 ## We should test real repeated lifecycle script errors [done]
 
