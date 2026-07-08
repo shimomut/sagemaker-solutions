@@ -9,6 +9,13 @@
       "Bash(aws devops-agent describe-*)",
       "Bash(aws devops-agent get-*)",
       "Bash(aws devops-agent validate-*)",
+      "Bash(aws logs describe-*)",
+      "Bash(aws logs get-*)",
+      "Bash(aws logs list-*)",
+      "Bash(aws logs filter-log-events:*)",
+      "Bash(aws logs start-query:*)",
+      "Bash(aws logs stop-query:*)",
+      "Bash(aws logs test-metric-filter:*)",
       "WebFetch(domain:github.com)",
       "WebFetch(domain:raw.githubusercontent.com)"
     ],
