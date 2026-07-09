@@ -26,9 +26,9 @@ Parameters:
   CrashLoopHoursThreshold:
     Type: Number
     Default: 4
-    MinValue: 1
+    MinValue: 0
     MaxValue: 168
-    Description: "Escalate if any Pod has been in CrashLoopBackOff for more than this many hours. Short-lived flapping (e.g. rolling deploys) is intentionally tolerated by a higher threshold."
+    Description: "Escalate if any Pod has been in CrashLoopBackOff for more than this many hours. Short-lived flapping (e.g. rolling deploys) is intentionally tolerated by a higher threshold. Set to 0 to fire on any active CrashLoopBackOff (useful for testing)."
 
   NotReadyNodePercentThreshold:
     Type: Number

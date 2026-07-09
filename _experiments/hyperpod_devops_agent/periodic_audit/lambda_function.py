@@ -129,27 +129,46 @@ def _build_payload(cluster_name: str, k8s_checks: dict | None) -> dict:
     }
     if k8s_checks is not None:
         metadata["k8sChecks"] = k8s_checks
+
+    # Also inline the k8sChecks block into the human-readable description
+    # text. DevOps Agent's platform preserves the top-level `description`
+    # verbatim but flattens/drops nested payload sub-objects — the skill can
+    # only reliably see fields that are part of the description string. See
+    # RCA SKILL.md Phase 1 step 8 for the parse contract.
+    description = (
+        f"Periodic audit invocation for HyperPod cluster '{cluster_name}'. "
+        f"No specific incident is referenced. The hyperpod-incident-rca skill "
+        f"should run in audit mode: discover open fault chains in "
+        f"list-cluster-events (7-day window), classify each, and emit "
+        f"Resolved / Monitor / Escalate per classification rules. If no "
+        f"open chains exist, emit 'Suppress — periodic audit, no open "
+        f"incidents'."
+    )
+    if k8s_checks is not None:
+        description += (
+            "\n\n"
+            "k8sChecks configuration (parse as JSON, then apply per Phase 1 step 8 + Phase 3d):\n"
+            f"{json.dumps(k8s_checks)}"
+        )
     return {
         "eventType": "incident",
         "incidentId": incident_id,
         "action": "created",
         "priority": "LOW",
-        # Stable audit-event title so DevOps Agent's automatic task
-        # deduplication (~30 minute window) reliably absorbs back-to-back
-        # audits — that's free idle-cluster cost reduction. When the platform
-        # dedup window expires and a fresh audit DOES run the skill, the
-        # skill's rule-3 (stale-evidence Suppress) provides the second
-        # protection layer based on signature-set comparison.
-        "title": f"HyperPod periodic audit: {cluster_name}",
-        "description": (
-            f"Periodic audit invocation for HyperPod cluster '{cluster_name}'. "
-            f"No specific incident is referenced. The hyperpod-incident-rca skill "
-            f"should run in audit mode: discover open fault chains in "
-            f"list-cluster-events (7-day window), classify each, and emit "
-            f"Resolved / Monitor / Escalate per classification rules. If no "
-            f"open chains exist, emit 'Suppress — periodic audit, no open "
-            f"incidents'."
-        ),
+        # Per-fire unique title. Earlier design used a stable title
+        # ("HyperPod periodic audit: <cluster>") to lean on the platform's
+        # Layer-4 title-based dedup for idle-cluster cost reduction. That
+        # backfired: the platform's default correlator LINKs every audit to
+        # the earliest still-alive primary before our custom triage skill
+        # (hyperpod-incident-triage v0.5.0+) has a chance to inspect state.
+        # Since v0.5.0 the custom triage skill computes a full cluster audit
+        # signature (fault chains + CrashLoopBackOff pods + NotReady nodes)
+        # and applies its own LINK/SKIP/PROCEED rules; we DEFEAT platform
+        # Layer-4 dedup here so the custom skill always gets to decide.
+        # Idle-cluster cost is now controlled by the custom skill's rule 2
+        # (SKIP when signature is unchanged), not by title collisions.
+        "title": f"HyperPod periodic audit: {cluster_name} @ {now_compact}",
+        "description": description,
         "timestamp": now_iso,
         "service": "SageMakerHyperPod",
         "data": {

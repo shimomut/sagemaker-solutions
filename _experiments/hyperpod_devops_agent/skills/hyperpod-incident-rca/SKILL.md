@@ -2,7 +2,7 @@
 name: hyperpod-incident-rca
 description: Root-cause analysis for a SageMaker HyperPod incident, after triage has decided to PROCEED. Runs at the INCIDENT_RCA stage. Reads describe-cluster, list-cluster-nodes, list-cluster-events, and HMA CloudWatch streams; reconstructs a timeline; classifies as Suppress / Monitor / Escalate / Resolved against time budgets and recurrence statistics from the HyperPod mental model. Produces a human-readable verdict report with recommended operator actions. The complementary INCIDENT_TRIAGE skill `hyperpod-incident-triage` decides LINKED / SKIPPED / PROCEED before this skill runs.
 metadata:
-  version: "0.4.0"
+  version: "0.6.1"
   agent_types: ["INCIDENT_RCA"]
 ---
 
@@ -48,6 +48,28 @@ neither is a terminal escalation signal on its own. Distinguishing
 status all aligned on a wall-clock timeline. Building a separate
 "triage" skill that decides without that data would mean re-deciding
 incorrectly on every event.
+
+## Relationship to `hyperpod-incident-triage` v0.5.0
+
+The triage skill (v0.5.0+) computes a cluster audit signature —
+`kubectl get pods`, `kubectl get nodes`, and a `list-cluster-events`
+scan of the last 4 hours — and decides LINK / SKIP / PROCEED based
+on whether the signature changed. By the time this RCA skill
+loads, triage has already:
+
+- **Confirmed the audit signature is new** (rule 3 PROCEED), OR
+- **Confirmed a fresh incident event arrived** (rule 4 or 6 PROCEED).
+
+That means every RCA-mode audit invocation is guaranteed to be
+looking at *something new*. RCA still re-does the full Phase 1
+gather (including Pod / Node inspection in Phase 1 step 8, and
+threshold checks in Phase 3d) because the reasoning stage needs
+the full state — the audit signature is a summary, not a
+substitute for evidence.
+
+RCA does NOT need to re-implement the audit-signature comparison —
+that stale-evidence check has been permanently moved to triage.
+Rules 3 / 3b from earlier RCA versions remain removed.
 
 ## Workflow
 
@@ -115,20 +137,24 @@ in the cluster-events window, not per single trigger.
    reachable from the control plane — `describe-cluster-node` gives
    most of what we need; deep `scontrol`/`sinfo` requires SSM and is
    out of scope here.
-8. **Kubernetes state — audit mode only, EKS only, when the trigger
-   payload includes a `data.metadata.k8sChecks` block with
-   `enabled: true`**: gather cluster-wide Pod and Node state for the
-   rules in Phase 3d. Skip this step in incident mode — the
-   webhook-triggered path is already focused on a specific fault and
-   the operational Pod/Node checks belong to the periodic audit.
+8. **Kubernetes state — MANDATORY in audit mode on EKS clusters.**
+   You MUST execute both of the following before entering Phase 2,
+   even if the trigger payload has no `k8sChecks` block, even if
+   earlier gather steps already suggest a plausible verdict, and
+   even if `list-cluster-events` returned a rich history. Live
+   Pod/Node state is the source of truth for "what is broken *right
+   now*" — the wider event history is context, not a substitute.
    - `kubectl get pods -A -o json` — full cluster Pod state.
    - `kubectl get nodes -o json` — full Node state including
      `status.conditions[]` and their `lastTransitionTime`.
 
-   The trigger payload's `k8sChecks` block carries the thresholds and
-   namespace lists the customer configured on the periodic-audit
-   stack. Do NOT hardcode thresholds or namespaces in the skill —
-   read them from the block. The block's shape is:
+   Skip this step only if: (a) the cluster's orchestrator is Slurm
+   (not EKS), OR (b) the trigger is incident-mode (webhook-triggered
+   for a specific fault; Pod/Node scan belongs in periodic audit).
+
+   The trigger's `k8sChecks` block supplies **thresholds and
+   namespace filters** used by Phase 3d — not a gate on whether
+   kubectl runs. Fields:
 
    ```json
    {
@@ -141,7 +167,51 @@ in the cluster-events window, not per single trigger.
    }
    ```
 
-   If the block is absent or `enabled: false`, skip Phase 3d entirely.
+   **Where to find this block at runtime.** The DevOps Agent
+   platform preserves the top-level `description` string of the
+   incoming task verbatim, but drops nested sub-objects from the
+   webhook payload. The audit Lambda therefore inlines the
+   `k8sChecks` block into the task description text on a line that
+   begins:
+
+   ```
+   k8sChecks configuration (parse as JSON, then apply per Phase 1 step 8 + Phase 3d):
+   { ... }
+   ```
+
+   Locate that line in the task description, extract the JSON
+   object on the next line, and use its fields for Phase 3d
+   thresholds and namespaces. Do NOT default any field unless the
+   whole block is absent — the block's values override the built-in
+   defaults regardless of whether they equal the defaults.
+
+   If the block is absent from the description entirely, use
+   defaults: `crashLoopHoursThreshold=4`,
+   `notReadyNodePercentThreshold=10`, `notReadyDurationMinutes=15`,
+   `ignoreNamespaces=["kube-public","kube-node-lease"]`,
+   `systemNamespaces=["kube-system","aws-hyperpod","amazon-cloudwatch"]`.
+
+   If the block has `enabled: false`, still run the kubectl commands
+   (Phase 1's job is discovery), but Phase 3d will not fire — see
+   note there.
+
+### Phase 1 gather sanity gate — verify BEFORE entering Phase 2
+
+Before starting Phase 2 (timeline reconstruction), confirm that
+Phase 1 executed the required steps:
+
+- Steps 1, 2, 3 (describe-cluster, list-cluster-nodes,
+  list-cluster-events): required for both incident and audit modes.
+- Step 8 (kubectl get pods, kubectl get nodes): required in audit
+  mode on EKS. Missing here is a **hard error** — do not proceed to
+  Phase 2. Instead: run step 8 now, then re-enter this gate.
+
+Do not rationalize skipping step 8 with reasoning like "the
+`list-cluster-events` window looks quiet so I don't need to check
+pods" or "the LCS storm from earlier is more interesting." Those
+are outputs of Phase 3 reasoning, not inputs to Phase 1. Pod state
+must be gathered as **evidence** before Phase 3 rules can weigh
+"live k8s problem" against "historical event pattern."
 
 ### Phase 2 — Reconstruct the timeline
 
@@ -258,14 +328,45 @@ decisions at the platform triage stage for future incoming events.
 
 ### Phase 3 — Classify
 
+**Ordering — MANDATORY.**
+
+1. **First**, run **Phase 3d** (Kubernetes-state checks — CrashLoopBackOff,
+   NotReady). Emit any Escalate verdicts from Phase 3d immediately.
+2. **Then**, run the fault-chain rules below in this Phase 3 table.
+
+Reason: Phase 3d looks at **live current state**, which is the most
+actionable signal for a periodic audit. The main rule table below
+looks at the 4h/24h/7d event history, which is context. When both
+would fire, the operator needs the live state surfaced regardless
+of whether historical patterns are ALSO present. Do not skip Phase
+3d because "the event history already provides an interesting
+verdict" — that produced the 2026-07-09 miss where a live
+CrashLoopBackOff was overshadowed by a recurring-LCS-pattern
+verdict from a *already-resolved* 07-08 storm.
+
+Emitting both a Phase 3d verdict and a Phase 3 verdict on the same
+audit is expected and correct. Each becomes its own symptom record;
+the operator gets both signals via email.
+
 Apply the rules below **in order**. Stop at the first match.
 
 **Audit mode**: classify each open fault chain found in the
 cluster-events window independently. Emit one verdict per chain
 (plus one `Suppress — periodic audit, no open incidents` if no
-chains are open). A fault chain is "open" if it had a fault event
-within the last 4 hours and has not yet emitted a successful
-`Running` transition + 30 min clean-window.
+chains are open AND Phase 3d also emitted nothing). A fault chain
+is "open" if it had a fault event within the last 4 hours and has
+not yet emitted a successful `Running` transition + 30 min
+clean-window.
+
+**Historical-only chains are not open.** If the only fault events
+in the 4-hour window belong to a chain that has already completed
+(e.g., all replacements succeeded and all affected nodes are back
+in `Running` for ≥30 min), the chain is closed. Do not emit an
+`Escalate` verdict on the basis of `signature_count_7d` alone
+against a closed chain unless the recurrence rule 6/7/8 fires from
+statistics that INCLUDE at least one event within the last 4 hours.
+A 7-day-old already-recovered pattern is context, not an actionable
+incident.
 
 The recurring-pattern rules (7–9) are checked **before** the
 single-incident rules (10–13) — a node that's auto-recovering for the
@@ -344,12 +445,20 @@ these without updating the mental-model doc first.
 
 ### Phase 3d — Kubernetes-state checks (audit mode, EKS only)
 
-Run this **after** the fault-chain classification rules above and
-**only** when the trigger payload's `data.metadata.k8sChecks` block is
-present with `enabled: true`. The trigger payload also carries the
-thresholds and namespace lists — read them from the block, do not
-hardcode. Emit each verdict as an independent record (same as the
-per-fault-chain verdicts from the main rule table).
+Run this **BEFORE** the fault-chain classification rules above
+(see the "Ordering — MANDATORY" note at the top of Phase 3). Phase
+3d uses the `kubectl get pods` / `kubectl get nodes` output from
+Phase 1 step 8, which is mandatory in audit-mode-on-EKS regardless
+of the k8sChecks payload block. Emit each verdict as an
+independent symptom record.
+
+**Threshold + namespace configuration.** Read from the payload's
+`data.metadata.k8sChecks` block when present; otherwise use the
+defaults documented in Phase 1 step 8. If the block is present with
+`enabled: false`, DO NOT emit Phase 3d verdicts (customer has
+opted out of the k8s-state Escalate) — but Phase 1's kubectl gather
+still ran because it's part of general state discovery, and its
+data may still surface in Phase 4 report context.
 
 **Pod check — CrashLoopBackOff duration.** For each Pod in the
 `kubectl get pods -A -o json` output:
