@@ -24,7 +24,7 @@ source "${HERE}/config.sh"
 
 : "${STACK_NAME:=hyperpod-devops-agent-email-notifier}"
 : "${EMAIL_DETAIL_TYPES:=Investigation Completed}"
-: "${CONSOLE_URL_TEMPLATE:=https://%region%.console.aws.amazon.com/aidevops/home?region=%region%#/agentspaces/%agent_space_id%/investigations/%task_id%}"
+: "${CONSOLE_URL_TEMPLATE:=https://%agent_space_id%.aidevops.global.app.aws/investigation/%task_id%}"
 : "${FORCE_SEND:=false}"
 : "${MARKER_EXPIRATION_DAYS:=30}"
 

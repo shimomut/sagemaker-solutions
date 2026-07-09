@@ -19,7 +19,7 @@ Parameters:
 
   ConsoleUrlTemplate:
     Type: String
-    Default: "https://%region%.console.aws.amazon.com/aidevops/home?region=%region%#/agentspaces/%agent_space_id%/investigations/%task_id%"
+    Default: "https://%agent_space_id%.aidevops.global.app.aws/investigation/%task_id%"
     Description: "Optional URL template included in emails. Tokens: %region%, %account%, %agent_space_id%, %task_id%."
 
   ForceSend:
