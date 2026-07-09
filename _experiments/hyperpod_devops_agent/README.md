@@ -23,6 +23,7 @@ Slack notifications can be added later (paused on workspace 3P approval) via Dev
 ├── Makefile                 - make targets for every step below
 ├── README.md                - this file
 ├── docs/                    - DevOps Agent UG + API ref PDFs (git-ignored) + extracted .txt
+│   └── devops-agent-mental-model.md  - undocumented DevOps Agent behaviors we discovered (read before changing skills/bridge/audit)
 ├── extract_pdf.py           - PDF -> .txt helper (pypdf)
 ├── requirements.txt
 ├── foundation/
