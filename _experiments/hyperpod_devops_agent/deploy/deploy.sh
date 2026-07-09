@@ -7,7 +7,7 @@
 #      (empty for Slurm -> EKS access is skipped by the template).
 #   4. Ensure the S3 assets bucket exists, then sync the skills into it and
 #      capture the manifest + content-hash version.
-#   5. Embed the Lambda sources into template.embedded.yaml.
+#   5. Embed the Lambda sources into hyperpod_devops_agent.embedded.yaml.
 #   6. aws cloudformation deploy with the assembled parameters.
 #
 # Env overrides: REGION, STACK_NAME, PARAMS_FILE, SKIP_SKILLS=yes.
@@ -16,10 +16,11 @@ set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-: "${STACK_NAME:=hyperpod-devops-agent}"
+# STACK_NAME defaults per-cluster (below, once the cluster slug is known) so
+# multiple clusters get distinct stacks. Override by exporting STACK_NAME.
 : "${PARAMS_FILE:=${HERE}/params.json}"
-: "${TEMPLATE_SRC:=${HERE}/template.yaml}"
-: "${TEMPLATE_OUT:=${HERE}/template.embedded.yaml}"
+: "${TEMPLATE_SRC:=${HERE}/hyperpod_devops_agent.yaml}"
+: "${TEMPLATE_OUT:=${HERE}/hyperpod_devops_agent.embedded.yaml}"
 
 if [[ ! -f "${PARAMS_FILE}" ]]; then
     echo "Error: ${PARAMS_FILE} not found. Copy deploy/params.example.json to deploy/params.json and edit it." >&2
@@ -60,10 +61,27 @@ if [[ -z "${HYPERPOD_CLUSTER_NAME}" ]]; then
     exit 1
 fi
 
+# Bucket-safe, <=20-char slug of the cluster name. Makes per-cluster resource
+# names (buckets, IAM roles via NamePrefix) unique so multiple clusters can
+# coexist in one account/region. Lowercase, non-alnum -> '-', collapse repeats,
+# trim leading/trailing '-', cap at 20 chars.
+NAME_PREFIX="$(python3 - "${HYPERPOD_CLUSTER_NAME}" <<'PY'
+import re, sys
+s = sys.argv[1].lower()
+s = re.sub(r"[^a-z0-9]+", "-", s).strip("-")
+s = re.sub(r"-{2,}", "-", s)[:20].strip("-")
+print(s or "cluster")
+PY
+)"
+
+# Per-cluster default stack name (override with STACK_NAME env).
+: "${STACK_NAME:=hyperpod-devops-agent-${NAME_PREFIX}}"
+
 echo "==> Configuration"
 echo "    Region:           ${REGION}"
 echo "    Account:          ${ACCOUNT_ID}"
 echo "    HyperPod cluster: ${HYPERPOD_CLUSTER_NAME}"
+echo "    Name prefix:      ${NAME_PREFIX}"
 echo "    Stack name:       ${STACK_NAME}"
 
 # ------------------------------------------------- auto-discover EKS cluster name
@@ -95,7 +113,7 @@ ASSETS_BUCKET=""
 SKILLS_VERSION="none"
 SKILLS_MANIFEST="[]"
 if [[ "${SKIP_SKILLS:-no}" != "yes" ]]; then
-    ASSETS_BUCKET="hyperpod-devops-agent-assets-${ACCOUNT_ID}-${REGION}"
+    ASSETS_BUCKET="hpda-assets-${NAME_PREFIX}-${ACCOUNT_ID}-${REGION}"
     echo
     echo "==> Ensuring assets bucket s3://${ASSETS_BUCKET}"
     if ! aws s3api head-bucket --bucket "${ASSETS_BUCKET}" --region "${REGION}" 2>/dev/null; then
@@ -112,7 +130,7 @@ if [[ "${SKIP_SKILLS:-no}" != "yes" ]]; then
 
     echo
     echo "==> Syncing skills to S3"
-    SYNC_JSON="$(python3 "${HERE}/build.py" sync-skills --bucket "${ASSETS_BUCKET}" --region "${REGION}")"
+    SYNC_JSON="$(python3 "${HERE}/prepare_deployment.py" sync-skills --bucket "${ASSETS_BUCKET}" --region "${REGION}")"
     SKILLS_VERSION="$(echo "${SYNC_JSON}" | python3 -c "import json,sys; print(json.load(sys.stdin)['version'])")"
     SKILLS_MANIFEST="$(echo "${SYNC_JSON}" | python3 -c "import json,sys; print(json.dumps(json.load(sys.stdin)['manifest']))")"
     echo "    skills version: ${SKILLS_VERSION}"
@@ -124,12 +142,13 @@ fi
 # ------------------------------------------------------------------ embed + deploy
 echo
 echo "==> Embedding Lambda code into template"
-python3 "${HERE}/build.py" embed --in "${TEMPLATE_SRC}" --out "${TEMPLATE_OUT}"
+python3 "${HERE}/prepare_deployment.py" embed --in "${TEMPLATE_SRC}" --out "${TEMPLATE_OUT}"
 
 # Assemble parameter overrides: user params first, then the auto-derived ones
 # (later values win in aws cloudformation deploy, so auto-derived override any
 # stale user entries for these managed keys).
 PARAMS=("${USER_PARAMS[@]}")
+PARAMS+=("NamePrefix=${NAME_PREFIX}")
 PARAMS+=("EksClusterName=${EKS_CLUSTER_NAME}")
 PARAMS+=("AssetsBucket=${ASSETS_BUCKET}")
 PARAMS+=("SkillsVersion=${SKILLS_VERSION}")

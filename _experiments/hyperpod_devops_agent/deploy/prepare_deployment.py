@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
-"""Build helpers for the single-template HyperPod x DevOps Agent deployment.
+"""Prepare the single-template HyperPod x DevOps Agent deployment.
 
-Two subcommands, both driven by the Makefile:
+Two subcommands, both driven by the Makefile, that turn the source tree into
+inputs 'aws cloudformation deploy' can consume:
 
-  embed    Inline each deploy/lambda/*.py into template.yaml at its
-           "# <NAME>_CODE_PLACEHOLDER" marker, producing template.embedded.yaml.
-           This mirrors the repo's existing awk-based embed convention, but
-           handles the five distinct placeholders in one pass.
+  embed    Inline each deploy/lambda/*.py into hyperpod_devops_agent.yaml at its
+           "# <NAME>_CODE_PLACEHOLDER" marker, producing
+           hyperpod_devops_agent.embedded.yaml. This mirrors the repo's existing
+           awk-based embed convention, but handles the five distinct placeholders
+           in one pass.
 
   sync-skills
            For each skill directory under ../skills/, stage its contents

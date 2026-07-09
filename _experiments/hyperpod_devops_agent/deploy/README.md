@@ -26,21 +26,22 @@ The EKS access grant, previously an imperative script, is now the native
 
 ```
 deploy/
-  template.yaml          - the single template (with # *_CODE_PLACEHOLDER markers)
+  hyperpod_devops_agent.yaml  - the single template (with # *_CODE_PLACEHOLDER markers)
   lambda/
     webhook_bridge.py        \
     periodic_audit.py         > glue Lambdas (unchanged from the old stacks)
     email_notifier.py        /
     cr_webhook_provisioner.py - Custom::WebhookProvisioner handler
     cr_skill_uploader.py      - Custom::SkillUploader handler
-  build.py               - embed Lambda code into the template; sync skills to S3
+  prepare_deployment.py  - embed Lambda code into the template; sync skills to S3
   deploy.sh              - one-command deploy (called by `make deploy`)
   teardown.sh            - delete stack + assets bucket (`make teardown-stack`)
   params.example.json    - copy to params.json and edit
 ```
 
-`build.py embed` inlines each `lambda/*.py` at its `# <NAME>_CODE_PLACEHOLDER`
-marker, producing `template.embedded.yaml` (git-ignored build artifact).
+`prepare_deployment.py embed` inlines each `lambda/*.py` at its
+`# <NAME>_CODE_PLACEHOLDER` marker, producing
+`hyperpod_devops_agent.embedded.yaml` (git-ignored build artifact).
 
 ## Quick start
 
@@ -90,7 +91,38 @@ Only three are required — `HyperPodClusterName`, `EmailSender`,
 `EmailRecipients`. `EksClusterName`, `AssetsBucket`, `SkillsVersion`, and
 `SkillsManifest` are filled in automatically by `make deploy` (do not set them in
 `params.json`). Everything else has a safe default; see the inline `Description`
-fields and the `AWS::CloudFormation::Interface` groups in `template.yaml`.
+fields and the `AWS::CloudFormation::Interface` groups in
+`hyperpod_devops_agent.yaml`.
+
+## Multiple clusters in one account/region
+
+Every collision-prone name is scoped per cluster, so you can deploy this stack
+for several HyperPod clusters side by side without conflicts:
+
+- **Stack name** defaults to `hyperpod-devops-agent-<slug>` (override with
+  `STACK_NAME=...`).
+- **S3 buckets** — `hpda-markers-<slug>-<account>-<region>` (created by the
+  stack) and `hpda-assets-<slug>-<account>-<region>` (created by `make deploy`).
+- **IAM roles** — the Agent Space + Webapp roles are CloudFormation
+  auto-named by default (unique per stack). Set `AgentSpaceRoleName` /
+  `WebappRoleName` only if you need fixed names.
+- **Webhook secret** and **Agent Space** already include the cluster name.
+
+`<slug>` is a lowercased, hyphenated, ≤20-char form of `HyperPodClusterName`
+(e.g. `My_Prod-Cluster_01` → `my-prod-cluster-01`), derived identically by the
+Makefile, `deploy.sh`, and `teardown.sh`. Everything else (Lambdas, EventBridge
+rules, execution roles, the scheduler) is unnamed and CloudFormation auto-names
+it per stack.
+
+## Slurm clusters (status)
+
+EKS-orchestrated clusters are the tested path. Slurm clusters are partially
+supported today: `make deploy` detects a Slurm cluster (no
+`Orchestrator.Eks.ClusterArn`) and skips the EKS access entry, and the rest of
+the stack (foundation, webhook bridge, periodic audit, email) deploys. The
+periodic audit's Kubernetes CrashLoop/NotReady checks are inherently EKS-only.
+Full Slurm coverage — including validating the RCA skill's Continuous
+Provisioning path end-to-end — is a follow-up to revisit.
 
 Notable toggles: `EnablePeriodicAudit` (default `true`), `K8sChecksEnabled`
 (default `true`), `AuditSchedule` (default `rate(15 minutes)`).

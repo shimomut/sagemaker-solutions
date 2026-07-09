@@ -24,7 +24,16 @@ TXTS     := $(PDFS:.pdf=.txt)
 SCRIPTS_DIR := scripts
 
 DEPLOY_DIR   := deploy
-STACK_NAME   ?= hyperpod-devops-agent
+PARAMS_FILE  ?= $(DEPLOY_DIR)/params.json
+
+# Per-cluster slug + stack name, derived from params.json so multiple clusters
+# coexist. Override STACK_NAME to target a specific stack. Empty when params.json
+# is absent (e.g. before first deploy) — the deploy/teardown scripts recompute it.
+NAME_PREFIX  := $(shell $(PYTHON3) -c "import json,re,sys; \
+n=json.load(open('$(PARAMS_FILE)')).get('HyperPodClusterName','') if __import__('os').path.exists('$(PARAMS_FILE)') else ''; \
+s=re.sub(r'-{2,}','-',re.sub(r'[^a-z0-9]+','-',n.lower()).strip('-'))[:20].strip('-'); \
+print(s or 'cluster')" 2>/dev/null)
+STACK_NAME   ?= hyperpod-devops-agent-$(NAME_PREFIX)
 
 .PHONY: help venv extract-docs \
         config check-aws check-cluster \
@@ -40,7 +49,7 @@ STACK_NAME   ?= hyperpod-devops-agent
         teardown status clean
 
 help:
-	@echo "Unified single-stack deployment (deploy/template.yaml) — recommended:"
+	@echo "Unified single-stack deployment (deploy/hyperpod_devops_agent.yaml) — recommended:"
 	@echo "  deploy        - One command: sync skills, embed Lambdas, deploy the whole stack."
 	@echo "                  Reads deploy/params.json (copy from params.example.json)."
 	@echo "  update        - Alias for deploy (idempotent; re-uploads changed skills)."
@@ -123,7 +132,7 @@ sync-skills:
 	@bash -c 'set -euo pipefail; \
 		REGION=$${REGION:-$$(aws configure get region)}; \
 		ACCOUNT_ID=$$(aws sts get-caller-identity --query Account --output text); \
-		BUCKET=hyperpod-devops-agent-assets-$$ACCOUNT_ID-$$REGION; \
+		BUCKET=hpda-assets-$(NAME_PREFIX)-$$ACCOUNT_ID-$$REGION; \
 		if ! aws s3api head-bucket --bucket $$BUCKET --region $$REGION 2>/dev/null; then \
 			if [ "$$REGION" = "us-east-1" ]; then \
 				aws s3api create-bucket --bucket $$BUCKET --region $$REGION >/dev/null; \
@@ -132,7 +141,7 @@ sync-skills:
 					--create-bucket-configuration LocationConstraint=$$REGION >/dev/null; \
 			fi; \
 		fi; \
-		$(PYTHON3) $(DEPLOY_DIR)/build.py sync-skills --bucket $$BUCKET --region $$REGION'
+		$(PYTHON3) $(DEPLOY_DIR)/prepare_deployment.py sync-skills --bucket $$BUCKET --region $$REGION'
 
 teardown-stack:
 	STACK_NAME=$(STACK_NAME) bash $(DEPLOY_DIR)/teardown.sh
