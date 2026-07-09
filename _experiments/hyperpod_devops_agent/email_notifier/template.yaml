@@ -14,20 +14,52 @@ Parameters:
 
   EmailDetailTypes:
     Type: String
-    Default: "Investigation Created,Investigation Completed"
-    Description: "Comma-separated EventBridge detail-types to send on. Default sends on creation and completion only (skips noisy 'Investigation In Progress' / 'Investigation Linked')."
+    Default: "Investigation Completed"
+    Description: "Comma-separated EventBridge detail-types to send on. Default: Completed only (one email per incident lifecycle)."
 
   ConsoleUrlTemplate:
     Type: String
-    Default: "https://%region%.console.aws.amazon.com/aidevops/home?region=%region%#/investigations/%investigation_id%"
-    Description: "Optional URL template included in emails. Tokens: %region%, %account%, %investigation_id%."
+    Default: "https://%region%.console.aws.amazon.com/aidevops/home?region=%region%#/agentspaces/%agent_space_id%/investigations/%task_id%"
+    Description: "Optional URL template included in emails. Tokens: %region%, %account%, %agent_space_id%, %task_id%."
 
-  SkipVerdictPrefixes:
+  ForceSend:
     Type: String
-    Default: "Suppress"
-    Description: "Comma-separated triage-verdict title prefixes to skip (no email sent). Default skips Suppress so the 15-min periodic audit doesn't email on a healthy cluster."
+    Default: "false"
+    AllowedValues: ["true", "false"]
+    Description: "If true, bypass all filters (dedup, no-findings, suppress). Useful for debugging."
+
+  MarkerExpirationDays:
+    Type: Number
+    Default: 30
+    MinValue: 1
+    MaxValue: 365
+    Description: "How many days to retain per-execution email markers in the dedup bucket before auto-expiring them."
 
 Resources:
+
+  # Dedup marker bucket: one small S3 object per execution_id that we've
+  # already emailed. On each Investigation Completed event the Lambda does a
+  # HeadObject; a 200 means we've already emailed for this execution and the
+  # event is dropped. Prevents duplicate emails when DevOps Agent re-emits
+  # Investigation Completed events for the same execution.
+  MarkerBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "hyperpod-devops-agent-email-markers-${AWS::AccountId}-${AWS::Region}"
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      LifecycleConfiguration:
+        Rules:
+          - Id: ExpireOldMarkers
+            Status: Enabled
+            ExpirationInDays: !Ref MarkerExpirationDays
 
   EmailNotifierExecutionRole:
     Type: AWS::IAM::Role
@@ -64,6 +96,19 @@ Resources:
                   - aidevops:GetBacklogTask
                   - aidevops:ListJournalRecords
                 Resource: "*"
+              # Scoped to the marker bucket only. HeadObject is technically
+              # covered by GetObject on S3's side. ListBucket is added so
+              # HeadObject on a missing key returns 404 instead of 403 (S3
+              # returns 403 to callers that lack ListBucket on the bucket).
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                Resource: !Sub "${MarkerBucket.Arn}/*"
+              - Effect: Allow
+                Action:
+                  - s3:ListBucket
+                Resource: !GetAtt MarkerBucket.Arn
 
   EmailNotifierFunction:
     DependsOn: EmailNotifierExecutionRole
@@ -79,7 +124,9 @@ Resources:
           EMAIL_RECIPIENTS: !Ref EmailRecipients
           EMAIL_DETAIL_TYPES: !Ref EmailDetailTypes
           CONSOLE_URL_TEMPLATE: !Ref ConsoleUrlTemplate
-          SKIP_VERDICT_PREFIXES: !Ref SkipVerdictPrefixes
+          FORCE_SEND: !Ref ForceSend
+          MARKER_BUCKET: !Ref MarkerBucket
+          MARKER_PREFIX: "emailed/"
       Code:
         ZipFile: |
           # LAMBDA_CODE_PLACEHOLDER
@@ -127,3 +174,7 @@ Outputs:
   EventRuleName:
     Value: !Ref InvestigationLifecycleRule
     Description: "Name of the EventBridge rule on aws.aidevops investigations."
+
+  MarkerBucketName:
+    Value: !Ref MarkerBucket
+    Description: "S3 bucket where per-execution email dedup markers are stored."

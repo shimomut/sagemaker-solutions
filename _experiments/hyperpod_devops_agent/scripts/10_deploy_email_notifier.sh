@@ -7,10 +7,14 @@
 #   EMAIL_RECIPIENTS   Comma-separated To addresses
 #
 # Optional env:
-#   STACK_NAME            Override the CFN stack name
-#   EMAIL_DETAIL_TYPES    Override which lifecycle events trigger emails
-#                         (default: "Investigation Created,Investigation Closed")
-#   CONSOLE_URL_TEMPLATE  Override the URL template in the email body
+#   STACK_NAME              Override the CFN stack name
+#   EMAIL_DETAIL_TYPES      Override which lifecycle events trigger emails
+#                            (default: "Investigation Completed" — one email per investigation)
+#   FORCE_SEND              "true" to bypass all filters including the dedup marker
+#                            (default: "false"; useful for debugging)
+#   MARKER_EXPIRATION_DAYS  How many days to retain per-execution email markers
+#                            in the dedup S3 bucket (default: 30)
+#   CONSOLE_URL_TEMPLATE    Override the URL template in the email body
 
 set -euo pipefail
 
@@ -19,9 +23,10 @@ ROOT="$(cd "${HERE}/.." && pwd)"
 source "${HERE}/config.sh"
 
 : "${STACK_NAME:=hyperpod-devops-agent-email-notifier}"
-: "${EMAIL_DETAIL_TYPES:=Investigation Created,Investigation Completed}"
-: "${CONSOLE_URL_TEMPLATE:=https://%region%.console.aws.amazon.com/aidevops/home?region=%region%#/investigations/%investigation_id%}"
-: "${SKIP_VERDICT_PREFIXES:=Suppress}"
+: "${EMAIL_DETAIL_TYPES:=Investigation Completed}"
+: "${CONSOLE_URL_TEMPLATE:=https://%region%.console.aws.amazon.com/aidevops/home?region=%region%#/agentspaces/%agent_space_id%/investigations/%task_id%}"
+: "${FORCE_SEND:=false}"
+: "${MARKER_EXPIRATION_DAYS:=30}"
 
 TEMPLATE_SRC="${ROOT}/email_notifier/template.yaml"
 TEMPLATE_OUT="${ROOT}/email_notifier/template.embedded.yaml"
@@ -38,10 +43,12 @@ fi
 
 echo "==> Configuration"
 print_config
-echo "Stack name:           ${STACK_NAME}"
-echo "Email sender:         ${EMAIL_SENDER}"
-echo "Email recipients:     ${EMAIL_RECIPIENTS}"
+echo "Stack name:            ${STACK_NAME}"
+echo "Email sender:          ${EMAIL_SENDER}"
+echo "Email recipients:      ${EMAIL_RECIPIENTS}"
 echo "Detail-type allowlist: ${EMAIL_DETAIL_TYPES}"
+echo "Force send:            ${FORCE_SEND}"
+echo "Marker expiration:     ${MARKER_EXPIRATION_DAYS} days"
 echo
 
 echo "==> Embedding Lambda code into template"
@@ -68,7 +75,8 @@ aws cloudformation deploy \
         "EmailRecipients=${EMAIL_RECIPIENTS}" \
         "EmailDetailTypes=${EMAIL_DETAIL_TYPES}" \
         "ConsoleUrlTemplate=${CONSOLE_URL_TEMPLATE}" \
-        "SkipVerdictPrefixes=${SKIP_VERDICT_PREFIXES}"
+        "ForceSend=${FORCE_SEND}" \
+        "MarkerExpirationDays=${MARKER_EXPIRATION_DAYS}"
 
 echo
 echo "==> Stack outputs"

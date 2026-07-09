@@ -422,6 +422,125 @@ The agent's schema supports these record types:
    `cause[]`, `hypothesis[]`). `investigation_gaps[]` populated from
    step 4.
 
+### CRITICAL: the FIRST symptom is the verdict symptom
+
+Downstream automation (email notifier, dashboards, dedup) keys off the
+FIRST symptom's title matching `Triage verdict: <name> :: <signature>`.
+If you emit a descriptively-titled symptom first (e.g.
+`"worker1 lifecycle script execution failures across multiple nodes on k8-1"`)
+the verdict is invisible to the pipeline and no email is sent.
+
+This has been observed to fail in production RCA runs. **The first
+`symptom` record you emit MUST have `title` beginning with
+`Triage verdict:`.** Descriptive titles are for the *second* and later
+symptom records, which capture per-resource observations.
+
+### Few-shot examples of the first symptom record
+
+Copy the shape and titles exactly. Substitute your investigation's
+concrete data.
+
+**Example A — Escalate for a recurring capacity fault:**
+
+```
+title: "Triage verdict: Escalate — recurring fault pattern :: (worker4:Description: Failed to provision EC2 Instance in Cluster prod-01 and InstanceGroup worker4. FailureMessage: We currently do not have sufficient capacity to launch new ml.g5.8xlarge instances. Please try again.)"
+
+description: |
+  Verdict: Escalate — recurring fault pattern
+
+  What HyperPod is doing right now:
+  HyperPod is auto-retrying, but the same insufficient-capacity error has driven 4 replacements on worker4 in the last 24 hours. Continuous Provisioning is looping without progress; each new attempt hits the same on-demand capacity wall for ml.g5.8xlarge in us-west-2. Operator action is required — the pattern will not self-resolve.
+
+  Timeline (UTC):
+  2026-07-08T15:12:03Z  aws.sagemaker Cluster Event Error  Failed to provision EC2 Instance in worker4 (attempt 1)
+  2026-07-08T15:31:47Z  aws.sagemaker Cluster Event Error  Failed to provision EC2 Instance in worker4 (attempt 2)
+  2026-07-08T15:53:22Z  aws.sagemaker Cluster Event Error  Failed to provision EC2 Instance in worker4 (attempt 3)
+  2026-07-08T16:14:59Z  aws.sagemaker Cluster Event Error  Failed to provision EC2 Instance in worker4 (attempt 4)
+
+  Most recent event at:
+  2026-07-08T16:14:59Z
+
+  Recommendation:
+  Request an on-demand capacity increase for ml.g5.8xlarge in us-west-2 via a service quota request, or reduce worker4 target count to release the retry pressure while the request is processed. Alternatively move worker4 to a different SKU (ml.g6.8xlarge has more availability in this region).
+```
+
+**Example B — Escalate for coordinated lifecycle-script failures across multiple instances:**
+
+```
+title: "Triage verdict: Escalate — coordinated lifecycle-script failure :: (worker1:Description: Lifecycle scripts did not run successfully. Ensure the scripts exist in provided S3 path, are accessible, and run without errors.)"
+
+description: |
+  Verdict: Escalate — coordinated lifecycle-script failure
+
+  What HyperPod is doing right now:
+  HyperPod is retrying, but every new worker1 instance is failing bootstrap with the same LCS execution error. 3 instances (i-0a50b324f7072b3c3, i-053a781aec4c92c7c, i-0c76a007f45d94d6e) failed simultaneously at 2026-07-08T19:21Z, then 3 more at 2026-07-08T19:32Z with the same error. Continuous Provisioning + Automatic NodeRecovery will keep respawning these logical nodes at ~10-minute intervals until an operator fixes the LCS.
+
+  Timeline (UTC):
+  2026-07-08T19:20:01Z  aws.sagemaker Cluster Event Info  Instance lifecycle script execution for i-0a50b3... has Started
+  2026-07-08T19:20:05Z  aws.sagemaker Cluster Event Info  Instance lifecycle script execution for i-0c76a0... has Started
+  2026-07-08T19:20:07Z  aws.sagemaker Cluster Event Info  Instance lifecycle script execution for i-053a78... has Started
+  2026-07-08T19:21:02Z  aws.sagemaker Cluster Event Error Lifecycle scripts did not run successfully (i-0a50b3...)
+  2026-07-08T19:21:05Z  aws.sagemaker Cluster Event Error Lifecycle scripts did not run successfully (i-0c76a0...)
+  2026-07-08T19:21:08Z  aws.sagemaker Cluster Event Error Lifecycle scripts did not run successfully (i-053a78...)
+  2026-07-08T19:31:53Z  aws.sagemaker Cluster Event Error Lifecycle scripts did not run successfully (i-000901...)
+  2026-07-08T19:32:04Z  aws.sagemaker Cluster Event Error Lifecycle scripts did not run successfully (i-05936d...)
+  2026-07-08T19:32:13Z  aws.sagemaker Cluster Event Error Lifecycle scripts did not run successfully (i-06a00d...)
+
+  Most recent event at:
+  2026-07-08T19:32:13Z
+
+  Recommendation:
+  Inspect the LCS log stream /aws/sagemaker/Clusters/k8-1/lw12e0dn1hhd/LifecycleConfig/worker1/<instance-id> for any of the affected instances to identify the failing command. Fix on_create.sh (or on_create_main.sh) in s3://sagemaker-k8-1-1bd2626f-bucket. Once fixed the retry loop will clear on its next attempt.
+
+related_resources: ["HyperPod cluster k8-1", "i-0a50b324f7072b3c3", "i-053a781aec4c92c7c", "i-0c76a007f45d94d6e"]
+```
+
+**Example C — Monitor (first attempt in flight):**
+
+```
+title: "Triage verdict: Monitor — first attempt :: (worker2:Description: Instance i-0abcdef1234567890 is unhealthy. HyperPod Health Monitoring Agent (HMA) has detected fault type NvidiaGPUUnhealthy on this node and is unhealthy. Repair action: Replace.)"
+
+description: |
+  Verdict: Monitor — first attempt
+
+  What HyperPod is doing right now:
+  HMA has flagged i-0abcdef1234567890 as unhealthy (NvidiaGPUUnhealthy) and requested Replace. HyperPod has started the replacement and this is the first attempt in the chain. Expected wall-clock: 20-30 min for the new instance to reach InService.
+
+  Timeline (UTC):
+  2026-07-08T18:45:12Z  aws.sagemaker Cluster Node Health Event  Instance i-0abcdef1234567890 unhealthy: NvidiaGPUUnhealthy
+  2026-07-08T18:45:15Z  aws.sagemaker Cluster Event Info         Instance deletion is starting as part of instance replacement
+
+  Most recent event at:
+  2026-07-08T18:45:15Z
+
+  Next re-check:
+  2026-07-08T19:15:15Z
+```
+
+**Example D — Suppress (audit found nothing):**
+
+```
+title: "Triage verdict: Suppress — periodic audit, no open incidents"
+
+description: |
+  Verdict: Suppress — periodic audit, no open incidents
+
+  What HyperPod is doing right now:
+  Scheduled audit at 2026-07-08T19:00Z; scanned the last 4 hours of cluster events. No fault events, no open Monitor chains, cluster status InService, all instance groups at target. Nothing to investigate.
+```
+
+### Anti-example — do NOT do this
+
+If your first symptom looks like this, downstream automation is broken:
+
+```
+title: "worker1 lifecycle script execution failures across multiple nodes on k8-1"    ← WRONG: missing "Triage verdict:" prefix
+description: "HyperPod cluster k8-1 emitted coordinated lifecycle-script execution failures..."
+```
+
+The content is fine as a *second* symptom record. But the FIRST symptom
+must be the verdict.
+
 **For `Suppress` verdict:** still emit the verdict symptom (so the
 operator can audit what was suppressed and why), but skip per-resource
 symptoms and findings — there's nothing to root-cause.
