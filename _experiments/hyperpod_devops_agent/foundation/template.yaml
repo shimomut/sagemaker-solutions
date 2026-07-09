@@ -27,6 +27,15 @@ Parameters:
     MinLength: 1
     MaxLength: 1000
 
+  LcsBucketArnPattern:
+    Type: String
+    Default: "arn:aws:s3:::sagemaker-*-bucket"
+    Description: "ARN pattern for HyperPod lifecycle-script buckets. Grants the AgentSpace role s3:GetObject / s3:ListBucket so RCA runs can read on_create.sh instead of hallucinating. Default matches HyperPod's auto-created bucket naming (sagemaker-<cluster>-<hash>-bucket); tighten to a specific bucket if desired. Set to '' to skip granting S3 access entirely."
+
+Conditions:
+
+  GrantLcsBucketAccess: !Not [!Equals [!Ref LcsBucketArnPattern, ""]]
+
 Resources:
 
   AgentSpaceRole:
@@ -59,6 +68,21 @@ Resources:
                   - iam:CreateServiceLinkedRole
                 Resource:
                   - !Sub "arn:aws:iam::${AWS::AccountId}:role/aws-service-role/resource-explorer-2.amazonaws.com/AWSServiceRoleForResourceExplorer"
+        - !If
+          - GrantLcsBucketAccess
+          - PolicyName: AllowLcsBucketRead
+            PolicyDocument:
+              Version: "2012-10-17"
+              Statement:
+                - Sid: ReadLifecycleScripts
+                  Effect: Allow
+                  Action:
+                    - s3:GetObject
+                    - s3:ListBucket
+                  Resource:
+                    - !Ref LcsBucketArnPattern
+                    - !Sub "${LcsBucketArnPattern}/*"
+          - !Ref AWS::NoValue
 
   WebappRole:
     Type: AWS::IAM::Role
