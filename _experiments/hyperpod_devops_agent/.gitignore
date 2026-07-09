@@ -3,3 +3,7 @@
 /.venv/
 /.state.json
 /skills/upstream/
+/deploy/template.embedded.yaml
+/deploy/params.json
+/**/template.embedded.yaml
+__pycache__/

@@ -23,8 +23,14 @@ TXTS     := $(PDFS:.pdf=.txt)
 
 SCRIPTS_DIR := scripts
 
+DEPLOY_DIR   := deploy
+STACK_NAME   ?= hyperpod-devops-agent
+
 .PHONY: help venv extract-docs \
         config check-aws check-cluster \
+        deploy update teardown-stack \
+        sync-skills stack-status stack-outputs \
+        bridge-logs2 audit-logs2 email-logs2 audit-test2 \
         setup foundation provision-webhook eks-access \
         webhook-secret deploy-bridge delete-bridge bridge-logs bridge-test \
         bridge-debug-on bridge-debug-off bridge-env \
@@ -34,6 +40,19 @@ SCRIPTS_DIR := scripts
         teardown status clean
 
 help:
+	@echo "Unified single-stack deployment (deploy/template.yaml) — recommended:"
+	@echo "  deploy        - One command: sync skills, embed Lambdas, deploy the whole stack."
+	@echo "                  Reads deploy/params.json (copy from params.example.json)."
+	@echo "  update        - Alias for deploy (idempotent; re-uploads changed skills)."
+	@echo "  sync-skills   - Zip skills + mental-model doc, upload to the S3 assets bucket."
+	@echo "  stack-status  - Show the unified stack status."
+	@echo "  stack-outputs - Show the unified stack outputs (console URL, secret ARN, ...)."
+	@echo "  teardown-stack- Delete the unified stack + assets bucket (CRs self-clean first)."
+	@echo "  bridge-logs2 / audit-logs2 / email-logs2 - Tail a Lambda's logs (unified stack)."
+	@echo "  audit-test2   - Manually invoke the periodic-audit Lambda once (unified stack)."
+	@echo
+	@echo "Legacy per-component targets (kept until the unified path is validated):"
+	@echo
 	@echo "Documentation tooling:"
 	@echo "  venv          - Create local virtualenv and install pypdf"
 	@echo "  extract-docs  - Extract docs/*.pdf to docs/*.txt for grep"
@@ -92,6 +111,69 @@ help:
 	@echo "  status        - Print state file + console URL for the Agent Space"
 	@echo "  teardown      - Reverse setup (EKS entry, agent space, IAM roles)"
 	@echo "  clean         - Remove venv and extracted .txt files (no AWS calls)"
+
+# ------------------------------------------------------------ unified single-stack deployment
+
+deploy:
+	STACK_NAME=$(STACK_NAME) bash $(DEPLOY_DIR)/deploy.sh
+
+update: deploy
+
+sync-skills:
+	@bash -c 'set -euo pipefail; \
+		REGION=$${REGION:-$$(aws configure get region)}; \
+		ACCOUNT_ID=$$(aws sts get-caller-identity --query Account --output text); \
+		BUCKET=hyperpod-devops-agent-assets-$$ACCOUNT_ID-$$REGION; \
+		if ! aws s3api head-bucket --bucket $$BUCKET --region $$REGION 2>/dev/null; then \
+			if [ "$$REGION" = "us-east-1" ]; then \
+				aws s3api create-bucket --bucket $$BUCKET --region $$REGION >/dev/null; \
+			else \
+				aws s3api create-bucket --bucket $$BUCKET --region $$REGION \
+					--create-bucket-configuration LocationConstraint=$$REGION >/dev/null; \
+			fi; \
+		fi; \
+		$(PYTHON3) $(DEPLOY_DIR)/build.py sync-skills --bucket $$BUCKET --region $$REGION'
+
+teardown-stack:
+	STACK_NAME=$(STACK_NAME) bash $(DEPLOY_DIR)/teardown.sh
+
+stack-status:
+	@bash -c 'REGION=$${REGION:-$$(aws configure get region)}; \
+		aws cloudformation describe-stacks --region $$REGION --stack-name $(STACK_NAME) \
+			--query "Stacks[0].StackStatus" --output text'
+
+stack-outputs:
+	@bash -c 'REGION=$${REGION:-$$(aws configure get region)}; \
+		aws cloudformation describe-stacks --region $$REGION --stack-name $(STACK_NAME) \
+			--query "Stacks[0].Outputs" --output table'
+
+# Tail a Lambda's logs by reading its function name from a stack output.
+# $(1) = output key
+define TAIL_STACK_LAMBDA
+	@bash -c 'REGION=$${REGION:-$$(aws configure get region)}; \
+		FUNC=$$(aws cloudformation describe-stacks --region $$REGION --stack-name $(STACK_NAME) \
+			--query "Stacks[0].Outputs[?OutputKey=='"'"'$(1)'"'"'].OutputValue | [0]" --output text); \
+		if [ -z "$$FUNC" ] || [ "$$FUNC" = "None" ]; then echo "No $(1) in stack outputs."; exit 1; fi; \
+		aws logs tail /aws/lambda/$$FUNC --region $$REGION --follow --since 1h'
+endef
+
+bridge-logs2:
+	$(call TAIL_STACK_LAMBDA,WebhookBridgeFunctionName)
+
+audit-logs2:
+	$(call TAIL_STACK_LAMBDA,PeriodicAuditFunctionName)
+
+email-logs2:
+	$(call TAIL_STACK_LAMBDA,EmailNotifierFunctionName)
+
+audit-test2:
+	@bash -c 'REGION=$${REGION:-$$(aws configure get region)}; \
+		FUNC=$$(aws cloudformation describe-stacks --region $$REGION --stack-name $(STACK_NAME) \
+			--query "Stacks[0].Outputs[?OutputKey=='"'"'PeriodicAuditFunctionName'"'"'].OutputValue | [0]" --output text); \
+		if [ -z "$$FUNC" ] || [ "$$FUNC" = "None" ]; then echo "Periodic audit not enabled in this stack."; exit 1; fi; \
+		echo "Invoking $$FUNC..."; \
+		aws lambda invoke --region $$REGION --function-name $$FUNC --payload "{}" /tmp/audit-test2-output.json \
+			--cli-binary-format raw-in-base64-out >/dev/null && cat /tmp/audit-test2-output.json && echo'
 
 # ------------------------------------------------------------ docs tooling
 
