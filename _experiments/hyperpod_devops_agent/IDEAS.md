@@ -97,9 +97,29 @@ Incidents triggered by EventBridge events have better name including error messa
 
 
 
-## Notification integration
+## Notification integration [done — email]
 
-Want to setup email and slack notification, and see end-to-end experience
+Set up email and see end-to-end experience. Slack is still paused on workspace 3P approval.
+
+**Shipped (2026-07-08)**: `email_notifier/` CloudFormation stack — EventBridge rule on `aws.aidevops` `Investigation Completed` (Created/Updated/Linked events are ignored so we send exactly one email per lifecycle) → Lambda → SES `SendEmail` with HTML body.
+
+Filter chain in `email_notifier/lambda_function.py`:
+1. Detail-type allowlist (default: `Investigation Completed` only).
+2. **Per-execution S3 dedup marker** — HeadObject against `s3://hyperpod-devops-agent-email-markers-<account>-<region>/emailed/<execution_id>` before doing any DevOps Agent API calls. Marker is written *after* a successful `ses:SendEmail`. Prevents duplicate emails when DevOps Agent re-emits `Investigation Completed` for the same execution (which it does — observed empirically). Marker bucket has a 30-day lifecycle rule; adjustable via `MarkerExpirationDays` CFN parameter.
+3. Suppress-verdict detection reading the journal directly (checks `Triage verdict: Suppress` prefix on any symptom title, plus a `Verdict: Suppress` regex fallback on the first symptom's description). No longer relies on `SKIP_VERDICT_PREFIXES` env var — that was brittle across skill drift.
+4. No-actionable-content skip — investigations with zero findings and no verdict symptom are dropped.
+5. `FORCE_SEND=true` CFN parameter bypasses every filter for debugging.
+
+Body composition rewrite: the notifier now pulls **full journal records via `list_journal_records`** and composes HTML from symptoms + findings + investigation_gaps rather than parsing a single verdict-title string. Resilient to future RCA-skill drift as long as *some* record identifies a root cause. Subject line still uses the verdict headline when present.
+
+Console URL template updated to the actual working shape: `.../aidevops/home?region=%region%#/agentspaces/%agent_space_id%/investigations/%task_id%` (previous `/investigations/%investigation_id%` was 404).
+
+
+## Verdict-title fragility → made the FIRST symptom the verdict symptom [done]
+
+RCA runs were occasionally emitting a descriptive first symptom title (e.g. `"worker1 lifecycle script execution failures across multiple nodes on k8-1"`) instead of the `"Triage verdict: ..."`-prefixed one. Downstream automation (email subject headline, dedup title-matching) then went blind because it keys off the verdict-title prefix.
+
+**Fix**: added a `CRITICAL: the FIRST symptom is the verdict symptom` section + four few-shot examples (Escalate recurring, Escalate coordinated LCS, Monitor first-attempt, Suppress audit) + an anti-example, all in [skills/hyperpod-incident-rca/SKILL.md](skills/hyperpod-incident-rca/SKILL.md#L425). Descriptive titles are now for the *second* and later symptom records. The email notifier's headline picker still falls back to the first-symptom title / task title if no verdict-prefixed symptom exists, so a drift regression degrades gracefully.
 
 
 ## Should we monitor HMA agent logs as the trigger of incident?

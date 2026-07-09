@@ -12,7 +12,7 @@ Four stacked pieces:
    - **`hyperpod-incident-triage`** (INCIDENT_TRIAGE) — runs FIRST on every incoming task. Decides `LINKED` / `SKIPPED` / `PROCEED` using explicit `(InstanceGroup, category, key)` signature-set logic. Replaces the platform's default AI correlator with rules that distinguish cross-category faults on the same component (which the default AI merges). Cheap: runs at task creation, no investigation hours billed for LINKED/SKIPPED.
    - **`hyperpod-incident-rca`** (INCIDENT_RCA) — runs after triage produces PROCEED. Reads `describe-cluster`, `list-cluster-nodes`, `list-cluster-events`, and HMA CloudWatch streams; reconstructs a timeline; classifies as Suppress / Monitor / Escalate / Resolved against time budgets and recurrence statistics. Produces a human-readable verdict report with recommended operator actions.
 4. **Periodic-audit stack** — CloudFormation stack: `AWS::Scheduler::Schedule` (every 15 min) → Lambda → HMAC-signed POST to the same webhook. Fires the skill in audit mode so open fault chains get re-checked (Goal 1: monitor duration, emit closure notification on silent-success recovery, escalate stuck chains). See [Two operational goals beyond single-shot investigations](#two-operational-goals-beyond-single-shot-investigations) for why this couldn't use DevOps Agent's native scheduled triggers.
-5. **Email notifier** — CloudFormation stack: EventBridge rule on `aws.aidevops` investigation lifecycle events → Lambda → SES email. Recipients get a per-investigation message with the verdict, timeline, and recommended actions. Filters `Suppress` verdicts so periodic audits on a healthy cluster don't produce email noise.
+5. **Email notifier** — CloudFormation stack: EventBridge rule on `aws.aidevops` `Investigation Completed` → Lambda → SES email. Composes the HTML body directly from journal records (`get_backlog_task` + `list_journal_records`) so it's resilient to RCA-skill drift. Dedups via an S3 marker bucket (`hyperpod-devops-agent-email-markers-<account>-<region>`) keyed by `execution_id`, so DevOps Agent's frequent re-emission of the same `Investigation Completed` event doesn't produce duplicate emails. Filters `Suppress` verdicts and zero-finding investigations so periodic audits on a healthy cluster don't produce noise. `FORCE_SEND=true` on the CFN stack bypasses every filter for debugging.
 
 Slack notifications can be added later (paused on workspace 3P approval) via DevOps Agent's built-in Slack integration or via a sibling stack that listens on the same `aws.aidevops` event stream.
 
@@ -327,9 +327,12 @@ Two coexisting skill types you'll see in `make list-skills`:
 
 Three channels stack:
 
-1. **Email (via SES)** — deployed by `make deploy-email-notifier`. EventBridge rule on `source: aws.aidevops`, detail-type prefix `Investigation` → Lambda → `ses:SendEmail` to the configured recipients. By default sends on `Investigation Created` and `Investigation Closed` (skips `Investigation Updated` to avoid spam); override with `EMAIL_DETAIL_TYPES`. The email body includes the verdict, recommended actions, and a console link.
+1. **Email (via SES)** — deployed by `make deploy-email-notifier`. EventBridge rule on `source: aws.aidevops`, detail-type prefix `Investigation` → Lambda → `ses:SendEmail` to the configured recipients. By default sends on `Investigation Completed` only (one email per lifecycle); `Investigation Created` / `Investigation Updated` / `Investigation Linked` events are ignored to avoid mid-flight spam. Override with `EMAIL_DETAIL_TYPES`.
+   - **Body composition reads the full journal.** The Lambda calls `aidevops:GetBacklogTask` + `aidevops:ListJournalRecords` and renders symptoms, findings, and investigation_gaps directly. It does not rely on parsing a single verdict-title string, so it degrades gracefully when the RCA skill drifts.
+   - **Dedup is S3-marker-based, keyed by `execution_id`.** Before every send the Lambda does a `HeadObject` against `s3://hyperpod-devops-agent-email-markers-<account>-<region>/emailed/<execution_id>`. If the marker exists, the event is dropped without any DevOps Agent API calls. The marker is written *after* `ses:SendEmail` returns a MessageId. This defends against DevOps Agent re-emitting `Investigation Completed` for the same execution — observed empirically, and the platform gives no configurable knob to prevent it. Marker objects auto-expire (30 days by default; `MarkerExpirationDays` CFN parameter).
+   - **Skip filters (in order):** detail-type allowlist → S3 marker → Suppress-verdict detection (checks `Triage verdict: Suppress` prefix on any symptom title, plus a `Verdict: Suppress` regex fallback on the first symptom's description) → no-actionable-content (zero findings AND no verdict symptom). `FORCE_SEND=true` on the stack bypasses all of them.
    - SES sender must be verified in `$REGION`. If SES is in sandbox mode, every recipient must also be verified.
-   - The IAM policy on the Lambda restricts `ses:SendEmail` to the configured `EMAIL_SENDER` via the `ses:FromAddress` condition.
+   - The IAM policy on the Lambda restricts `ses:SendEmail` to the configured `EMAIL_SENDER` via the `ses:FromAddress` condition. S3 read/write is scoped to the marker bucket only.
 2. **DevOps Agent web app** — every investigation is visible at the Agent Space console URL printed by `make status`.
 3. **Slack / ServiceNow / PagerDuty / Microsoft Teams** — configure once in the Agent Space console (paused on workspace 3P approval for the originating project). The same `aws.aidevops` event stream the email notifier listens on is available for any additional fan-out.
 
@@ -370,6 +373,12 @@ The skill classifies each event into one of these verdicts:
 
 Time budgets in the skill encode the "How long things take" table in the [HyperPod mental model](../../docs/hyperpod-mental-model.md). Update the mental-model doc first if the budgets need to change.
 
+### First symptom must be the verdict symptom (skill ↔ notifier contract)
+
+The email notifier's subject-line headline and the Layer-4 platform verdict-title dedup both key off the FIRST symptom record having a title that begins with `Triage verdict:`. A descriptive first-symptom title (e.g. `"worker1 lifecycle script execution failures on k8-1"`) breaks both — the notifier falls back to the raw task title and dedup can't recognize the signature set.
+
+The RCA skill's [CRITICAL: the FIRST symptom is the verdict symptom](skills/hyperpod-incident-rca/SKILL.md) section pins this down with four few-shot examples (Escalate recurring, Escalate coordinated LCS, Monitor first-attempt, Suppress audit) and an anti-example. The notifier still degrades gracefully — it will pick the first symptom's title or the task title if no verdict-prefixed symptom exists — but dedup will miss and downstream automation loses the verdict category.
+
 ## Two operational goals beyond single-shot investigations
 
 Webhook-triggered investigations are single-shot: the agent writes a report and exits. Without something more, that misses two operationally critical patterns:
@@ -402,7 +411,7 @@ Native DevOps Agent triggers were tried first and **ruled out**. The fallback is
 - A `CUSTOM` task runs in a different agent runtime than an investigation: it has **no AWS API executor** wired up (so `sagemaker:list-clusters` etc. is unreachable), and **user skills are not mounted on its filesystem** (only `/skills/system/{create-artifact,feedback,recommendations}/`). The skill's `fs_read` on `/skills/references/hyperpod-mental-model.md` fails with `FileNotFoundError`.
 - `actionType: "INVESTIGATION"` is rejected: *"action is not supported today; supported actionType values: create:task; supported agent values: custom:<assetId>"* — quoted verbatim from the API error. The DevOps Agent chat assistant suggested INVESTIGATION as an actionType; that's incorrect.
 
-So the native trigger fires but creates an agent invocation that can't run the audit. The EB Scheduler + Lambda fallback synthesizes a webhook event and routes through the working investigation path. Cost: one extra investigation every 15 minutes; on a healthy cluster, the skill lands on `Suppress — periodic audit, no open incidents` (rule 1) and the email notifier filters it via `SKIP_VERDICT_PREFIXES=Suppress`. No idle-cluster email noise.
+So the native trigger fires but creates an agent invocation that can't run the audit. The EB Scheduler + Lambda fallback synthesizes a webhook event and routes through the working investigation path. Cost: one extra investigation every 15 minutes; on a healthy cluster, the skill lands on `Suppress — periodic audit, no open incidents` (rule 1) and the email notifier's Suppress-verdict detection drops it. No idle-cluster email noise.
 
 When AWS extends the trigger API to accept `actionType: "create:investigation"` or equivalent (the API error wording — *"supported actionType values: create:task"* — implies this list is expected to grow), we can replace the EB Scheduler stack with a single `aws devops-agent create-trigger` call. The skill itself doesn't change.
 
