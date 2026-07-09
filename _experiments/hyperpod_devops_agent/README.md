@@ -110,8 +110,14 @@ SKILL_DIR=skills/hyperpod-incident-rca   make upload-skill
 make import-upstream-skills                        # see "Skill curation" below for defaults
 make list-skills
 
-# Step 6 - Periodic audit (Goal 1: monitor duration + Resolved closure)
+# Step 6 - Periodic audit (Goal 1 + Kubernetes-state checks)
 make deploy-periodic-audit       # EB Scheduler -> Lambda -> webhook (audit mode every 15 min)
+# Optional overrides for the Kubernetes-state checks (defaults shown):
+#   K8S_CHECKS_ENABLED=true CRASHLOOP_HOURS_THRESHOLD=4 \
+#   NOT_READY_NODE_PERCENT_THRESHOLD=10 NOT_READY_DURATION_MINUTES=15 \
+#   IGNORE_NAMESPACES='kube-public,kube-node-lease' \
+#   SYSTEM_NAMESPACES='kube-system,aws-hyperpod,amazon-cloudwatch' \
+#       make deploy-periodic-audit
 make audit-logs                  # tail the audit Lambda's CloudWatch Logs (Ctrl-C to stop)
 make audit-test                  # invoke the audit Lambda once manually (don't wait 15 min)
 
@@ -401,6 +407,27 @@ Verified end-to-end: after three injected Xid 74 faults on `worker2`, the skill 
 ### Goal 1 — periodic-audit stack (`make deploy-periodic-audit`)
 
 Native DevOps Agent triggers were tried first and **ruled out**. The fallback is a small CFN stack: `AWS::Scheduler::Schedule` → Lambda → HMAC-signed POST to the same webhook the bridge uses. The audit fires every 15 minutes; the `hyperpod-incident-rca` skill processes both audit-mode and incident-mode triggers (the `hyperpod-incident-triage` skill runs first to decide LINKED/SKIPPED/PROCEED); verdicts go through the existing email path.
+
+#### Kubernetes-state checks in audit mode
+
+Beyond HyperPod's own event stream, the audit-mode RCA can inspect Pod and Node state via the EKS access entry the foundation stack already grants. Two rules, both gated behind `K8sChecksEnabled=true` (default):
+
+| Rule | Escalates when | Configurable via |
+|---|---|---|
+| **CrashLoopBackOff duration** | Any Pod is in CrashLoopBackOff for longer than the threshold | `CrashLoopHoursThreshold` (default 4 h) |
+| **NotReady node percentage** | ≥ percent of nodes have been NotReady for ≥ duration | `NotReadyNodePercentThreshold` (default 10) + `NotReadyDurationMinutes` (default 15) |
+
+Namespace handling uses **two plain lists**, no DSL. The Lambda validates at cold start that they do not overlap; overlapping deployments fail the audit invocation with a clear error message.
+
+| Parameter | Default | Semantics |
+|---|---|---|
+| `IgnoreNamespaces` | `kube-public,kube-node-lease` | Pods here are skipped entirely — no verdict, no `kubectl` inspection. |
+| `SystemNamespaces` | `kube-system,aws-hyperpod,amazon-cloudwatch` | CrashLoop verdicts on these are tagged `system-workload`. Downstream email routing can page the platform team differently from customer-workload verdicts. |
+| everything else | — | Tagged `customer-workload`. |
+
+Design rationale — why two lists instead of a `NamespaceScope="pattern=treatment,..."` DSL: the skill executes classification via **plain set-membership lookups on already-resolved lists**, not by parsing a DSL at run time. That matches the same principle behind the RCA skill's signature-string design — push structure into the Lambda, keep the skill's job to English-language reasoning over already-structured input. An earlier iteration of the RCA skill used regex-driven category enums and produced inconsistent verdicts; the same shape risk applies to any run-time DSL parsing.
+
+The trigger payload's `data.metadata.k8sChecks` block carries the resolved lists + thresholds. The skill's [Phase 3d](skills/hyperpod-incident-rca/SKILL.md) reads them, no hardcoded values. Override any parameter via env var when running `make deploy-periodic-audit` (see Quick start step 6).
 
 **Why the native path doesn't work (recorded so we don't redo this):**
 

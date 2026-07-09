@@ -115,6 +115,33 @@ in the cluster-events window, not per single trigger.
    reachable from the control plane — `describe-cluster-node` gives
    most of what we need; deep `scontrol`/`sinfo` requires SSM and is
    out of scope here.
+8. **Kubernetes state — audit mode only, EKS only, when the trigger
+   payload includes a `data.metadata.k8sChecks` block with
+   `enabled: true`**: gather cluster-wide Pod and Node state for the
+   rules in Phase 3d. Skip this step in incident mode — the
+   webhook-triggered path is already focused on a specific fault and
+   the operational Pod/Node checks belong to the periodic audit.
+   - `kubectl get pods -A -o json` — full cluster Pod state.
+   - `kubectl get nodes -o json` — full Node state including
+     `status.conditions[]` and their `lastTransitionTime`.
+
+   The trigger payload's `k8sChecks` block carries the thresholds and
+   namespace lists the customer configured on the periodic-audit
+   stack. Do NOT hardcode thresholds or namespaces in the skill —
+   read them from the block. The block's shape is:
+
+   ```json
+   {
+     "enabled": true,
+     "crashLoopHoursThreshold": 4,
+     "notReadyNodePercentThreshold": 10,
+     "notReadyDurationMinutes": 15,
+     "ignoreNamespaces": ["kube-public", "kube-node-lease"],
+     "systemNamespaces": ["kube-system", "aws-hyperpod", "amazon-cloudwatch"]
+   }
+   ```
+
+   If the block is absent or `enabled: false`, skip Phase 3d entirely.
 
 ### Phase 2 — Reconstruct the timeline
 
@@ -314,6 +341,76 @@ understand the verdict isn't about *this* incident's resolution.
 mental-model doc's "How long things take" section.** A single replace
 takes 20–30 min; two attempts plus a slack gap = ~90 min. Don't change
 these without updating the mental-model doc first.
+
+### Phase 3d — Kubernetes-state checks (audit mode, EKS only)
+
+Run this **after** the fault-chain classification rules above and
+**only** when the trigger payload's `data.metadata.k8sChecks` block is
+present with `enabled: true`. The trigger payload also carries the
+thresholds and namespace lists — read them from the block, do not
+hardcode. Emit each verdict as an independent record (same as the
+per-fault-chain verdicts from the main rule table).
+
+**Pod check — CrashLoopBackOff duration.** For each Pod in the
+`kubectl get pods -A -o json` output:
+
+1. **Namespace classification.** Look up `pod.metadata.namespace`:
+   - If it is in `k8sChecks.ignoreNamespaces` → skip this pod entirely.
+   - If it is in `k8sChecks.systemNamespaces` → workload class is
+     `system-workload`.
+   - Otherwise → workload class is `customer-workload`.
+
+   This is a plain set-membership lookup, in this exact order. No
+   pattern matching, no wildcards, no precedence rules. The Lambda
+   has already validated that `ignoreNamespaces` and
+   `systemNamespaces` do not overlap, so a pod's namespace matches
+   at most one list.
+
+2. **CrashLoopBackOff detection.** For each container in
+   `pod.status.containerStatuses[]`, check
+   `state.waiting.reason == "CrashLoopBackOff"`. If so, compute the
+   duration since `state.waiting.startedAt` (fall back to
+   `lastTransitionTime` on the container's `Ready` condition if
+   `startedAt` is not present).
+3. **Threshold check.** If duration exceeds
+   `k8sChecks.crashLoopHoursThreshold` hours → emit an `Escalate`
+   verdict with:
+   - Title: `Triage verdict: Escalate — CrashLoopBackOff exceeded threshold :: (<namespace>/<pod>:<container>)`
+   - Workload class tag in the description (`system-workload` or
+     `customer-workload`) so downstream email routing can decide who
+     to page.
+   - Include: pod name, namespace, container name, restart count,
+     duration in CrashLoopBackOff, and the most recent
+     `lastState.terminated.reason` / `.exitCode` if available.
+
+**Node check — NotReady percentage.** From
+`kubectl get nodes -o json`:
+
+1. Total node count = length of `items[]`.
+2. For each node, examine `status.conditions[]` for
+   `type: Ready`. If `status: "False"` or `"Unknown"` AND
+   `now() - lastTransitionTime` exceeds
+   `k8sChecks.notReadyDurationMinutes` minutes → count as NotReady.
+3. If `(NotReady count / total count) * 100` meets or exceeds
+   `k8sChecks.notReadyNodePercentThreshold` → emit an `Escalate`
+   verdict with:
+   - Title: `Triage verdict: Escalate — NotReady nodes exceeded threshold :: (<n>/<total> nodes NotReady)`
+   - Include the affected node names, their NotReady durations, and
+     any `taints[]` that would explain the state.
+
+**Interaction with the fault-chain classification.** If a HyperPod
+fault chain in the main rule table already covers the same
+node (e.g. rule 11 says the retry chain is stuck for a specific
+instance), the Phase 3d NotReady check may re-flag the same node.
+That's fine — the two verdicts have different scopes and different
+recommended actions. Emit both; the operator gets richer context.
+
+**Interaction with `Suppress — periodic audit, no open incidents`.**
+Rule 1 fires when no HyperPod fault chains are open. Phase 3d can
+still fire independently — a CrashLoopBackOff pod is an incident
+even when HyperPod's own event stream is quiet. If Phase 3d
+produces any verdict, do NOT emit the rule 1 Suppress; Phase 3d has
+found something to report.
 
 ### Phase 4 — Report (using DevOps Agent's native schema)
 

@@ -122,18 +122,19 @@ RCA runs were occasionally emitting a descriptive first symptom title (e.g. `"wo
 **Fix**: added a `CRITICAL: the FIRST symptom is the verdict symptom` section + four few-shot examples (Escalate recurring, Escalate coordinated LCS, Monitor first-attempt, Suppress audit) + an anti-example, all in [skills/hyperpod-incident-rca/SKILL.md](skills/hyperpod-incident-rca/SKILL.md#L425). Descriptive titles are now for the *second* and later symptom records. The email notifier's headline picker still falls back to the first-symptom title / task title if no verdict-prefixed symptom exists, so a drift regression degrades gracefully.
 
 
-## Kubernetes-state checks in periodic audit — CrashLoopBackOff + NotReady nodes
+## Kubernetes-state checks in periodic audit — CrashLoopBackOff + NotReady nodes [done]
 
-The audit-mode RCA already has `kubectl` read access via the EKS access entry, but only inspects HyperPod-level state (`describe-cluster`, `list-cluster-events`). Extending it to check Pod / Node state would catch a class of incidents HyperPod itself doesn't emit events for.
+The audit-mode RCA already had `kubectl` read access via the EKS access entry but only inspected HyperPod-level state. Extending to Pod / Node checks catches a class of incidents HyperPod itself doesn't emit events for.
 
-Proposed rules:
-- **CrashLoopBackOff > N hours** → Escalate. Key on `status.containerStatuses[].state.waiting.reason == "CrashLoopBackOff"` AND `lastTransitionTime` older than the threshold. One pod flapping for 10 min during a rolling deploy is fine; the same pod stuck for 4h is an incident.
-- **NotReady nodes > M% of the fleet, stable for > N min** → Escalate. `kubectl get nodes` filtered on `Ready==False`. Threshold + duration are both needed to avoid firing on transient scaling churn.
+**Shipped**:
+- Two Phase 3d rules in the RCA skill ([skills/hyperpod-incident-rca/SKILL.md](skills/hyperpod-incident-rca/SKILL.md#L343)): CrashLoopBackOff duration and NotReady node percentage. Both are audit-mode-only + EKS-only.
+- Six new CFN parameters on the periodic-audit stack: `K8sChecksEnabled`, `CrashLoopHoursThreshold` (default 4h), `NotReadyNodePercentThreshold` (default 10%), `NotReadyDurationMinutes` (default 15 min), `IgnoreNamespaces`, `SystemNamespaces`. Env-var overrides on `make deploy-periodic-audit`.
+- Namespace handling uses **two plain lists** (`IgnoreNamespaces` + `SystemNamespaces`), pre-parsed and validated for non-overlap in the audit Lambda. The skill executes classification via set-membership lookups — no DSL, no regex, no wildcards. Rationale: LLMs handle content comparison well but parse-and-execute-a-mini-language less reliably; the earlier hard-coded-enum version of the RCA skill was replaced by signature-string concatenation for exactly this reason, and the same principle applies here.
+- Overlap between `IgnoreNamespaces` and `SystemNamespaces` fails the audit invocation at cold start with an explicit error, so ambiguous-membership pods can't reach runtime.
+- Trigger payload carries `data.metadata.k8sChecks` block with resolved thresholds + lists. Skill reads from the block, no hardcoded values.
+- Interaction with existing rules: Phase 3d runs after the main fault-chain classification and emits its own independent verdicts. The rule-1 `Suppress` for a healthy cluster is skipped if Phase 3d produces any verdict.
 
-Nuances to nail down:
-- **Namespace scope.** HyperPod-system pods (HMA, kube-proxy, CSI drivers) vs. customer training namespaces have different escalation semantics — a customer training pod in CrashLoop is their problem; an HMA pod in CrashLoop is a HyperPod problem. Default to alerting on both but tag the verdict differently, and expose `EXCLUDE_NAMESPACES` on the audit Lambda.
-- Thresholds should be env-var on the audit stack, not baked into the skill, so ops teams can tune without touching skill uploads.
-- Skill change only — no new infrastructure.
+Next verification: real-cluster smoke test — deploy a Pod that crashloops, wait for the audit cycle, confirm an Escalate email arrives with the workload-class tag. Currently untested end-to-end.
 
 
 ## Weekly digest for GPU-utilization + FinOps signals

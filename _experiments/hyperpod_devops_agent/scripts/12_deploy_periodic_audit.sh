@@ -18,6 +18,16 @@ source "${HERE}/config.sh"
 : "${STACK_NAME:=hyperpod-devops-agent-periodic-audit}"
 : "${SCHEDULE:=rate(15 minutes)}"
 
+# Kubernetes-state checks — override via env vars before invoking make.
+# Defaults match the CFN template defaults; env vars are only forwarded when
+# the caller sets them so template defaults keep working.
+: "${K8S_CHECKS_ENABLED:=}"
+: "${CRASHLOOP_HOURS_THRESHOLD:=}"
+: "${NOT_READY_NODE_PERCENT_THRESHOLD:=}"
+: "${NOT_READY_DURATION_MINUTES:=}"
+: "${IGNORE_NAMESPACES:=}"
+: "${SYSTEM_NAMESPACES:=}"
+
 TEMPLATE_SRC="${ROOT}/periodic_audit/template.yaml"
 TEMPLATE_OUT="${ROOT}/periodic_audit/template.embedded.yaml"
 LAMBDA_SRC="${ROOT}/periodic_audit/lambda_function.py"
@@ -54,15 +64,24 @@ echo "    wrote ${TEMPLATE_OUT}"
 
 echo
 echo "==> Deploying stack ${STACK_NAME}"
+PARAMS=(
+    "WebhookSecretArn=${WEBHOOK_SECRET_ARN}"
+    "ClusterName=${HYPERPOD_CLUSTER_NAME}"
+    "Schedule=${SCHEDULE}"
+)
+[[ -n "${K8S_CHECKS_ENABLED}" ]]              && PARAMS+=("K8sChecksEnabled=${K8S_CHECKS_ENABLED}")
+[[ -n "${CRASHLOOP_HOURS_THRESHOLD}" ]]       && PARAMS+=("CrashLoopHoursThreshold=${CRASHLOOP_HOURS_THRESHOLD}")
+[[ -n "${NOT_READY_NODE_PERCENT_THRESHOLD}" ]] && PARAMS+=("NotReadyNodePercentThreshold=${NOT_READY_NODE_PERCENT_THRESHOLD}")
+[[ -n "${NOT_READY_DURATION_MINUTES}" ]]      && PARAMS+=("NotReadyDurationMinutes=${NOT_READY_DURATION_MINUTES}")
+[[ -n "${IGNORE_NAMESPACES}" ]]               && PARAMS+=("IgnoreNamespaces=${IGNORE_NAMESPACES}")
+[[ -n "${SYSTEM_NAMESPACES}" ]]               && PARAMS+=("SystemNamespaces=${SYSTEM_NAMESPACES}")
+
 aws cloudformation deploy \
     --region "${REGION}" \
     --stack-name "${STACK_NAME}" \
     --template-file "${TEMPLATE_OUT}" \
     --capabilities CAPABILITY_IAM \
-    --parameter-overrides \
-        "WebhookSecretArn=${WEBHOOK_SECRET_ARN}" \
-        "ClusterName=${HYPERPOD_CLUSTER_NAME}" \
-        "Schedule=${SCHEDULE}"
+    --parameter-overrides "${PARAMS[@]}"
 
 echo
 echo "==> Stack outputs"

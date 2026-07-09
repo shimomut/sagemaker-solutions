@@ -23,12 +23,27 @@ verdict is small (one describe-cluster + one list-cluster-events call
 + ~10s of agent reasoning).
 
 Env vars:
-  WEBHOOK_SECRET_ARN   ARN of the Secrets Manager secret holding
-                       {"url": "...", "secret": "..."} (shared with bridge)
-  CLUSTER_NAME         Cluster the audit covers (purely informational —
-                       included in the synthetic payload metadata; the
-                       skill rediscovers clusters from describe-cluster
-                       on its own)
+  WEBHOOK_SECRET_ARN               ARN of the Secrets Manager secret holding
+                                   {"url": "...", "secret": "..."} (shared with bridge)
+  CLUSTER_NAME                     Cluster the audit covers (purely informational —
+                                   included in the synthetic payload metadata; the
+                                   skill rediscovers clusters from describe-cluster
+                                   on its own)
+  K8S_CHECKS_ENABLED               "true" / "false" — master switch for the
+                                   Kubernetes-state checks in the skill. When false,
+                                   no k8sChecks block is emitted and the skill's
+                                   audit-mode logic skips kubectl inspection.
+  CRASHLOOP_HOURS_THRESHOLD        Escalate if any Pod is in CrashLoopBackOff for
+                                   more than this many hours.
+  NOT_READY_NODE_PERCENT_THRESHOLD Escalate if this percent or more of nodes are
+                                   NotReady for the required duration.
+  NOT_READY_DURATION_MINUTES       Minimum duration a node must be NotReady before
+                                   it counts toward the percent threshold.
+  IGNORE_NAMESPACES                Comma-separated. Pods in these namespaces are
+                                   skipped entirely.
+  SYSTEM_NAMESPACES                Comma-separated. CrashLoop verdicts on pods in
+                                   these namespaces are tagged "system-workload".
+                                   Must not overlap with IGNORE_NAMESPACES.
 """
 import base64
 import datetime
@@ -45,6 +60,49 @@ import boto3
 _secrets_cache: dict[str, str] = {}
 
 
+def _parse_namespace_list(env_name: str) -> list[str]:
+    """Parse a comma-separated env var into a de-duplicated, trimmed list."""
+    raw = os.environ.get(env_name, "")
+    seen: dict[str, None] = {}
+    for token in raw.split(","):
+        tok = token.strip()
+        if tok:
+            seen[tok] = None
+    return list(seen.keys())
+
+
+def _build_k8s_checks_block() -> dict | None:
+    """Assemble the structured k8sChecks block or return None if disabled.
+
+    Validates that IGNORE_NAMESPACES and SYSTEM_NAMESPACES do not overlap.
+    Raising here (rather than silently letting one win) is intentional —
+    the skill classifies pods by set-membership lookup, and an ambiguous
+    membership would produce inconsistent verdicts. Failing the audit
+    invocation surfaces the misconfiguration in the Lambda logs.
+    """
+    enabled = os.environ.get("K8S_CHECKS_ENABLED", "true").strip().lower()
+    if enabled not in ("true", "1", "yes", "on"):
+        return None
+
+    ignore = _parse_namespace_list("IGNORE_NAMESPACES")
+    system = _parse_namespace_list("SYSTEM_NAMESPACES")
+    overlap = sorted(set(ignore) & set(system))
+    if overlap:
+        raise ValueError(
+            f"IGNORE_NAMESPACES and SYSTEM_NAMESPACES must not overlap; "
+            f"conflicting entries: {overlap}. Fix the CFN parameters and redeploy."
+        )
+
+    return {
+        "enabled": True,
+        "crashLoopHoursThreshold": int(os.environ.get("CRASHLOOP_HOURS_THRESHOLD", "4")),
+        "notReadyNodePercentThreshold": int(os.environ.get("NOT_READY_NODE_PERCENT_THRESHOLD", "10")),
+        "notReadyDurationMinutes": int(os.environ.get("NOT_READY_DURATION_MINUTES", "15")),
+        "ignoreNamespaces": ignore,
+        "systemNamespaces": system,
+    }
+
+
 def _load_webhook_credentials() -> tuple[str, str]:
     if "url" in _secrets_cache and "secret" in _secrets_cache:
         return _secrets_cache["url"], _secrets_cache["secret"]
@@ -58,10 +116,19 @@ def _load_webhook_credentials() -> tuple[str, str]:
     return _secrets_cache["url"], _secrets_cache["secret"]
 
 
-def _build_payload(cluster_name: str) -> dict:
+def _build_payload(cluster_name: str, k8s_checks: dict | None) -> dict:
     now_iso = datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S.000Z")
     now_compact = datetime.datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
     incident_id = f"hyperpod-audit-{now_compact}"
+    metadata = {
+        "region": os.environ.get("AWS_REGION", "unknown"),
+        "account": os.environ.get("AWS_ACCOUNT_ID", "unknown"),
+        "detailType": "HyperPod Periodic Audit",
+        "clusterName": cluster_name,
+        "triggerMode": "audit",
+    }
+    if k8s_checks is not None:
+        metadata["k8sChecks"] = k8s_checks
     return {
         "eventType": "incident",
         "incidentId": incident_id,
@@ -86,13 +153,7 @@ def _build_payload(cluster_name: str) -> dict:
         "timestamp": now_iso,
         "service": "SageMakerHyperPod",
         "data": {
-            "metadata": {
-                "region": os.environ.get("AWS_REGION", "unknown"),
-                "account": os.environ.get("AWS_ACCOUNT_ID", "unknown"),
-                "detailType": "HyperPod Periodic Audit",
-                "clusterName": cluster_name,
-                "triggerMode": "audit",
-            },
+            "metadata": metadata,
             "originalEvent": {
                 "source": "hyperpod-devops-agent-periodic-audit",
                 "detail-type": "HyperPod Periodic Audit",
@@ -140,8 +201,12 @@ def _post(webhook_url: str, secret: str, payload: dict) -> None:
 
 def lambda_handler(event, context):
     cluster_name = os.environ.get("CLUSTER_NAME", "unknown-cluster")
-    payload = _build_payload(cluster_name)
-    print(f"periodic audit: cluster={cluster_name!r} incidentId={payload['incidentId']}")
+    k8s_checks = _build_k8s_checks_block()
+    payload = _build_payload(cluster_name, k8s_checks)
+    print(
+        f"periodic audit: cluster={cluster_name!r} incidentId={payload['incidentId']} "
+        f"k8sChecks={'enabled' if k8s_checks else 'disabled'}"
+    )
 
     webhook_url, secret = _load_webhook_credentials()
     _post(webhook_url, secret, payload)

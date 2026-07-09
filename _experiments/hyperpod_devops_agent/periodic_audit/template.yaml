@@ -17,6 +17,43 @@ Parameters:
     Default: "rate(15 minutes)"
     Description: "EventBridge Scheduler expression. Default fires the audit every 15 minutes."
 
+  K8sChecksEnabled:
+    Type: String
+    Default: "true"
+    AllowedValues: ["true", "false"]
+    Description: "Master switch for Kubernetes-state checks (CrashLoopBackOff, NotReady) during audit mode. When true, the skill inspects Pod + Node state via kubectl in addition to the existing HyperPod signals."
+
+  CrashLoopHoursThreshold:
+    Type: Number
+    Default: 4
+    MinValue: 1
+    MaxValue: 168
+    Description: "Escalate if any Pod has been in CrashLoopBackOff for more than this many hours. Short-lived flapping (e.g. rolling deploys) is intentionally tolerated by a higher threshold."
+
+  NotReadyNodePercentThreshold:
+    Type: Number
+    Default: 10
+    MinValue: 1
+    MaxValue: 100
+    Description: "Escalate if this percent or more of nodes are NotReady (after the duration gate). Percent of the current node count."
+
+  NotReadyDurationMinutes:
+    Type: Number
+    Default: 15
+    MinValue: 1
+    MaxValue: 1440
+    Description: "A node must be NotReady for at least this many minutes to count toward the percent threshold. Kills transient scaling churn."
+
+  IgnoreNamespaces:
+    Type: CommaDelimitedList
+    Default: "kube-public,kube-node-lease"
+    Description: "Namespaces to skip entirely — no CrashLoop check, no verdict. Must not overlap with SystemNamespaces (Lambda validates at cold start and fails the invocation if overlap is detected)."
+
+  SystemNamespaces:
+    Type: CommaDelimitedList
+    Default: "kube-system,aws-hyperpod,amazon-cloudwatch"
+    Description: "Namespaces holding HyperPod / platform workloads. CrashLoop verdicts on these are tagged 'system-workload' so downstream routing can page the platform team. All other namespaces are tagged 'customer-workload'. Must not overlap with IgnoreNamespaces."
+
 Resources:
 
   PeriodicAuditLambdaExecutionRole:
@@ -60,6 +97,12 @@ Resources:
           WEBHOOK_SECRET_ARN: !Ref WebhookSecretArn
           CLUSTER_NAME: !Ref ClusterName
           AWS_ACCOUNT_ID: !Sub "${AWS::AccountId}"
+          K8S_CHECKS_ENABLED: !Ref K8sChecksEnabled
+          CRASHLOOP_HOURS_THRESHOLD: !Ref CrashLoopHoursThreshold
+          NOT_READY_NODE_PERCENT_THRESHOLD: !Ref NotReadyNodePercentThreshold
+          NOT_READY_DURATION_MINUTES: !Ref NotReadyDurationMinutes
+          IGNORE_NAMESPACES: !Join [",", !Ref IgnoreNamespaces]
+          SYSTEM_NAMESPACES: !Join [",", !Ref SystemNamespaces]
       Code:
         ZipFile: |
           # LAMBDA_CODE_PLACEHOLDER
