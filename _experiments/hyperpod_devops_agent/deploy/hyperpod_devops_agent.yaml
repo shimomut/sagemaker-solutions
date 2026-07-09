@@ -127,6 +127,16 @@ Parameters:
     Default: "[]"
     Description: "JSON array of {name, zipKey, agentTypes} describing the staged skills (set by 'make sync-skills')."
 
+  SkillUploaderS3Bucket:
+    Type: String
+    Default: ""
+    Description: "S3 bucket holding the packaged skill-uploader Lambda zip (set by 'make deploy'). Required when AssetsBucket is set."
+
+  SkillUploaderS3Key:
+    Type: String
+    Default: ""
+    Description: "S3 key of the packaged skill-uploader Lambda zip (set by 'make deploy')."
+
   # -------------------------------------------------------------- Webhook bridge
   ClusterFilter:
     Type: String
@@ -389,7 +399,9 @@ Resources:
                   - aidevops:DisassociateService
                   - aidevops:GetAssociation
                   - aidevops:ListAssociations
+                  - aidevops:ListAgentSpaces
                   - aidevops:DescribeServices
+                  - aidevops:ListServices
                   - aidevops:GetService
                   - aidevops:ListWebhooks
                 Resource: "*"
@@ -781,9 +793,12 @@ Resources:
       Runtime: python3.13
       Handler: index.handler
       Timeout: 120
+      # Packaged as an S3 zip (not inline) because it bundles a current boto3 —
+      # the Lambda runtime's bundled boto3 predates the DevOps Agent Asset API.
+      # Built + uploaded by prepare_deployment.py build-skill-uploader.
       Code:
-        ZipFile: |
-          # CR_SKILL_UPLOADER_CODE_PLACEHOLDER
+        S3Bucket: !Ref SkillUploaderS3Bucket
+        S3Key: !Ref SkillUploaderS3Key
 
   SkillUploader:
     Type: Custom::SkillUploader

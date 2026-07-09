@@ -49,6 +49,15 @@ PY
 
 : "${STACK_NAME:=hyperpod-devops-agent-${NAME_PREFIX}}"
 
+# The marker bucket is stack-managed, but CloudFormation refuses to delete a
+# non-empty S3 bucket. Empty it first so the stack delete succeeds. Name is
+# deterministic and matches the template's MarkerBucket.
+MARKER_BUCKET="hpda-markers-${NAME_PREFIX}-${ACCOUNT_ID}-${REGION}"
+if aws s3api head-bucket --bucket "${MARKER_BUCKET}" --region "${REGION}" 2>/dev/null; then
+    echo "==> Emptying marker bucket s3://${MARKER_BUCKET} (so the stack can delete it)"
+    aws s3 rm "s3://${MARKER_BUCKET}" --recursive --region "${REGION}" >/dev/null 2>&1 || true
+fi
+
 echo "==> Deleting stack ${STACK_NAME} in ${REGION}"
 if aws cloudformation describe-stacks --region "${REGION}" --stack-name "${STACK_NAME}" >/dev/null 2>&1; then
     aws cloudformation delete-stack --region "${REGION}" --stack-name "${STACK_NAME}"

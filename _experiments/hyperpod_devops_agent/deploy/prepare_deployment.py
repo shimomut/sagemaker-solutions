@@ -27,6 +27,7 @@ import io
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -41,14 +42,19 @@ MENTAL_MODEL = os.path.join(REPO_ROOT, "docs", "hyperpod-mental-model.md")
 LAMBDA_DIR = os.path.join(HERE, "lambda")
 SKILLS_DIR = os.path.join(SOLUTION_ROOT, "skills")
 
-# placeholder marker -> lambda source file
+# placeholder marker -> lambda source file. These are inlined into the template
+# as ZipFile code. The skill uploader is NOT here: its Asset API is newer than
+# the Lambda runtime's bundled boto3, so it ships as an S3 zip with a current
+# boto3 bundled (see build_skill_uploader).
 PLACEHOLDERS = {
     "WEBHOOK_BRIDGE_CODE_PLACEHOLDER": "webhook_bridge.py",
     "PERIODIC_AUDIT_CODE_PLACEHOLDER": "periodic_audit.py",
     "EMAIL_NOTIFIER_CODE_PLACEHOLDER": "email_notifier.py",
     "CR_WEBHOOK_PROVISIONER_CODE_PLACEHOLDER": "cr_webhook_provisioner.py",
-    "CR_SKILL_UPLOADER_CODE_PLACEHOLDER": "cr_skill_uploader.py",
 }
+
+# Minimum boto3 that includes the DevOps Agent Asset API (list_assets etc.).
+BOTO3_MIN = "boto3>=1.40.0"
 
 
 def _indent_of(line: str) -> str:
@@ -172,6 +178,70 @@ def sync_skills(bucket: str, region: str) -> None:
     print(json.dumps({"manifest": manifest, "version": hasher.hexdigest()[:32]}))
 
 
+def build_skill_uploader(bucket: str, region: str) -> None:
+    """Package the skill uploader Lambda (handler + cfnresponse + current boto3)
+    as an S3 zip and upload it. The Lambda runtime's bundled boto3 predates the
+    DevOps Agent Asset API (list_assets etc.), so we bundle a current one.
+
+    Prints {"bucket": ..., "key": ...} for the template's Code.S3Bucket/S3Key.
+    """
+    stage = tempfile.mkdtemp(prefix="skilluploader-")
+    try:
+        # index.py = handler; cfnresponse.py = the S3-package shim.
+        with open(os.path.join(LAMBDA_DIR, "cr_skill_uploader.py")) as f:
+            src = f.read()
+        with open(os.path.join(stage, "index.py"), "w") as f:
+            f.write(src)
+        with open(os.path.join(LAMBDA_DIR, "cfnresponse.py")) as f:
+            shim = f.read()
+        with open(os.path.join(stage, "cfnresponse.py"), "w") as f:
+            f.write(shim)
+
+        print(f"pip installing {BOTO3_MIN} into the package...", file=sys.stderr)
+        subprocess.run(
+            [sys.executable, "-m", "pip", "install", "--quiet",
+             "--target", stage, BOTO3_MIN],
+            check=True,
+        )
+
+        # Deterministic-ish zip (member order sorted; fixed timestamps).
+        members: list[tuple[str, str]] = []
+        for root, dirs, files in os.walk(stage):
+            dirs[:] = sorted(d for d in dirs if d != "__pycache__")
+            for fn in sorted(files):
+                if fn.endswith(".pyc") or fn == ".DS_Store":
+                    continue
+                abs_path = os.path.join(root, fn)
+                members.append((os.path.relpath(abs_path, stage), abs_path))
+        members.sort()
+
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+            for arcname, abs_path in members:
+                info = zipfile.ZipInfo(arcname, date_time=(1980, 1, 1, 0, 0, 0))
+                info.compress_type = zipfile.ZIP_DEFLATED
+                info.external_attr = 0o644 << 16
+                with open(abs_path, "rb") as fp:
+                    zf.writestr(info, fp.read())
+        blob = buf.getvalue()
+
+        key = "lambda/skill_uploader.zip"
+        with tempfile.NamedTemporaryFile(suffix=".zip") as tmp:
+            tmp.write(blob)
+            tmp.flush()
+            subprocess.run(
+                ["aws", "s3api", "put-object",
+                 "--bucket", bucket, "--key", key,
+                 "--body", tmp.name, "--region", region],
+                check=True,
+                stdout=subprocess.DEVNULL,
+            )
+        print(f"uploaded s3://{bucket}/{key} ({len(blob)} bytes)", file=sys.stderr)
+        print(json.dumps({"bucket": bucket, "key": key}))
+    finally:
+        shutil.rmtree(stage, ignore_errors=True)
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -184,11 +254,17 @@ def main() -> None:
     s.add_argument("--bucket", required=True)
     s.add_argument("--region", required=True)
 
+    b = sub.add_parser("build-skill-uploader")
+    b.add_argument("--bucket", required=True)
+    b.add_argument("--region", required=True)
+
     args = ap.parse_args()
     if args.cmd == "embed":
         embed(args.template_in, args.template_out)
     elif args.cmd == "sync-skills":
         sync_skills(args.bucket, args.region)
+    elif args.cmd == "build-skill-uploader":
+        build_skill_uploader(args.bucket, args.region)
 
 
 if __name__ == "__main__":

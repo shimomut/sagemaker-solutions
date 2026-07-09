@@ -5,5 +5,7 @@
 /skills/upstream/
 /deploy/hyperpod_devops_agent.embedded.yaml
 /deploy/params.json
+/deploy/params.*.json
+!/deploy/params.example.json
 /**/template.embedded.yaml
 __pycache__/

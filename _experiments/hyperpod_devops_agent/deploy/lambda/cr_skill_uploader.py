@@ -113,14 +113,19 @@ def handler(event, context):
         f"bucket={bucket!r} skills={[e.get('name') for e in manifest]}"
     )
 
-    try:
-        if request_type == "Delete":
+    # Delete must NEVER fail the stack: any leftover skill assets are deleted
+    # along with the AgentSpace anyway. Swallow all errors and report SUCCESS.
+    if request_type == "Delete":
+        try:
             if agent_space_id:
                 for entry in manifest:
                     _delete_one(agent_space_id, entry.get("name", ""))
-            cfnresponse.send(event, context, cfnresponse.SUCCESS, {}, physical_id)
-            return
+        except Exception as e:  # noqa: BLE001 - best-effort cleanup only
+            print(f"delete cleanup error (ignored so stack can delete): {e!r}")
+        cfnresponse.send(event, context, cfnresponse.SUCCESS, {}, physical_id)
+        return
 
+    try:
         # Create or Update
         if not agent_space_id or not bucket:
             raise ValueError("AgentSpaceId and AssetsBucket are required properties")

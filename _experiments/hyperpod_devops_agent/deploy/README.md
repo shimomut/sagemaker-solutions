@@ -114,15 +114,27 @@ Makefile, `deploy.sh`, and `teardown.sh`. Everything else (Lambdas, EventBridge
 rules, execution roles, the scheduler) is unnamed and CloudFormation auto-names
 it per stack.
 
-## Slurm clusters (status)
+## Slurm clusters
 
-EKS-orchestrated clusters are the tested path. Slurm clusters are partially
-supported today: `make deploy` detects a Slurm cluster (no
-`Orchestrator.Eks.ClusterArn`) and skips the EKS access entry, and the rest of
-the stack (foundation, webhook bridge, periodic audit, email) deploys. The
-periodic audit's Kubernetes CrashLoop/NotReady checks are inherently EKS-only.
-Full Slurm coverage — including validating the RCA skill's Continuous
-Provisioning path end-to-end — is a follow-up to revisit.
+**Continuous Provisioning is a prerequisite for Slurm clusters.** Without it
+(`NodeProvisioningMode` != `Continuous` in `describe-cluster`):
+
+- `list-cluster-events` is **not supported** — the RCA skill reconstructs its
+  incident timeline (replacement attempts, including failed ones) from this API,
+  so its verdicts degrade badly without it.
+- The HyperPod **EventBridge event format differs** from what the webhook bridge
+  and skills expect, so live event bridging is unreliable.
+
+`make deploy` checks `NodeProvisioningMode` for Slurm clusters and prints a loud
+warning (but does not hard-fail) when it isn't `Continuous`. EKS-orchestrated
+clusters are always Continuous, so this only affects Slurm. Enable Continuous
+Provisioning on the cluster before relying on investigations.
+
+Beyond that prerequisite: `make deploy` detects a Slurm cluster (no
+`Orchestrator.Eks.ClusterArn`) and skips the EKS access entry; the rest of the
+stack (foundation, webhook bridge, periodic audit, email) deploys. The periodic
+audit's Kubernetes CrashLoop/NotReady checks are inherently EKS-only. Validating
+the RCA skill's Continuous-Provisioning Slurm path end-to-end is a follow-up.
 
 Notable toggles: `EnablePeriodicAudit` (default `true`), `K8sChecksEnabled`
 (default `true`), `AuditSchedule` (default `rate(15 minutes)`).
