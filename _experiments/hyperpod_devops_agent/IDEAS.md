@@ -70,18 +70,18 @@ Task `f512a354-175e-490f-b18e-b8f6eebf4116` (2026-07-01T03:12:55Z, worker4) PROC
 Edge case to preserve: if `ActiveOperations.Scaling` is absent by the time the event fires (scale-down already completed), the correlation window against CloudTrail is what saves it — don't rely only on the live describe-cluster snapshot.
 
 
-## `s3:GetObject` on the LCS bucket to prevent RCA hallucination
+## `s3:GetObject` on the LCS bucket to prevent RCA hallucination [done]
 
-Task `f512a354` RCA fabricated a plausible-but-wrong root cause (`configure-efa-fsx-lustre-client.service failing on ml.g5.8xlarge, a non-EFA type`) because `DevOpsAgentRole-AgentSpace` can't read `s3://sagemaker-k8-1-1bd2626f-bucket/on_create.sh`. The actual LCS at the time was our missing-binary fault injection. The agent tagged the finding `[proxy]` and listed `lifecycle-script-source-code` as an `investigation_gap`, but still produced a confident-looking EFA/FSx hypothesis in the final report.
+Task `f512a354` RCA fabricated a plausible-but-wrong root cause (`configure-efa-fsx-lustre-client.service failing on ml.g5.8xlarge, a non-EFA type`) because `DevOpsAgentRole-AgentSpace` couldn't read `s3://sagemaker-k8-1-1bd2626f-bucket/on_create.sh`. The actual LCS at the time was our missing-binary fault injection. The agent tagged the finding `[proxy]` and listed `lifecycle-script-source-code` as an `investigation_gap`, but still produced a confident-looking EFA/FSx hypothesis in the final report.
 
-**`s3:GetObject` is in the guardrail's opt-in allowlist** (from the AWS DevOps Agent UG). Adding it — scoped to `arn:aws:s3:::sagemaker-<cluster>-*/on_create*.sh` and any other referenced LCS paths — would let the agent read the actual script content instead of guessing.
+**Shipped**: `foundation/template.yaml` now grants `s3:GetObject` + `s3:ListBucket` on `arn:aws:s3:::sagemaker-*-bucket` (and `/*`) to `DevOpsAgentRole-AgentSpace` via a new `AllowLcsBucketRead` inline policy. Scope is parameterizable through the `LcsBucketArnPattern` CFN parameter — override to a specific bucket ARN for tighter scoping, or set to `""` to skip the grant entirely. Both actions are in the guardrail's opt-in allowlist so the grant actually takes effect.
 
-Scoping options:
-- Wildcard per HyperPod-created LCS bucket: `arn:aws:s3:::sagemaker-*-bucket/*` (simple but broad — includes any script/config in that bucket)
-- Path-scoped to LCS entrypoints: `arn:aws:s3:::sagemaker-*-bucket/on_create*` + `.../lifecycle*` (narrower; may miss custom scripts)
-- Discovered per-cluster at foundation-stack deploy time from `describe-cluster.InstanceGroups[].LifeCycleConfig.SourceS3Uri` (tightest; adds bootstrap dependency)
+Wildcard-bucket scope was chosen over the narrower `.../on_create*` or per-cluster discovery approaches:
+- HyperPod-created LCS buckets follow the `sagemaker-<cluster>-<hash>-bucket` pattern, so the wildcard cleanly targets them without picking up unrelated buckets.
+- Users often add other scripts referenced by `on_create.sh` (helper scripts, configs). Path-scoping to `on_create*` alone would re-introduce the "can't read the referenced file" gap.
+- Per-cluster discovery would require a bootstrap Lambda and re-deploy on new-cluster addition. Not worth the ergonomics tax.
 
-Would add to `foundation/template.yaml` under `DevOpsAgentRole-AgentSpace` as an inline policy. Verify by re-running the LCS-failure test after the change and confirming the RCA cites the actual script content instead of the EFA hypothesis.
+Next verification: re-run the LCS-failure test (backup + fault-injected LCS at `/tmp/lcs_test/`) and confirm the RCA cites the actual script content instead of the EFA hypothesis.
 
 
 ## String truncation logics in the Lambda function
@@ -120,6 +120,54 @@ Console URL template updated to the actual working shape: `.../aidevops/home?reg
 RCA runs were occasionally emitting a descriptive first symptom title (e.g. `"worker1 lifecycle script execution failures across multiple nodes on k8-1"`) instead of the `"Triage verdict: ..."`-prefixed one. Downstream automation (email subject headline, dedup title-matching) then went blind because it keys off the verdict-title prefix.
 
 **Fix**: added a `CRITICAL: the FIRST symptom is the verdict symptom` section + four few-shot examples (Escalate recurring, Escalate coordinated LCS, Monitor first-attempt, Suppress audit) + an anti-example, all in [skills/hyperpod-incident-rca/SKILL.md](skills/hyperpod-incident-rca/SKILL.md#L425). Descriptive titles are now for the *second* and later symptom records. The email notifier's headline picker still falls back to the first-symptom title / task title if no verdict-prefixed symptom exists, so a drift regression degrades gracefully.
+
+
+## Kubernetes-state checks in periodic audit — CrashLoopBackOff + NotReady nodes
+
+The audit-mode RCA already has `kubectl` read access via the EKS access entry, but only inspects HyperPod-level state (`describe-cluster`, `list-cluster-events`). Extending it to check Pod / Node state would catch a class of incidents HyperPod itself doesn't emit events for.
+
+Proposed rules:
+- **CrashLoopBackOff > N hours** → Escalate. Key on `status.containerStatuses[].state.waiting.reason == "CrashLoopBackOff"` AND `lastTransitionTime` older than the threshold. One pod flapping for 10 min during a rolling deploy is fine; the same pod stuck for 4h is an incident.
+- **NotReady nodes > M% of the fleet, stable for > N min** → Escalate. `kubectl get nodes` filtered on `Ready==False`. Threshold + duration are both needed to avoid firing on transient scaling churn.
+
+Nuances to nail down:
+- **Namespace scope.** HyperPod-system pods (HMA, kube-proxy, CSI drivers) vs. customer training namespaces have different escalation semantics — a customer training pod in CrashLoop is their problem; an HMA pod in CrashLoop is a HyperPod problem. Default to alerting on both but tag the verdict differently, and expose `EXCLUDE_NAMESPACES` on the audit Lambda.
+- Thresholds should be env-var on the audit stack, not baked into the skill, so ops teams can tune without touching skill uploads.
+- Skill change only — no new infrastructure.
+
+
+## Weekly digest for GPU-utilization + FinOps signals
+
+Absolute-utilization thresholds (e.g. "average <80% over 7d") don't work as incident triggers — real workloads on well-tuned code hit 60–80% MFU, exploration/notebook work hits 20–40%, so an 80% floor pages ops for every researcher iterating on a training script. This is a **FinOps / capacity-planning signal**, not an SRE-page.
+
+Better shape: a separate **weekly digest** email (different recipients, different tone) surfacing:
+- Per-IG average GPU utilization over the trailing 7d.
+- Sudden utilization drop on a previously-hot IG (e.g. "worker4 was 70%+ for 6 days, now <10% for 12h and no scale-down") — that delta signal *is* actionable and could go straight into the incident channel because it points at a stuck job or GPU fault.
+- Replacement counts by IG over 7d (already computed by RCA rule 8, currently only surfaced when it crosses the Escalate threshold).
+- Optional: cost estimate delta week-over-week.
+
+Prerequisites:
+- **GPU metrics source.** Container Insights + DCGM exporter aren't on by default on HyperPod EKS. Verify what's in place before designing around it. Alternatively CloudWatch's built-in EC2 GPU metrics (limited) or Amazon Managed Prometheus (see next section).
+- Delivery: a new EventBridge Scheduler rule at `cron(0 15 ? * MON *)` → dedicated Lambda → SES email. Skips the DevOps Agent entirely — no investigation billed, just a report. Alternatively, use DevOps Agent's native "Agents" (custom scheduled agents for weekly ops reports) if we want it inside the same product.
+- Threshold-based Escalate can still live in the audit-mode skill for the specific delta case; the digest handles the ambient reporting.
+
+
+## Amazon Managed Prometheus as a data source — same guardrail shape as SSM
+
+HyperPod has an official AMP integration (kube-prometheus stack ships DCGM exporter, node-exporter, kube-state-metrics into an AMP workspace). Would be a natural data source for GPU utilization, ECC counters, NVLink stats, XID counts, EFA fabric health — the exact HMA/on-node signals the guardrail otherwise blocks us from seeing.
+
+**Guardrail check (UG p. 358 — verified 2026-07-08)**: `AIDevOpsAgentAccessPolicy` includes `aps:Describe*` and `aps:List*` only. The data-read APIs — `aps:QueryMetrics`, `aps:GetLabels`, `aps:GetSeries`, `aps:GetMetricMetadata` — are **not** in the guardrail allowlist. Same shape as `ssm:StartSession`: adding them to the customer role has no effect because the session policy strips them.
+
+So the agent can:
+- Enumerate AMP workspaces via `aps:ListWorkspaces` / `aps:DescribeWorkspace`.
+- See that HyperPod is publishing to workspace `ws-<id>`.
+- **Not** query any time-series data.
+
+Two paths forward:
+1. **Ask AWS to add AMP query actions to the guardrail allowlist** (`aps:QueryMetrics`, `aps:GetLabels`, `aps:GetSeries`, `aps:GetMetricMetadata`). This is a much narrower and more defensible ask than the SSM one — read-only, scoped by workspace ARN, no on-node blast radius, no interactive shell. Bundle it with the SSM feedback item.
+2. **AMP → CloudWatch bridge.** Amazon Managed Grafana / AMP alerts can already fan out to SNS. Route them through EventBridge → our webhook bridge → investigation, same shape as the SageMaker `Cluster Event` stream. Doesn't get us ad-hoc query capability during investigations, but does unlock threshold-based triggers on Prometheus metrics (per-Xid-code counts, per-GPU thermal alerts, EFA error rate) that the SageMaker EventBridge stream doesn't expose. The RCA skill would still be reasoning from HMA CloudWatch streams for post-trigger context, not from the raw Prometheus data.
+
+Path 2 is buildable today and complements Goal 2's recurrence detection with sharper trigger signals. Path 1 is the durable fix. File the guardrail-expansion feedback either way.
 
 
 ## Should we monitor HMA agent logs as the trigger of incident?
