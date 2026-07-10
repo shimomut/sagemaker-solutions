@@ -114,6 +114,39 @@ Makefile, `deploy.sh`, and `teardown.sh`. Everything else (Lambdas, EventBridge
 rules, execution roles, the scheduler) is unnamed and CloudFormation auto-names
 it per stack.
 
+## Periodic audit — detection modes
+
+The periodic audit runs on a schedule (default every 15 min) and can operate two
+ways, chosen by `AuditDetectionMode`:
+
+- **`lambda` (default):** the audit Lambda inspects cluster state itself —
+  CrashLoopBackOff pods, NotReady nodes (both via read-only EKS API access), and
+  open HyperPod fault chains (`list-cluster-events`) — and POSTs the DevOps Agent
+  webhook **only when a real issue is found**. On a healthy cluster nothing is
+  POSTed, so **no investigation runs and no cost is incurred**. A separate daily
+  `AuditHeartbeatSchedule` fires one "all clear" investigation per day so
+  operators can see the pipeline is alive.
+- **`always-fire`:** legacy behavior — POST every audit and let the
+  `hyperpod-incident-rca` skill discover issues and suppress on healthy clusters.
+  Kept for comparison/rollback.
+
+In `lambda` mode the Lambda has its **own** read-only `AWS::EKS::AccessEntry`
+(distinct principal from the Agent Space role) carrying
+`AmazonAIOpsAssistantPolicy` — note **not** `AmazonEKSViewPolicy`, whose `view`
+role excludes cluster-scoped `nodes` and can't satisfy the NotReady-node check.
+The Lambda calls the K8s API directly (SigV4 token + stdlib `urllib`) — no
+`kubernetes` client or Lambda layer.
+
+Audit investigation **titles are issue-descriptive and timestamp-free** (e.g.
+`HyperPod k8-1: CrashLoopBackOff (crashloop-test/crashloop-canary:fail)`), so a
+recurring issue produces an identical title and the platform/triage skill LINK or
+SKIP the repeat instead of emailing every cycle.
+
+Relevant params: `AuditDetectionMode` (`lambda`), `AuditSchedule`
+(`rate(15 minutes)`), `HeartbeatSchedule` (`cron(0 12 * * ? *)`),
+`K8sChecksEnabled` (`true`), `CrashLoopHoursThreshold` (4),
+`NotReadyNodePercentThreshold` (10), `NotReadyDurationMinutes` (15).
+
 ## Slurm clusters
 
 **Continuous Provisioning is a prerequisite for Slurm clusters.** Without it
@@ -131,10 +164,15 @@ clusters are always Continuous, so this only affects Slurm. Enable Continuous
 Provisioning on the cluster before relying on investigations.
 
 Beyond that prerequisite: `make deploy` detects a Slurm cluster (no
-`Orchestrator.Eks.ClusterArn`) and skips the EKS access entry; the rest of the
-stack (foundation, webhook bridge, periodic audit, email) deploys. The periodic
-audit's Kubernetes CrashLoop/NotReady checks are inherently EKS-only. Validating
-the RCA skill's Continuous-Provisioning Slurm path end-to-end is a follow-up.
+`Orchestrator.Eks.ClusterArn`) and skips both EKS access entries (the Agent
+Space role's and the audit Lambda's). In `lambda` detection mode on Slurm the
+audit reduces to the `list-cluster-events` fault-chain check only — no
+CrashLoop/NotReady checks (those are inherently EKS/kubectl). And because
+`list-cluster-events` itself requires Continuous Provisioning, the audit has
+little to inspect on a non-Continuous Slurm cluster. Validating the
+Continuous-Provisioning Slurm path end-to-end is a follow-up (see the design
+doc's "Still open" note).
 
-Notable toggles: `EnablePeriodicAudit` (default `true`), `K8sChecksEnabled`
-(default `true`), `AuditSchedule` (default `rate(15 minutes)`).
+Notable toggles: `EnablePeriodicAudit` (default `true`), `AuditDetectionMode`
+(default `lambda`), `K8sChecksEnabled` (default `true`), `AuditSchedule`
+(default `rate(15 minutes)`).

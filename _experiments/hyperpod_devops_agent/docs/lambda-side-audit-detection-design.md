@@ -1,6 +1,8 @@
 # Design: Lambda-side audit detection (fire webhook only on real issues)
 
-Status: **proposed** (design only, not implemented). 2026-07-10.
+Status: **IMPLEMENTED + verified on k8-1** (2026-07-10). Default is
+`AuditDetectionMode=lambda`. This doc is retained as the design rationale; see
+the "As-built" note at the end for what shipped and any deltas from the plan.
 
 ## Problem
 
@@ -139,12 +141,53 @@ If **nothing** trips → log "healthy, no webhook" and return 200 without POSTin
   RCA skill / email notifier can treat it as an informational "all clear" rather
   than an incident. Cost: 1 healthy RCA/day instead of ~48.
 
-## Open questions
+## As-built (2026-07-10) — what shipped, and deltas from the plan
 
-- Exact form of the daily-heartbeat trigger: a second EventBridge Scheduler at
-  `rate(1 day)` that always fires, vs. the 15-min Lambda self-detecting "first
-  run after 00:00 UTC." A separate daily schedule is simpler and unambiguous;
-  lean that way unless there's a reason to keep it in one Lambda path.
-- Heartbeat email policy: does the operator want the daily "all clear" email, or
-  only the liveness signal in the console/logs? (Affects the email notifier's
-  filter for `heartbeat: true`.)
+Implemented in `deploy/lambda/periodic_audit.py` + `deploy/hyperpod_devops_agent.yaml`,
+deployed and verified on `k8-1`.
+
+- **`AuditDetectionMode`** param: `lambda` (default) | `always-fire`. In `lambda`
+  mode the Lambda inspects state and POSTs only on a real issue; `always-fire`
+  keeps the legacy always-POST behavior.
+- **K8s reads:** SigV4 token (via `botocore.signers.RequestSigner` on STS
+  `GetCallerIdentity` with the `x-k8s-aws-id` header) + stdlib `urllib` GET of
+  `/api/v1/pods` and `/api/v1/nodes`. No `kubernetes` client, no layer — as
+  planned.
+- **Detectors:** CrashLoopBackOff (age vs `CrashLoopHoursThreshold`, namespace
+  filter), NotReady nodes (%+duration gate), open fault chains
+  (`list-cluster-events`, 4h, Error/Warn, excludes scale-in "lost
+  orchestration-ready" noise). A cluster-read failure surfaces as an
+  `AuditReadFailure` issue (never silently swallowed).
+- **DELTA — access policy:** plan said `AmazonEKSViewPolicy` (cluster scope).
+  **That was wrong** — the EKS `view` role excludes cluster-scoped `nodes`, so
+  node reads 403'd. Shipped with **`AmazonAIOpsAssistantPolicy`** instead (the
+  same read-only policy the Agent Space role uses; reads pods AND nodes). The
+  Lambda's own `AWS::EKS::AccessEntry` (`AuditLambdaEksAccessEntry`, principal =
+  the audit Lambda role) carries it, gated on `AuditLambdaNeedsEks`.
+- **Heartbeat:** shipped as a **separate daily `AWS::Scheduler::Schedule`**
+  (`AuditHeartbeatSchedule`, default `cron(0 12 * * ? *)`) that passes
+  `{"trigger":"heartbeat"}`; the 15-min schedule passes `{"trigger":"periodic"}`.
+  Heartbeat forces one POST/day with `metadata.heartbeat=true` and `issues:0`.
+  (Resolved the "which trigger form" open question in favor of a separate
+  schedule.)
+- **Payload:** carries `data.metadata.detectedIssues` + `heartbeat`; the title is
+  now a stable, issue-descriptive string (see the subject-line change) so repeat
+  audits of the same issue LINK/SKIP instead of emailing every cycle.
+- **Lambda timeout** raised 30 → 60s to cover the cluster reads.
+
+**Verified end-to-end on k8-1:** healthy → no POST; heartbeat → one POST
+(`issues:0`); real injected CrashLoopBackOff pod → detected → RCA **Escalate
+email**; pod cleared → **Resolved email**; repeat audit of same crashloop →
+triage **SKIPPED** (no duplicate email).
+
+**Still open / not done:**
+- **Heartbeat email policy:** currently the heartbeat POST flows through the same
+  path; whether the operator wants a daily "all clear" email vs. console/log-only
+  liveness is undecided (would be an email-notifier filter on `heartbeat:true`).
+- **Slurm:** in `lambda` mode on Slurm, detection reduces to `list-cluster-events`
+  only (no kubectl / no `AuditLambdaEksAccessEntry`). Not yet deployed/tested on
+  slurm-1; and slurm-1 lacks Continuous Provisioning, so `list_cluster_events`
+  may be unsupported there — see the Slurm discussion.
+- **RCA skill simplification:** the "audit signature / stale-evidence" machinery
+  is now redundant for cost control (the Lambda gates volume) but was left in
+  place; can be trimmed later.

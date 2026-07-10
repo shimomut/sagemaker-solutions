@@ -163,7 +163,7 @@ Path 2 is buildable today and complements Goal 2's recurrence detection with sha
 We could use it to monitor hardware resource utilization, etc.
 
 
-## Periodic Auditing improvement
+## Periodic Auditing improvement [done — implemented + verified on k8-1]
 
 DevOps Agent is not good at periodic auditing. It is designed to handle real issues event-driven.
 
@@ -178,6 +178,22 @@ design moves the CrashLoop/NotReady/open-fault detection into the audit Lambda
 (reusing the existing threshold params) and POSTs the webhook only when a real
 issue trips, so a healthy cluster costs ~0 investigations. Main new requirement:
 the audit Lambda needs read-only EKS access (it has none today).
+
+**Implemented + verified on k8-1 (2026-07-10).** `AuditDetectionMode=lambda`
+(default) now: the audit Lambda reads pods+nodes from the EKS API (SigV4 token +
+stdlib urllib — no kubernetes client / layer) plus `list-cluster-events`, and
+POSTs the webhook only when CrashLoopBackOff / NotReady / open-fault trips. A
+daily `AuditHeartbeatSchedule` forces one "all clear" per day. `always-fire`
+param preserves legacy behavior.
+- Audit Lambda got its own read-only `AWS::EKS::AccessEntry`. **Policy gotcha:**
+  `AmazonEKSViewPolicy` maps to the K8s `view` role which EXCLUDES cluster-scoped
+  `nodes` (403 on node list) — switched to `AmazonAIOpsAssistantPolicy` (same
+  read-only policy the Agent Space role uses; reads pods AND nodes).
+- Verified: healthy → `posted:false` (0 investigations); heartbeat → one POST,
+  `issues:0`; injected real CrashLoopBackOff pod → detected, POSTed, RCA →
+  **Escalate email**; pod cleared → **Resolved email**; repeat audit of the same
+  crashloop → triage **SKIPPED** (no duplicate email). See also the subject-line
+  fix below (stable issue-based title) which makes the dedup reliable.
 
 
 ## We are not using "Agent instructions".
@@ -221,4 +237,14 @@ smaller use we could adopt later.
 
 
 
+## Subject line of investigaton from periodic audit. [done]
+
+I noticed the subject of incidents regarding CrashLoopBackOff is generic like "HyperPod periodic audit: k8-1 @ 20260710T185538Z". Can we be more clear what issue the Lambda detected?
+
+**Fixed 2026-07-10.** The audit Lambda now builds an issue-descriptive, **timestamp-free** title from what it detected (`periodic_audit.py:_build_title`), e.g.:
+- `HyperPod k8-1: CrashLoopBackOff (crashloop-test/crashloop-canary:fail)`
+- `HyperPod k8-1: ClusterFaultEvent (worker4); NotReadyNodes (hyperpod-i-abc)`
+- `HyperPod k8-1: periodic audit — no open issues` (heartbeat/healthy)
+
+Two wins in one change: (1) the subject/title now names the actual issue; (2) removing the per-fire timestamp lets the platform + triage skill recognize a repeat audit as the **same** issue and LINK/SKIP it instead of emailing every 15 min. **Verified end-to-end**: after the first Escalate email for a CrashLoopBackOff, the next scheduled audit was SKIPPED by the triage skill with reason *"same CrashLoopBackOff on crashloop-test/crashloop-canary:fail … unchanged cluster state … skill rule prevents re-investigation"* — no duplicate email.
 
