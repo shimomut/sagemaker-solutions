@@ -2,15 +2,6 @@
 
 Scratchpad. Just write. Title + a couple of lines + any relevant IDs.
 
-## Triage rule for "deletion request was received" during scale-down
-
-Task `f512a354-175e-490f-b18e-b8f6eebf4116` (2026-07-01T03:12:55Z, worker4) PROCEEDed through triage and reached RCA — final symptom title `"Triage verdict: Escalate — recurring fault pattern"`. RCA correctly identified the deletion-during-provisioning as benign (`"expected HyperPod behavior when a scale-down overlaps with active provisioning"`), but rolled it into the escalate verdict alongside the still-open LCS loop. A full RCA is wasted work when the FailureMessage is caused by an operator-initiated scale-down that overlaps in-flight provisioning.
-
-**Proposed triage rule**: SKIP when `FailureMessage` contains `"instance provisioning could not be complete because a deletion request was received"` AND `describe-cluster` shows the same instance group with `ActiveOperations.Scaling` present and `TargetCount < CurrentCount` (or the failing instance's `LaunchTime` is within N seconds of a CloudTrail `UpdateCluster` call that reduced `TargetCount`). Same shape as rule 3 (scale-in-progress) but for the deletion-during-provisioning surface.
-
-Edge case to preserve: if `ActiveOperations.Scaling` is absent by the time the event fires (scale-down already completed), the correlation window against CloudTrail is what saves it — don't rely only on the live describe-cluster snapshot.
-
-
 ## Weekly digest for GPU-utilization + FinOps signals
 
 Absolute-utilization thresholds (e.g. "average <80% over 7d") don't work as incident triggers — real workloads on well-tuned code hit 60–80% MFU, exploration/notebook work hits 20–40%, so an 80% floor pages ops for every researcher iterating on a training script. This is a **FinOps / capacity-planning signal**, not an SRE-page.
@@ -45,9 +36,69 @@ Two paths forward:
 Path 2 is buildable today and complements Goal 2's recurrence detection with sharper trigger signals. Path 1 is the durable fix. File the guardrail-expansion feedback either way.
 
 
-## Can DevOps Agent access CloudWatch Metrics?
+## CloudWatch Metrics as a data source — already inside the guardrail
 
-We could use it to monitor hardware resource utilization, etc.
+Same purpose as the AMP-as-data-source idea above (GPU utilization, hardware
+health signals for the weekly digest and for sharper triggers), but **more
+realistic**, because the permission story is the exact opposite of AMP's.
+
+**Guardrail check (UG p. 359–360 — verified 2026-07-10)**: CloudWatch
+metric-read actions are in the **default** `AIDevOpsAgentAccessPolicy` set, not
+the opt-in allowlist. The policy grants `cloudwatch:GetMetricData`,
+`cloudwatch:GetMetricStatistics`, `cloudwatch:GetMetricStream`,
+`cloudwatch:ListMetrics` (`List*`), `cloudwatch:Describe*` (alarms),
+`cloudwatch:GetDashboard`, `cloudwatch:GetInsightRuleReport`, and
+`cloudwatch:GenerateQuery`. So unlike `aps:QueryMetrics` (guardrail-blocked) and
+`ssm:StartSession` (stripped), **the agent can already query CloudWatch
+time-series data ad hoc during an investigation with zero policy changes and no
+guardrail-expansion ask.** This is the durable-fix state that Path 1 of the AMP
+idea is still asking AWS *for* — we have it for free on the CloudWatch side.
+
+So the permission is not the gating question. **The gating question is what's
+actually published to CloudWatch for a HyperPod cluster**, and the honest answer
+is "not much GPU/hardware signal by default":
+
+- **EC2 vended metrics** (always on, `AWS/EC2`): `CPUUtilization`, network,
+  EBS, status checks. No GPU utilization, no ECC/Xid/thermal — EC2 does not vend
+  accelerator metrics natively. Coarse, but a *sudden CPUUtilization collapse on
+  a previously-busy instance* is a usable proxy for a stalled job (complements
+  the digest's delta signal without any GPU telemetry at all).
+- **DevOps Agent's own vended metrics** (`AWS/AIDevOps`): operational metrics
+  about the agent, not about the cluster. Not relevant here.
+- **GPU/accelerator metrics require an installed publisher** and are **not on by
+  default on HyperPod EKS** (same caveat as the digest section): either
+  Container Insights with the accelerated-compute add-on (GPU metrics land in the
+  `ContainerInsights` namespace) or the CloudWatch agent with NVIDIA support
+  (`nvidia_smi_*` — utilization, memory, temperature, some ECC). DCGM's richer
+  fabric/NVLink/per-Xid cardinality is really the AMP+DCGM story, not CloudWatch.
+
+Two paths forward, mirroring the AMP section:
+
+1. **Ad-hoc query during investigation.** Available *today* via
+   `GetMetricData` / `GetMetricStatistics`. Whether it's *useful* depends
+   entirely on whether the cluster has a GPU-metrics publisher installed. If it
+   does, the RCA skill could pull per-instance GPU utilization / temperature /
+   memory around the incident window to corroborate an HMA verdict — a strictly
+   richer post-trigger context source than the HMA CloudWatch *log* streams it
+   reasons from now. If it doesn't, the agent still gets EC2-level CPU/network
+   as a weak proxy. No feedback item needed either way.
+2. **CloudWatch alarm → SNS → EventBridge → webhook bridge** as a trigger
+   source. Identical plumbing to the AMP Path 2, but sourced from CloudWatch
+   alarms instead of AMP/Grafana alerts — unlocks threshold triggers on whatever
+   *is* published (CPU collapse, or GPU util/thermal if a publisher exists).
+   Composes with the existing `Cluster Event` stream and complements Goal 2's
+   recurrence detection.
+
+**CloudWatch vs. AMP, net:** CloudWatch is *in-guardrail today* but thin on
+GPU/hardware signal unless a publisher is installed, and gets expensive at high
+metric cardinality. AMP carries the rich DCGM cardinality HyperPod's official
+integration already ships, but its query APIs are *outside* the guardrail
+(needs the Path-1 ask). They're complementary: **prefer CloudWatch for the
+buildable-now digest + trigger work, keep the AMP guardrail-expansion feedback
+item for the deep per-GPU cardinality we can't get from CloudWatch.** First
+concrete step for either is the same as the digest prerequisite — enumerate what
+metric namespaces a real HyperPod EKS cluster actually publishes (`ListMetrics`)
+before designing around any of them.
 
 
 ## We are not using "Agent instructions".
