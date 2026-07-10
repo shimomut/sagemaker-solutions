@@ -3,7 +3,6 @@
 /.venv/
 /.state.json
 /skills/upstream/
-/deploy/hyperpod_devops_agent.embedded.yaml
 /deploy/params.json
 /deploy/params.*.json
 !/deploy/params.example.json

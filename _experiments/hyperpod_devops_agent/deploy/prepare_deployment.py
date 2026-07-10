@@ -4,9 +4,9 @@
 Two subcommands, both driven by the Makefile, that turn the source tree into
 inputs 'aws cloudformation deploy' can consume:
 
-  embed    Inline each deploy/lambda/*.py into hyperpod_devops_agent.yaml at its
-           "# <NAME>_CODE_PLACEHOLDER" marker, producing
-           hyperpod_devops_agent.embedded.yaml. This mirrors the repo's existing
+  embed    Inline each deploy/lambda/*.py into hyperpod_devops_agent.template.yaml
+           at its "# <NAME>_CODE_PLACEHOLDER" marker, producing the deployable
+           hyperpod_devops_agent.yaml. This mirrors the repo's existing
            awk-based embed convention, but handles the five distinct placeholders
            in one pass.
 

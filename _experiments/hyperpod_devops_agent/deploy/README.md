@@ -26,7 +26,8 @@ The EKS access grant, previously an imperative script, is now the native
 
 ```
 deploy/
-  hyperpod_devops_agent.yaml  - the single template (with # *_CODE_PLACEHOLDER markers)
+  hyperpod_devops_agent.yaml           - the deployable template (Lambda code inlined; committed)
+  hyperpod_devops_agent.template.yaml  - the source template (with # *_CODE_PLACEHOLDER markers)
   lambda/
     webhook_bridge.py        \
     periodic_audit.py         > glue Lambdas (unchanged from the old stacks)
@@ -40,8 +41,9 @@ deploy/
 ```
 
 `prepare_deployment.py embed` inlines each `lambda/*.py` at its
-`# <NAME>_CODE_PLACEHOLDER` marker, producing
-`hyperpod_devops_agent.embedded.yaml` (git-ignored build artifact).
+`# <NAME>_CODE_PLACEHOLDER` marker in `hyperpod_devops_agent.template.yaml`,
+producing the deployable `hyperpod_devops_agent.yaml` (committed — this is the
+file customers download and deploy directly; they don't need the template).
 
 ## Quick start
 
@@ -92,7 +94,7 @@ Only three are required — `HyperPodClusterName`, `EmailSender`,
 `SkillsManifest` are filled in automatically by `make deploy` (do not set them in
 `params.json`). Everything else has a safe default; see the inline `Description`
 fields and the `AWS::CloudFormation::Interface` groups in
-`hyperpod_devops_agent.yaml`.
+`hyperpod_devops_agent.template.yaml`.
 
 ## Multiple clusters in one account/region
 

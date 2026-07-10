@@ -7,7 +7,7 @@
 #      (empty for Slurm -> EKS access is skipped by the template).
 #   4. Ensure the S3 assets bucket exists, then sync the skills into it and
 #      capture the manifest + content-hash version.
-#   5. Embed the Lambda sources into hyperpod_devops_agent.embedded.yaml.
+#   5. Embed the Lambda sources into hyperpod_devops_agent.yaml.
 #   6. aws cloudformation deploy with the assembled parameters.
 #
 # Env overrides: REGION, STACK_NAME, PARAMS_FILE, SKIP_SKILLS=yes.
@@ -19,8 +19,8 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # STACK_NAME defaults per-cluster (below, once the cluster slug is known) so
 # multiple clusters get distinct stacks. Override by exporting STACK_NAME.
 : "${PARAMS_FILE:=${HERE}/params.json}"
-: "${TEMPLATE_SRC:=${HERE}/hyperpod_devops_agent.yaml}"
-: "${TEMPLATE_OUT:=${HERE}/hyperpod_devops_agent.embedded.yaml}"
+: "${TEMPLATE_SRC:=${HERE}/hyperpod_devops_agent.template.yaml}"
+: "${TEMPLATE_OUT:=${HERE}/hyperpod_devops_agent.yaml}"
 
 if [[ ! -f "${PARAMS_FILE}" ]]; then
     echo "Error: ${PARAMS_FILE} not found. Copy deploy/params.example.json to deploy/params.json and edit it." >&2

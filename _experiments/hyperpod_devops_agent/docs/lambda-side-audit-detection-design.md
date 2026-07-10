@@ -143,7 +143,7 @@ If **nothing** trips → log "healthy, no webhook" and return 200 without POSTin
 
 ## As-built (2026-07-10) — what shipped, and deltas from the plan
 
-Implemented in `deploy/lambda/periodic_audit.py` + `deploy/hyperpod_devops_agent.yaml`,
+Implemented in `deploy/lambda/periodic_audit.py` + `deploy/hyperpod_devops_agent.template.yaml`,
 deployed and verified on `k8-1`.
 
 - **`AuditDetectionMode`** param: `lambda` (default) | `always-fire`. In `lambda`
