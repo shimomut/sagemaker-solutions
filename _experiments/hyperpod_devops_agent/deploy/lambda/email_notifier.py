@@ -227,6 +227,22 @@ def _write_marker(execution_id: str, event: dict, meta: dict) -> None:
         print(f"put_object failed for {bucket}/{key}: {exc!r} (email sent OK, dedup marker not written)")
 
 
+def _is_heartbeat(task: dict) -> bool:
+    """Detect the daily heartbeat audit (silent liveness — never emailed).
+
+    The periodic-audit Lambda marks heartbeat runs deterministically: the task
+    title is 'HyperPod <cluster>: periodic audit — no open issues' and the
+    description begins 'Daily heartbeat audit for HyperPod cluster'. Match either
+    so this is independent of RCA-skill wording.
+    """
+    title = (task.get("title") or "")
+    desc = (task.get("description") or "")
+    return (
+        "Daily heartbeat audit for HyperPod cluster" in desc
+        or "periodic audit — no open issues" in title
+    )
+
+
 def _is_suppress_verdict(journal: dict) -> bool:
     """Detect a Suppress verdict in the journal.
 
@@ -626,6 +642,13 @@ def lambda_handler(event, context):
     task = _fetch_task(meta["agent_space_id"], meta["task_id"])
     journal = _fetch_journal(meta["agent_space_id"], meta["execution_id"])
     print(f"journal: symptoms={len(journal['symptoms'])} findings={len(journal['findings'])} gaps={len(journal['gaps'])} raw={journal['raw_count']}")
+
+    # Daily heartbeat is a silent liveness signal — visible in the console/logs
+    # but never emailed. The audit Lambda marks heartbeat runs deterministically
+    # in the task title/description; match either (skill-independent).
+    if not force and _is_heartbeat(task):
+        print("skipping: daily heartbeat (silent liveness, no email)")
+        return {"statusCode": 200, "body": json.dumps({"skipped": True, "reason": "heartbeat"})}
 
     if not force and _is_suppress_verdict(journal):
         print("skipping: Suppress verdict")

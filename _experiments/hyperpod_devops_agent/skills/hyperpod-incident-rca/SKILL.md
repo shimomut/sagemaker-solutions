@@ -15,10 +15,14 @@ slot and the agent has full AWS API access.
 
 **The complementary triage skill** `hyperpod-incident-triage` runs at
 the INCIDENT_TRIAGE stage BEFORE this skill, and decides whether an
-incoming event should be `LINKED` / `SKIPPED` / `PROCEED`. The triage
-skill enforces the signature-set logic at task-creation time, before
-investigation hours are billed. This RCA skill assumes the triage
-skill has already filtered duplicates and stale-evidence cases.
+incoming event should be `LINKED` / `SKIPPED` / `PROCEED` using concise
+declarative correlation rules (keep distinct fault types on the same
+instance group separate; skip concurrent periodic audits). Separately,
+for periodic audits, the **audit Lambda gates volume** — it inspects
+Kubernetes state itself and only invokes an investigation when a real
+issue is present (plus a daily heartbeat), so a "periodic audit"
+investigation reaching this skill already corresponds to something
+worth looking at.
 
 When this skill DOES run, it does triage-like classification and
 root-cause analysis in one pass because they need the same evidence:
@@ -49,27 +53,26 @@ status all aligned on a wall-clock timeline. Building a separate
 "triage" skill that decides without that data would mean re-deciding
 incorrectly on every event.
 
-## Relationship to `hyperpod-incident-triage` v0.5.0
+## Relationship to `hyperpod-incident-triage` and the audit Lambda
 
-The triage skill (v0.5.0+) computes a cluster audit signature —
-`kubectl get pods`, `kubectl get nodes`, and a `list-cluster-events`
-scan of the last 4 hours — and decides LINK / SKIP / PROCEED based
-on whether the signature changed. By the time this RCA skill
-loads, triage has already:
+Two things run before this RCA skill and mean it does NOT need to
+re-implement duplicate/stale-audit suppression itself:
 
-- **Confirmed the audit signature is new** (rule 3 PROCEED), OR
-- **Confirmed a fresh incident event arrived** (rule 4 or 6 PROCEED).
+- **`hyperpod-incident-triage`** makes the LINK / SKIP / PROCEED
+  decision with concise declarative rules (same fault on the same
+  component links; different fault types on the same instance group
+  stay separate; concurrent periodic audits are skipped).
+- **The periodic-audit Lambda gates volume**: for scheduled audits it
+  inspects Kubernetes state (CrashLoopBackOff / NotReady) and POSTs the
+  webhook only when a real issue exists — so a periodic-audit
+  investigation reaching this skill already corresponds to a real
+  finding, not an idle poll. HyperPod control-plane faults arrive via
+  the event-driven webhook bridge, not the audit.
 
-That means every RCA-mode audit invocation is guaranteed to be
-looking at *something new*. RCA still re-does the full Phase 1
-gather (including Pod / Node inspection in Phase 1 step 8, and
-threshold checks in Phase 3d) because the reasoning stage needs
-the full state — the audit signature is a summary, not a
-substitute for evidence.
-
-RCA does NOT need to re-implement the audit-signature comparison —
-that stale-evidence check has been permanently moved to triage.
-Rules 3 / 3b from earlier RCA versions remain removed.
+RCA still does the full Phase 1 gather (including Pod/Node inspection
+and Phase 3d threshold checks) because the reasoning stage needs the
+full evidence. Earlier RCA "stale-evidence" rules (3 / 3b) were removed
+and are not reintroduced — that concern is handled upstream now.
 
 ## Workflow
 
@@ -308,9 +311,11 @@ itself doesn't change, the operator should see the count.
 
 ### Phase 2d — Compute the signature set
 
-The signature set is used for verdict-title generation. The
-`hyperpod-incident-triage` skill uses these titles to make LINK/PROCEED
-decisions at the platform triage stage for future incoming events.
+The signature set is used for verdict-title generation. Encoding it in
+the title lets the DevOps Agent platform's title-based dedup absorb
+back-to-back audits of the same fault set (identical set → identical
+title), while a new fault set produces a new title and a fresh
+investigation.
 
 - `current_signature_set` — sorted, deduplicated set of signature
   strings (per Phase 2b) for every distinct fault event in the
@@ -391,16 +396,12 @@ classified as `Monitor — first attempt`.
 | 14 | HMA detection event present but no corresponding `Action:*` / replacement event in the timeline within 10 minutes | **Escalate** — HMA fired without escalating; investigate why (mismatch in node-recovery config, signal didn't classify) |
 | 15 | None of the above match | **Monitor — uncategorized** (include the full timeline; flag for review) |
 
-> **Stale-evidence suppression (the former rules 3 and 3b) is now
-> handled by the `hyperpod-incident-triage` skill** at the platform
-> triage stage, before the RCA skill runs. Earlier versions of this
-> skill included those rules; they're removed because they would
-> never reach execution in steady state — the triage skill emits
-> LINKED at task-creation time for duplicates and same-root-cause
-> recurrences. If the triage skill is ever disabled or misconfigured
-> and audits start producing duplicate Escalate emails, restore the
-> rules from the v12 git history or rely on the
-> `hyperpod-incident-triage` skill.
+> **Duplicate / stale-audit suppression is handled upstream**, not by
+> this skill: the `hyperpod-incident-triage` skill LINKs/SKIPs
+> duplicate incident events and concurrent audits, and the
+> periodic-audit Lambda only invokes an investigation when a real issue
+> is present. The former RCA "stale-evidence" rules (3 / 3b) were
+> removed and are not reintroduced.
 
 **Rule 2 (`Resolved`) closes the loop on prior `Monitor` verdicts.**
 A previous `Monitor` verdict promised a re-check; this rule provides
@@ -413,19 +414,6 @@ This is the closure email the operator needs.
 case.** When the scheduled audit fires on a healthy cluster, emit a
 single minimal record acknowledging the audit ran. The email notifier
 filters `Suppress` verdicts so no email is sent.
-
-**Duplicate-email suppression is handled by `hyperpod-incident-triage`.**
-The earlier versions of this skill included Phase 3 rules 3 and 3b
-to suppress same-signature / same-root-cause re-Escalation across
-periodic audits. Those rules are now removed because the platform's
-triage stage runs the `hyperpod-incident-triage` skill BEFORE this
-skill — and that skill's rule 4 (signature-set comparison) emits
-LINKED at task-creation time for the same cases. By the time this
-skill loads, the only audit tasks that arrive are ones the triage
-skill decided to PROCEED on. If the operator wants to understand
-why a stale-evidence audit didn't produce an email, the answer is
-in the triage skill's logic, not here. See
-[hyperpod-incident-triage's SKILL.md](../hyperpod-incident-triage/SKILL.md).
 
 **Recurring-pattern verdicts (6–8) are `Escalate` even when the
 individual incident is auto-recovering correctly.** The reasoning is
