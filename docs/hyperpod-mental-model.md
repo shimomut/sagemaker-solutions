@@ -826,6 +826,98 @@ Note: this is distinct from — but related to — the pre-existing
 vs count-of-nodes disagreement during any transition. This entry
 is specifically about ClusterStatus behavior under Continuous mode.
 
+## Capacity options and capacity failures
+
+*(Both)*
+
+HyperPod's capacity model is a frequent source of customer — and
+therefore AI — confusion, because it does **not** map onto the EC2
+capacity concepts an AI's training data expects (ODCR, Capacity Blocks,
+Spot). Getting this wrong produces two failure modes: recommending an
+EC2 capacity mechanism HyperPod doesn't use, and misclassifying a
+capacity `Failed` as the same transient-retry case as an EFA
+health-check failure.
+
+### The three ways to get capacity
+
+| Option | When | How you consume it |
+|---|---|---|
+| **On-Demand** | Small SKUs, experiments | Just create the cluster. Not guaranteed for large GPU SKUs (p4d/p5/…), placement is not topology-optimized, **not recommended for production**. |
+| **Flexible Training Plans** | Medium-to-large, predictable workloads | Query availability by type/count/schedule, self-purchase (discounted, up to 180 days), then pass the plan's **`TrainingPlanArn`** on the instance group. Guaranteed capacity + better topology. |
+| **Reserved Capacity via AWS account team** | Large-scale, long-term | The account team allocates capacity to your account in a specific AZ. **No ID to pass** — see below. |
+
+### HyperPod does NOT use EC2 ODCR or Capacity Blocks
+
+This is the single most consequential capacity misconception.
+
+- HyperPod capacity is **not** an EC2 On-Demand Capacity Reservation
+  (ODCR) and **not** an EC2 Capacity Block. There is no
+  `CapacityReservationId` / Capacity-Block ID to specify on the cluster,
+  and the EC2 capacity-reservation APIs do not apply.
+- Capacity that your AWS account team reserves for you (account × AZ) is
+  **not visible in your EC2 console** — `aws ec2
+  describe-capacity-reservations` returns nothing and the EC2 "Capacity
+  Reservations" page is empty. This mirrors the ownership boundary at
+  the top of this doc: the reservation lives in the HyperPod service
+  account, not yours. **Absence of an EC2 capacity reservation is NOT
+  evidence that no capacity was allocated.**
+
+### How to actually consume account-team-reserved capacity
+
+> **You do NOT specify any capacity/reservation ID.** Create the cluster
+> normally — the ONLY things that must be correct are the **account** and
+> the **Availability Zone** (via the instance group's subnet). As long as
+> the cluster's account × AZ matches where the account team allocated the
+> capacity, HyperPod picks it up **automatically**.
+
+This is the exact point customers (and AIs) trip on: they hunt for a
+field to plug a reservation ID into, don't find one, and conclude the
+setup is incomplete. There is no such field for account-team
+reservations — the binding is implicit through account × AZ.
+
+Practical consequence for the instance group config:
+
+- The instance group's **subnet must be in the AZ where capacity was
+  reserved.** Wrong AZ → the reservation isn't matched → you fall back to
+  on-demand and hit a capacity error even though capacity "exists."
+- **Flexible Training Plans are different**: you DO pass `TrainingPlanArn`
+  on the instance group, AND the AZ/subnet must match where the plan's
+  capacity lives.
+
+### Reading a capacity `Failed` correctly
+
+A capacity shortfall surfaces as a per-instance provisioning failure. The
+`FailureMessage` (via `describe-cluster-event` — see "`FailureMessage` is
+only in `describe-cluster-event` today") reads like:
+
+> *"We currently do not have sufficient capacity to launch new
+> ml.g5.8xlarge instances. Please try again."*
+
+or
+
+> *"We currently do not have sufficient capacity in the Availability Zone
+> you requested."*
+
+**Do not treat this like an EFA-health-check `Failed`.** The resiliency
+section notes EFA health-check failures are often transient and a manual
+retry usually succeeds. A capacity `Failed` is a different animal:
+
+- **On-Demand**: retrying into an exhausted pool for a large GPU SKU will
+  keep failing. The fix is a capacity *option* change (Flexible Training
+  Plan or account-team reservation), a different AZ, or smaller/fewer
+  instances — **not** a blind retry.
+- **Training Plan or account-team reservation** and still hitting a
+  capacity error → suspect a **config mismatch**, not pool exhaustion:
+  - Training Plan: `TrainingPlanArn` missing or wrong.
+  - Account-team reservation: the cluster's AZ (instance-group subnet)
+    doesn't match the reserved AZ.
+  - Verify the subnet's AZ, and confirm the reservation's account × AZ
+    with your account team.
+
+**Diagnostic rule:** a capacity-worded `Failed` on a cluster that is
+*supposed* to have reserved capacity is far more likely an **AZ/subnet
+misalignment** (a customer-config class) than genuine pool exhaustion.
+
 ## Common AI-confusing details
 
 Each entry below is tagged with whether it applies to Slurm, EKS, or
@@ -973,6 +1065,15 @@ The error message in `describe-cluster-node` is:
 
 That message implies a customer VPC misconfiguration but is often
 transient. Manual replacement frequently succeeds with no VPC changes.
+
+**A capacity-worded `Failed` is NOT this case.** When the
+`FailureMessage` is about insufficient capacity (`"We currently do not
+have sufficient capacity..."`) rather than EFA health checks, the
+transient-retry reasoning above does NOT apply — retrying an
+on-demand large-GPU request into an exhausted pool keeps failing, and a
+capacity error on a cluster that should have reserved capacity is usually
+an AZ/subnet misalignment. See "Capacity options and capacity failures"
+above.
 
 ### Topology placement on replacement is *usually* preserved, but not guaranteed
 
