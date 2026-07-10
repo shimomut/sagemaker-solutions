@@ -252,14 +252,68 @@ def _is_suppress_verdict(journal: dict) -> bool:
     return False
 
 
-def _pick_headline(journal: dict, task: dict) -> str:
-    """Best short headline we can produce for the subject line.
+def _verdict_symptom(journal: dict) -> dict:
+    """Return the first symptom whose title starts with 'Triage verdict:', or {}."""
+    for s in journal["symptoms"]:
+        if (s.get("title") or "").strip().startswith("Triage verdict"):
+            return s
+    return journal["symptoms"][0] if journal["symptoms"] else {}
 
-    1. If a symptom title starts with 'Triage verdict:', use its post-colon body (SKILL.md contract).
-    2. Otherwise use the first symptom's title.
-    3. Otherwise the task title.
-    4. Otherwise a generic string.
+
+def _parse_summary(description: str) -> dict:
+    """Parse the RCA skill's 'Summary:' block into its three fields.
+
+    Contract (RCA SKILL.md Phase 4): the verdict symptom's description contains
+        Summary:
+        - What happened: ...
+        - Likely cause: ...
+        - Recommended action: ...
+    Each field may wrap across lines until the next '- <Label>:' or a blank line
+    that precedes the next section. Returns {} if no Summary block is present
+    (graceful fallback for skill drift / older investigations).
     """
+    if not description or "Summary:" not in description:
+        return {}
+    labels = {
+        "what happened": "what_happened",
+        "likely cause": "likely_cause",
+        "recommended action": "recommended_action",
+    }
+    out: dict[str, str] = {}
+    current = None
+    # Only scan the region from 'Summary:' up to the next top-level section.
+    after = description.split("Summary:", 1)[1]
+    for raw in after.splitlines():
+        line = raw.strip()
+        m = re.match(r"^-\s*([A-Za-z ]+?):\s*(.*)$", line)
+        if m and m.group(1).strip().lower() in labels:
+            current = labels[m.group(1).strip().lower()]
+            out[current] = m.group(2).strip()
+        elif current and line and not line.endswith(":") and not line.startswith("-"):
+            # continuation of the current bullet
+            out[current] = (out[current] + " " + line).strip()
+        elif current and (not line or line.endswith(":")):
+            # blank line or a new top-level section header ends the summary
+            if not line and out:
+                break
+            current = None
+    return {k: v for k, v in out.items() if v}
+
+
+def _pick_headline(journal: dict, task: dict) -> str:
+    """Best short headline for the subject line.
+
+    Priority:
+    1. The Summary's 'What happened' (specific, human-readable) — preferred.
+    2. The verdict name (post-colon body of the 'Triage verdict:' title).
+    3. The first symptom's title.
+    4. The task title.
+    5. A generic string.
+    """
+    vs = _verdict_symptom(journal)
+    summary = _parse_summary(vs.get("description") or "")
+    if summary.get("what_happened"):
+        return summary["what_happened"][:160]
     for s in journal["symptoms"]:
         t = (s.get("title") or "").strip()
         if t.startswith("Triage verdict"):
@@ -446,6 +500,29 @@ def _format_body_html(
         f'</div>'
     )
 
+    # RCA 3-part summary (What happened / Likely cause / Recommended action),
+    # parsed from the verdict symptom's description. Rendered prominently up top.
+    summary = _parse_summary((_verdict_symptom(journal).get("description") or ""))
+    summary_html = ""
+    if summary:
+        parts = [
+            ("What happened", summary.get("what_happened")),
+            ("Likely cause", summary.get("likely_cause")),
+            ("Recommended action", summary.get("recommended_action")),
+        ]
+        rows = "".join(
+            f'<div style="margin-bottom:10px;">'
+            f'<div style="color:#616161;font-size:11px;letter-spacing:1px;'
+            f'text-transform:uppercase;margin-bottom:2px;">{esc(label)}</div>'
+            f'<div style="font-size:14px;color:#111;">{esc(val)}</div></div>'
+            for label, val in parts if val
+        )
+        if rows:
+            summary_html = (
+                f'<div style="background:#f8f9fa;border:1px solid #e0e0e0;'
+                f'border-radius:3px;padding:14px 16px;margin:0 0 16px 0;">{rows}</div>'
+            )
+
     return (
         f'<html><body style="margin:0;padding:24px;background:#f5f5f5;'
         f'font-family:-apple-system,BlinkMacSystemFont,\'Segoe UI\',Helvetica,Arial,sans-serif;'
@@ -457,6 +534,7 @@ def _format_body_html(
         f'<h1 style="font-size:20px;color:#111;margin:0 0 12px 0;font-weight:600;">'
         f'HyperPod investigation completed</h1>'
         f'{banner_html}'
+        f'{summary_html}'
         f'<table style="border-collapse:collapse;font-size:13px;margin:0 0 8px 0;">'
         f'<tbody>{facts_rows}</tbody></table>'
         f'{symptoms_html}'
@@ -477,6 +555,15 @@ def _format_body_text(
 ) -> str:
     """Plain-text fallback."""
     lines = ["HyperPod investigation completed", "=" * 32, "", f"Headline: {headline}", ""]
+    summary = _parse_summary((_verdict_symptom(journal).get("description") or ""))
+    if summary:
+        if summary.get("what_happened"):
+            lines += [f"What happened:      {summary['what_happened']}"]
+        if summary.get("likely_cause"):
+            lines += [f"Likely cause:       {summary['likely_cause']}"]
+        if summary.get("recommended_action"):
+            lines += [f"Recommended action: {summary['recommended_action']}"]
+        lines += [""]
     lines += [
         f"Priority:         {meta['priority'] or 'n/a'}",
         f"Event:            {event.get('detail-type', '')}",
