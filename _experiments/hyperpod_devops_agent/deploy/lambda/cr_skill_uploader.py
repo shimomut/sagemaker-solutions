@@ -2,7 +2,7 @@
 
 CloudFormation has no `AWS::DevOpsAgent::Asset` (or skill) resource type, so
 skills are uploaded imperatively here — the same create-asset / update-asset
-flow scripts/07_upload_skill.sh used, but driven from a manifest + zips that
+flow the earlier per-skill upload used, but driven from a manifest + zips that
 `make sync-skills` staged into an S3 bucket (the SKILL.md + the ~85 KB
 mental-model doc are far too large for an inline Lambda ZipFile).
 

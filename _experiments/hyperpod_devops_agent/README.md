@@ -18,156 +18,99 @@ Slack notifications can be added later (paused on workspace 3P approval) via Dev
 
 ## Layout
 
+The whole solution deploys as **one CloudFormation stack per cluster** via
+`deploy/`. See [deploy/README.md](deploy/README.md) for the deploy mechanics.
+
 ```
 .
-├── Makefile                 - make targets for every step below
-├── README.md                - this file
-├── docs/                    - DevOps Agent UG + API ref PDFs (git-ignored) + extracted .txt
-│   └── devops-agent-mental-model.md  - undocumented DevOps Agent behaviors we discovered (read before changing skills/bridge/audit)
-├── extract_pdf.py           - PDF -> .txt helper (pypdf)
-├── requirements.txt
-├── foundation/
-│   └── template.yaml        - CloudFormation: IAM roles + AWS::DevOpsAgent::AgentSpace + AWS::DevOpsAgent::Association (AWS monitor)
-├── webhook_bridge/
-│   ├── template.yaml        - CloudFormation: EventBridge rule + Lambda + IAM
-│   ├── lambda_function.py   - HyperPod event -> DevOps Agent payload
-│   └── local_test.py        - send a synthetic event to the real webhook
-├── email_notifier/
-│   ├── template.yaml        - CloudFormation: EventBridge rule + Lambda + SES sender
-│   └── lambda_function.py   - Investigation event -> formatted email
-├── periodic_audit/
-│   ├── template.yaml        - CloudFormation: EventBridge Scheduler + Lambda (Goal 1 fallback)
-│   └── lambda_function.py   - Synthesizes periodic-audit webhook event, HMAC-signs, POSTs
+├── Makefile                 - unified make targets (deploy / teardown-stack / *-logs / import-upstream-skills)
+├── README.md                - this file (design + findings)
+├── docs/
+│   ├── devops-agent-mental-model.md          - undocumented DevOps Agent behaviors (read before changing skills)
+│   └── lambda-side-audit-detection-design.md - periodic-audit design + as-built
+├── deploy/                  - the single-template deployment (see deploy/README.md)
+│   ├── hyperpod_devops_agent.template.yaml   - the one template (with # *_CODE_PLACEHOLDER markers)
+│   ├── hyperpod_devops_agent.yaml            - generated: template with Lambda code embedded
+│   ├── lambda/
+│   │   ├── webhook_bridge.py        - HyperPod event -> DevOps Agent payload
+│   │   ├── periodic_audit.py        - K8s-state audit (CrashLoop/NotReady) + heartbeat
+│   │   ├── email_notifier.py        - Investigation event -> formatted SES email
+│   │   ├── cr_webhook_provisioner.py- custom resource: register/associate eventChannel + write secret
+│   │   ├── cr_skill_uploader.py     - custom resource: upload skill assets from S3
+│   │   └── cfnresponse.py           - CFN response shim for the S3-packaged skill uploader
+│   ├── prepare_deployment.py        - embed Lambda code; sync skills to S3
+│   ├── deploy.sh / teardown.sh      - one-command deploy / teardown
+│   ├── import_upstream_skills.sh    - stage curated awslabs/agent-plugins hyperpod-* skills
+│   └── params.example.json          - copy to params.json (or params.<cluster>.json) and edit
 ├── skills/
-│   ├── hyperpod-incident-triage/   - INCIDENT_TRIAGE skill (decides LINKED/SKIPPED/PROCEED)
-│   ├── hyperpod-incident-rca/      - INCIDENT_RCA skill (full investigation + verdict)
-│   │   ├── SKILL.md
-│   │   └── references/hyperpod-mental-model.md  - synced from ../../docs/ at upload time
-│   └── upstream/            - awslabs/agent-plugins clone (git-ignored)
-├── scripts/
-│   ├── config.sh                 - shared config (env-overridable)
-│   ├── 01_deploy_foundation.sh   - deploys foundation/template.yaml (CFN-native)
-│   ├── 02_provision_webhook.sh   - register-service + associate-service (imperative — CFN gap)
-│   ├── 03_grant_eks_access.sh    - skipped for Slurm clusters
-│   ├── 04_create_webhook_secret.sh
-│   ├── 05_deploy_webhook_bridge.sh
-│   ├── 06_delete_webhook_bridge.sh
-│   ├── 07_upload_skill.sh         - reads agent_types from SKILL.md frontmatter
-│   ├── 08_delete_skill.sh
-│   ├── 09_import_upstream_skills.sh  - curated allowlist (drops SSM-blocked skills)
-│   ├── 10_deploy_email_notifier.sh
-│   ├── 11_delete_email_notifier.sh
-│   ├── 12_deploy_periodic_audit.sh
-│   ├── 13_delete_periodic_audit.sh
-│   └── 99_teardown.sh
-└── .state.json                    - written by setup, read by teardown (git-ignored)
+│   ├── hyperpod-incident-triage/    - INCIDENT_TRIAGE skill (LINKED/SKIPPED/PROCEED)
+│   ├── hyperpod-incident-rca/       - INCIDENT_RCA skill (investigation + verdict + summary)
+│   └── upstream/                    - awslabs/agent-plugins clone (git-ignored)
+├── extract_pdf.py / requirements.txt- PDF -> .txt helper for the docs
 ```
+
+The `hyperpod-mental-model.md` reference doc is bundled into the RCA skill at
+sync time from `../../docs/hyperpod-mental-model.md` (single source of truth).
 
 ## Prerequisites
 
-- AWS CLI v2 configured for the target account, with a region set (`aws configure set region <region>`) or `REGION=<region>` exported.
-- An existing HyperPod cluster (EKS or Slurm orchestrator). Set `HYPERPOD_CLUSTER_NAME` before any `make` target — the underlying EKS cluster name is auto-discovered, no need to set it manually.
-- Permission to create IAM roles, manage Secrets Manager, deploy CloudFormation, call `devops-agent:*` + `eks:CreateAccessEntry`, and (for email) `ses:SendEmail` from a verified sender.
+- AWS CLI v2 configured for the target account, with a region set (`aws configure set region <region>`) or `Region` in `params.json`.
+- An existing HyperPod cluster (EKS or Slurm orchestrator). For Slurm, **Continuous Provisioning is required** for `list-cluster-events` and the correct EventBridge event format (see the Slurm note in [deploy/README.md](deploy/README.md)).
+- Permission to create IAM roles, Secrets Manager secrets, CloudFormation stacks, `aidevops:*`, `eks:CreateAccessEntry`, and (for email) `ses:SendEmail` from a verified sender.
+- An SES-verified sender identity in the target region (and, in SES sandbox, verified recipients).
 
 ## Quick start
 
-`HYPERPOD_CLUSTER_NAME` is required for every target. Export it once at the top of your shell:
+Everything deploys as **one CloudFormation stack per cluster**:
 
 ```bash
-export HYPERPOD_CLUSTER_NAME=<your-cluster-name>
-# Optional overrides (everything else has a safe default or is auto-discovered):
-#   REGION=<region> (else uses AWS CLI default)
-#   EKS_CLUSTER_NAME=<name>  (else discovered from describe-cluster)
-#   AGENT_SPACE_NAME=<name>  (else hyperpod-<cluster>-devops-agent)
+cp deploy/params.example.json deploy/params.json
+# edit: HyperPodClusterName, EmailSender, EmailRecipients (see params.example.json)
+
+make deploy            # sync skills -> embed Lambdas -> deploy the whole stack
+make stack-outputs     # console URL, webhook secret ARN, marker bucket, ...
 ```
+
+`make deploy` auto-discovers the underlying EKS cluster name from the HyperPod
+cluster (empty ⇒ Slurm ⇒ EKS access skipped), ensures the S3 assets bucket,
+syncs the skills, embeds the Lambda code, and deploys. For multiple clusters use
+per-cluster params files:
 
 ```bash
-make help                    # show every target
-make config                  # show resolved config (region, role names, ...)
-make check-aws               # whoami + caller identity
-make check-cluster           # confirms HyperPod + EKS auth mode (EKS-orchestrated only)
-
-# Step 1 - Foundation + webhook + EKS access (all in one)
-make setup                   # foundation (CFN) -> provision-webhook -> eks-access (skipped for Slurm)
-make status                  # print state file + Operator web app URL
-
-# Step 2 - Stash the webhook credentials in Secrets Manager and deploy the bridge
-make webhook-secret          # reads webhookUrl + webhookSecret from .state.json
-                             #   (auto-populated by step 1); falls back to interactive prompt.
-make deploy-bridge           # bridge filters to $HYPERPOD_CLUSTER_NAME by default;
-                             #   CLUSTER_FILTER='a,b,c' make deploy-bridge to widen,
-                             #   CLUSTER_FILTER='' make deploy-bridge to forward all.
-
-# Step 3 - Smoke-test end to end
-make bridge-test                                   # default: node-health event
-LOCAL_EVENT_TYPE=cluster-state-change make bridge-test
-make bridge-logs                                   # tail the Lambda logs (Ctrl-C to stop)
-
-# Step 4 - Upload both skills (triage runs first, RCA runs after PROCEED)
-SKILL_DIR=skills/hyperpod-incident-triage make upload-skill
-SKILL_DIR=skills/hyperpod-incident-rca   make upload-skill
-
-# Step 5 - Optionally import a curated subset of upstream skills as reference
-make import-upstream-skills                        # see "Skill curation" below for defaults
-make list-skills
-
-# Step 6 - Periodic audit (Goal 1 + Kubernetes-state checks)
-make deploy-periodic-audit       # EB Scheduler -> Lambda -> webhook (audit mode every 15 min)
-# Optional overrides for the Kubernetes-state checks (defaults shown):
-#   K8S_CHECKS_ENABLED=true CRASHLOOP_HOURS_THRESHOLD=4 \
-#   NOT_READY_NODE_PERCENT_THRESHOLD=10 NOT_READY_DURATION_MINUTES=15 \
-#   IGNORE_NAMESPACES='kube-public,kube-node-lease' \
-#   SYSTEM_NAMESPACES='kube-system,aws-hyperpod,amazon-cloudwatch' \
-#       make deploy-periodic-audit
-make audit-logs                  # tail the audit Lambda's CloudWatch Logs (Ctrl-C to stop)
-make audit-test                  # invoke the audit Lambda once manually (don't wait 15 min)
-
-# Step 7 - Email notifications (SES sender must be verified in REGION)
-EMAIL_SENDER=alerts@example.com \
-EMAIL_RECIPIENTS=oncall@example.com,team@example.com \
-    make deploy-email-notifier
-
-# Teardown
-make teardown                # email-notifier -> periodic-audit -> bridge -> EKS entry -> agent space + eventChannel -> IAM roles stack
-DELETE_SECRET=yes make teardown   # also wipes the Secrets Manager secret
+PARAMS_FILE=deploy/params.<cluster>.json make deploy
 ```
 
-> **Webhook provisioning is fully automated** but stays imperative for
-> the reason described in "What `make setup` creates" above. The HMAC
-> secret returned by `associate-service` is only shown once — it lands
-> in `.state.json` temporarily, gets copied to Secrets Manager by step 2,
-> and is then stripped from the state file. If you ever need to recover
-> the secret (e.g. teardown rolled back partway), you have to
-> disassociate + re-associate to get a fresh one — the API doesn't
-> expose the existing HMAC after creation.
+Operate + tear down:
 
-## What `make setup` creates
+```bash
+make stack-status
+make bridge-logs / make audit-logs / make email-logs   # tail a Lambda
+make audit-test                                         # invoke the audit Lambda once
+make import-upstream-skills                             # stage curated upstream skills, then: make deploy
+make teardown-stack                                     # delete stack + assets bucket
+```
 
-`make foundation` deploys the CloudFormation stack `hyperpod-devops-agent-foundation` using **native `AWS::DevOpsAgent::*` resource types**:
+Full deploy mechanics, parameters, multi-cluster naming, and the Slurm notes are
+in **[deploy/README.md](deploy/README.md)**.
 
-| # | Resource (CFN type) | Why |
-| --- | --- | --- |
-| 1 | `AWS::IAM::Role` `DevOpsAgentRole-AgentSpace` | Assumed by `aidevops.amazonaws.com` to read AWS resources during investigations. Attaches managed policy `AIDevOpsAgentAccessPolicy` + inline policy allowing the Resource Explorer service-linked role to be created. Trust scoped to this account's `agentspace/*`. |
-| 2 | `AWS::IAM::Role` `DevOpsAgentRole-WebappAdmin` | Backs the Operator web app. Attaches managed policy `AIDevOpsOperatorAppAccessPolicy`. |
-| 3 | `AWS::DevOpsAgent::AgentSpace` `hyperpod-<cluster>-devops-agent` | Logical container for accounts, integrations, knowledge. `OperatorApp.Iam.OperatorAppRoleArn` set to the Webapp role — the operator web app is enabled in the same resource. |
-| 4 | `AWS::DevOpsAgent::Association` (config `Aws`, accountType `monitor`) | Primary AWS account association. Turns on topology discovery across all regions of the account. |
+## What gets deployed (one stack)
 
-`make provision-webhook` then runs `register-service eventChannel` + `associate-service` against the Agent Space, **imperatively**, because:
-- `AWS::DevOpsAgent::Service` does not yet list `eventChannel` as an allowed `ServiceType` (only the OAuth/SaaS and MCP integrations are supported as of writing).
-- Even when using `AWS::DevOpsAgent::Association` with an `EventChannel` configuration, **the generated webhook URL and HMAC secret are not exposed as `Fn::GetAtt` attributes** — there's no way to feed them into Secrets Manager from a CFN template.
+A single template ([deploy/hyperpod_devops_agent.template.yaml](deploy/hyperpod_devops_agent.template.yaml))
+creates everything, using native resource types wherever possible plus two
+custom resources for the two gaps CloudFormation can't cover natively:
 
-`make eks-access` creates the EKS access entry (read-only `AmazonAIOpsAssistantPolicy`, cluster scope) — skipped for Slurm clusters.
-
-## What `make deploy-bridge` creates
-
-| Resource | Notes |
+| Component | Resources |
 | --- | --- |
-| Secrets Manager entry `hyperpod-devops-agent/webhook` | `{"url": "...", "secret": "..."}`. Created by `make webhook-secret` (not by the stack), so the values never appear in CloudFormation outputs. |
-| CloudFormation stack `hyperpod-devops-agent-webhook-bridge` | Container for the rest. |
-| Lambda execution role | Allows `secretsmanager:GetSecretValue` on the one secret + standard log permissions. |
-| EventBridge → Lambda invoke role | Standard `lambda:InvokeFunction` trust. |
-| Lambda function (Python 3.13, embedded code) | Reads the secret, builds a DevOps Agent incident payload, HMAC-signs it, POSTs. |
-| EventBridge rule | Pattern: `source: aws.sagemaker`, detail-type: `SageMaker HyperPod Cluster State Change`, `... Cluster Node Health Event`, `... Cluster Event`. |
+| **Foundation** | `AWS::IAM::Role` (Agent Space monitor role + Webapp role), `AWS::DevOpsAgent::AgentSpace` (with IAM operator app), `AWS::DevOpsAgent::Association` (AWS-monitor, topology discovery). |
+| **EKS access** (EKS only) | `AWS::EKS::AccessEntry` granting the Agent Space role read-only `AmazonAIOpsAssistantPolicy` (cluster scope). Skipped for Slurm. |
+| **Webhook** | `AWS::SecretsManager::Secret` + `Custom::WebhookProvisioner` — registers/associates the eventChannel and stashes the once-shown URL+HMAC secret. (No native `eventChannel` ServiceType, and the URL/secret aren't exposed via `Fn::GetAtt`, so a custom resource is required.) |
+| **Webhook bridge** | Lambda + EventBridge rule (`source: aws.sagemaker`, the 3 HyperPod detail-types) → HMAC-signed POST to the webhook. |
+| **Periodic audit** | Lambda + `AWS::Scheduler::Schedule` (15 min) + daily heartbeat schedule. Detects Kubernetes CrashLoop/NotReady (EKS) and fires only on a real issue; heartbeat-only on Slurm. |
+| **Email notifier** | Lambda + EventBridge rule (`source: aws.aidevops`, scoped to this Agent Space) + S3 dedup-marker bucket → SES email. |
+| **Skills** | `Custom::SkillUploader` uploads the triage + RCA skills (and any staged upstream skills) from the S3 assets bucket. |
+
+Per-cluster resource names are made unique from a slug of the cluster name so
+multiple clusters coexist in one account/region.
 
 ## Event → investigation payload mapping
 
@@ -183,10 +126,13 @@ DELETE_SECRET=yes make teardown   # also wipes the Secrets Manager secret
 
 HyperPod emits **many** `Info`-level "Cluster Event" entries during routine operations (each scale-up of `k8-1` produces 20+: `"Cluster k8-1 update started successfully"`, `"EKS Access Entries update successful"`, per-node provisioning notices, etc.). The Lambda drops events whose `detail.EventDetails.EventLevel` matches `WEBHOOK_DROP_EVENT_LEVELS` (default: `Info`). Without this filter a single +4 scale-up would burn ~20 investigations against the monthly quota.
 
-`WEBHOOK_DROP_EVENT_LEVELS` (default `Info`) and `WEBHOOK_CLUSTER_FILTER` (default: only `$HYPERPOD_CLUSTER_NAME`, set via the `ClusterFilter` CFN parameter — empty = forward all clusters) are CloudFormation parameters on the bridge stack. To change either after deployment, redeploy with the override:
+`DropEventLevels` (default `Info`) and `ClusterFilter` (default: only this
+stack's `HyperPodClusterName` — empty = forward all clusters) are CloudFormation
+parameters. To change either after deployment, set them in `params.json` and
+re-run `make deploy`:
 
-```bash
-CLUSTER_FILTER='cluster-a,cluster-b' DROP_EVENT_LEVELS='Info,Debug' make deploy-bridge
+```json
+{ "DropEventLevels": "Info,Debug", "ClusterFilter": "cluster-a,cluster-b" }
 ```
 
 Set `WEBHOOK_LOG_FULL_EVENT=true` to log the full EventBridge envelope per invocation (useful when discovering new event shapes; off by default).
@@ -265,9 +211,14 @@ Override with `SKILLS='hyperpod-nccl hyperpod-node-debugger' make import-upstrea
 
 ### Authoring your own skill
 
-The `07_upload_skill.sh` and `08_delete_skill.sh` scripts are general-purpose. To author a custom skill, drop a directory under `skills/` containing a `SKILL.md` (with frontmatter `name:`, `description:`, and `metadata.agent_types:` as a list) plus optional `references/` markdown files, then run `SKILL_DIR=skills/my-skill make upload-skill`. The upload script reads `agent_types` from the SKILL.md frontmatter — set it to `["INCIDENT_TRIAGE", "INCIDENT_RCA"]` for skills that should be loaded during investigations (DevOps Agent matches the trigger type against `agent_types`).
-
-To remove: `SKILL_NAME=my-skill make delete-skill`. The skill's `description:` field determines when the agent loads it during investigations.
+Drop a directory under `skills/` containing a `SKILL.md` (frontmatter `name:`,
+`description:`, and `metadata.agent_types:` as a list) plus optional
+`references/` markdown files, then run `make deploy`. `prepare_deployment.py
+sync-skills` zips every skill dir under `skills/` (parsing `agent_types` from the
+frontmatter — set it to `["INCIDENT_TRIAGE", "INCIDENT_RCA"]` for investigation
+skills) and the `SkillUploader` custom resource create/updates the asset by name.
+The skill's `description:` field determines when the agent loads it during
+investigations. Removing a skill dir + re-deploying deletes the asset.
 
 The upstream skills were authored for Claude Code / Codex runtimes that can execute shell directly on HyperPod nodes. **DevOps Agent's runtime cannot, and adding IAM permissions does not change that.** The constraint is an AWS-published "permission guardrail" — a fixed session policy applied at AssumeRole time — that intersects with the IAM role and overrides anything you grant.
 
@@ -369,7 +320,7 @@ A reasonable ask would be: **add `ssm:StartSession` to the guardrail allowlist, 
 
 Filing that as feedback to ASBX is the most leveraged next action. Tracked as a follow-up; not yet sent. None of the side-load paths are built either — the AWS-API/kubectl portions of the imported skills still work and cover the HMA-classified failure modes, which is most of what we'd auto-trigger investigations on anyway.
 
-Two coexisting skill types you'll see in `make list-skills`:
+Two coexisting skill types you'll see in the Agent Space's Skills list:
 - **USER** — what we author (this repo). Edits are deliberate.
 - **LEARNED** — what the agent generates about your environment over time (e.g. `understanding-agent-space`). Don't touch these; they reflect what the agent already figured out.
 
@@ -377,13 +328,13 @@ Two coexisting skill types you'll see in `make list-skills`:
 
 Three channels stack:
 
-1. **Email (via SES)** — deployed by `make deploy-email-notifier`. EventBridge rule on `source: aws.aidevops`, detail-type prefix `Investigation` → Lambda → `ses:SendEmail` to the configured recipients. By default sends on `Investigation Completed` only (one email per lifecycle); `Investigation Created` / `Investigation Updated` / `Investigation Linked` events are ignored to avoid mid-flight spam. Override with `EMAIL_DETAIL_TYPES`.
+1. **Email (via SES)** — part of the stack. EventBridge rule on `source: aws.aidevops`, detail-type prefix `Investigation`, **scoped to this stack's Agent Space** (`detail.metadata.agent_space_id`, so multiple clusters don't cross-notify) → Lambda → `ses:SendEmail` to the configured recipients. By default sends on `Investigation Completed` only (one email per lifecycle); `Investigation Created` / `Investigation Updated` / `Investigation Linked` events are ignored to avoid mid-flight spam. Override with `EMAIL_DETAIL_TYPES`.
    - **Body composition reads the full journal.** The Lambda calls `aidevops:GetBacklogTask` + `aidevops:ListJournalRecords` and renders symptoms, findings, and investigation_gaps directly. It does not rely on parsing a single verdict-title string, so it degrades gracefully when the RCA skill drifts.
    - **Dedup is S3-marker-based, keyed by `execution_id`.** Before every send the Lambda does a `HeadObject` against `s3://hyperpod-devops-agent-email-markers-<account>-<region>/emailed/<execution_id>`. If the marker exists, the event is dropped without any DevOps Agent API calls. The marker is written *after* `ses:SendEmail` returns a MessageId. This defends against DevOps Agent re-emitting `Investigation Completed` for the same execution — observed empirically, and the platform gives no configurable knob to prevent it. Marker objects auto-expire (30 days by default; `MarkerExpirationDays` CFN parameter).
    - **Skip filters (in order):** detail-type allowlist → S3 marker → Suppress-verdict detection (checks `Triage verdict: Suppress` prefix on any symptom title, plus a `Verdict: Suppress` regex fallback on the first symptom's description) → no-actionable-content (zero findings AND no verdict symptom). `FORCE_SEND=true` on the stack bypasses all of them.
    - SES sender must be verified in `$REGION`. If SES is in sandbox mode, every recipient must also be verified.
    - The IAM policy on the Lambda restricts `ses:SendEmail` to the configured `EMAIL_SENDER` via the `ses:FromAddress` condition. S3 read/write is scoped to the marker bucket only.
-2. **DevOps Agent web app** — every investigation is visible at the Agent Space console URL printed by `make status`.
+2. **DevOps Agent web app** — every investigation is visible at the Agent Space console URL in `make stack-outputs`.
 3. **Slack / ServiceNow / PagerDuty / Microsoft Teams** — configure once in the Agent Space console (paused on workspace 3P approval for the originating project). The same `aws.aidevops` event stream the email notifier listens on is available for any additional fan-out.
 
 ## Findings from the DevOps Agent docs (anchor for design)
@@ -448,9 +399,21 @@ Phase 2b of the skill computes recurrence statistics over the 7-day `list-cluste
 
 Verified end-to-end: after three injected Xid 74 faults on `worker2`, the skill emitted `Escalate — recurring hardware fault pattern` with three competing hypotheses (`statistical hardware`, `infrastructure path`, `software/workload`), each marked `[unverified]`, plus the GPU-UUID SSM check as an `investigation_gap` for the operator to run.
 
-### Goal 1 — periodic-audit stack (`make deploy-periodic-audit`)
+### Goal 1 — periodic audit (part of the stack)
 
-Native DevOps Agent triggers were tried first and **ruled out**. The fallback is a small CFN stack: `AWS::Scheduler::Schedule` → Lambda → HMAC-signed POST to the same webhook the bridge uses. The audit fires every 15 minutes; the `hyperpod-incident-rca` skill processes both audit-mode and incident-mode triggers; verdicts go through the existing email path. The `hyperpod-incident-triage` skill runs first to decide LINKED/SKIPPED/PROCEED — its effectiveness depends on authoring style; see [Triage-skill correlation: status and how to author it](#triage-skill-correlation-status-and-how-to-author-it).
+Native DevOps Agent triggers were tried first and **ruled out** (see "Why the
+native path doesn't work" below). The audit is an `AWS::Scheduler::Schedule` →
+Lambda in the same stack. **The audit was later redesigned** (see
+[docs/lambda-side-audit-detection-design.md](docs/lambda-side-audit-detection-design.md)):
+the Lambda now inspects Kubernetes state itself (CrashLoopBackOff / NotReady) and
+POSTs the webhook **only when a real issue is found**, plus a daily heartbeat —
+rather than firing every 15 min and relying on the skill to suppress. HyperPod
+control-plane faults are handled by the event-driven bridge, not the audit. On
+Slurm the audit is heartbeat-only. Verdicts go through the existing email path.
+
+> **Note:** the "always-fire + 5-layer dedup" description in the subsections below
+> reflects the *original* audit design and is retained for history. The current
+> behavior is the Lambda-side detection model in the design doc linked above.
 
 #### Kubernetes-state checks in audit mode
 
@@ -471,7 +434,12 @@ Namespace handling uses **two plain lists**, no DSL. The Lambda validates at col
 
 Design rationale — why two lists instead of a `NamespaceScope="pattern=treatment,..."` DSL: the skill executes classification via **plain set-membership lookups on already-resolved lists**, not by parsing a DSL at run time. That matches the same principle behind the RCA skill's signature-string design — push structure into the Lambda, keep the skill's job to English-language reasoning over already-structured input. An earlier iteration of the RCA skill used regex-driven category enums and produced inconsistent verdicts; the same shape risk applies to any run-time DSL parsing.
 
-The trigger payload's `data.metadata.k8sChecks` block carries the resolved lists + thresholds. The skill's [Phase 3d](skills/hyperpod-incident-rca/SKILL.md) reads them, no hardcoded values. Override any parameter via env var when running `make deploy-periodic-audit` (see Quick start step 6).
+These thresholds + namespace lists are CloudFormation parameters
+(`CrashLoopHoursThreshold`, `NotReadyNodePercentThreshold`,
+`NotReadyDurationMinutes`, `IgnoreNamespaces`, `SystemNamespaces`); set them in
+`params.json` and re-run `make deploy`. In the current design the audit Lambda
+evaluates them directly (see the design doc); the payload still carries a
+`k8sChecks` block for the skill's confirmation pass.
 
 **Why the native path doesn't work (recorded so we don't redo this):**
 

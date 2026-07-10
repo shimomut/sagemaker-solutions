@@ -13,7 +13,7 @@ inputs 'aws cloudformation deploy' can consume:
   sync-skills
            For each skill directory under ../skills/, stage its contents
            (bundling docs/hyperpod-mental-model.md into references/ when the
-           SKILL.md references it — the same logic scripts/07_upload_skill.sh
+           SKILL.md references it — the same staging logic the earlier per-skill upload used
            used), zip it, upload to s3://<bucket>/skills/<name>.zip, and print
            a JSON object with the manifest + a content-hash version:
                {"manifest": [...], "version": "<sha256>"}
