@@ -153,11 +153,22 @@ deployed and verified on `k8-1`.
   `GetCallerIdentity` with the `x-k8s-aws-id` header) + stdlib `urllib` GET of
   `/api/v1/pods` and `/api/v1/nodes`. No `kubernetes` client, no layer — as
   planned.
-- **Detectors:** CrashLoopBackOff (age vs `CrashLoopHoursThreshold`, namespace
-  filter), NotReady nodes (%+duration gate), open fault chains
-  (`list-cluster-events`, 4h, Error/Warn, excludes scale-in "lost
-  orchestration-ready" noise). A cluster-read failure surfaces as an
-  `AuditReadFailure` issue (never silently swallowed).
+- **Detectors (final): Kubernetes only** — CrashLoopBackOff (age vs
+  `CrashLoopHoursThreshold`, namespace filter) and NotReady nodes (%+duration
+  gate). A cluster-read failure surfaces as an `AuditReadFailure` issue (never
+  silently swallowed).
+- **REMOVED — HyperPod control-plane fault-chain detection.** An earlier version
+  also scanned `list-cluster-events` for fault events, but this was **removed**
+  (2026-07-10): those faults are already delivered event-driven by the webhook
+  bridge, which reads the native `EventLevel` from the EventBridge event and
+  forwards the real FailureMessage verbatim. The audit's `list-cluster-events`
+  path was strictly worse — the Lambda runtime's bundled boto3 does **not** return
+  `EventLevel` on that API, which forced fragile Description-string matching
+  (hardcoded fault keywords). Deleting it removed all hardcoded error strings and
+  the duplicate detection path, and dropped the audit Lambda's `sagemaker:*` IAM.
+  Verified via slurm-2's capacity errors: the bridge caught + forwarded them
+  event-driven (`eventLevel='Error'`, real FailureMessage in the title) while the
+  audit correctly stayed out of it.
 - **DELTA — access policy:** plan said `AmazonEKSViewPolicy` (cluster scope).
   **That was wrong** — the EKS `view` role excludes cluster-scoped `nodes`, so
   node reads 403'd. Shipped with **`AmazonAIOpsAssistantPolicy`** instead (the
@@ -180,14 +191,23 @@ deployed and verified on `k8-1`.
 email**; pod cleared → **Resolved email**; repeat audit of same crashloop →
 triage **SKIPPED** (no duplicate email).
 
+**Verified on slurm-2 (Continuous Provisioning):** periodic audit → no POST
+(Slurm has no kubectl, so the audit has nothing to poll); heartbeat → one POST;
+HyperPod capacity-error faults were caught + notified via the **event-driven
+bridge** (not the audit), and the resulting RCA email led with the specific
+"What happened" summary.
+
+**Division of labor (final):**
+- **Event-driven bridge** → all HyperPod control-plane faults (node health,
+  capacity, lifecycle-script, cluster state), EKS and Slurm. Level-based, no
+  hardcoding.
+- **Periodic audit** → only Kubernetes Pod/Node state (EKS-only), plus the daily
+  heartbeat. On Slurm the audit is heartbeat-only.
+
 **Still open / not done:**
-- **Heartbeat email policy:** currently the heartbeat POST flows through the same
-  path; whether the operator wants a daily "all clear" email vs. console/log-only
+- **Heartbeat email policy:** the heartbeat POST flows through the same path;
+  whether the operator wants a daily "all clear" email vs. console/log-only
   liveness is undecided (would be an email-notifier filter on `heartbeat:true`).
-- **Slurm:** in `lambda` mode on Slurm, detection reduces to `list-cluster-events`
-  only (no kubectl / no `AuditLambdaEksAccessEntry`). Not yet deployed/tested on
-  slurm-1; and slurm-1 lacks Continuous Provisioning, so `list_cluster_events`
-  may be unsupported there — see the Slurm discussion.
 - **RCA skill simplification:** the "audit signature / stale-evidence" machinery
   is now redundant for cost control (the Lambda gates volume) but was left in
   place; can be trimmed later.

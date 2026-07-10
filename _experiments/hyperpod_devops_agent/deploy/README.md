@@ -118,19 +118,32 @@ it per stack.
 
 ## Periodic audit — detection modes
 
-The periodic audit runs on a schedule (default every 15 min) and can operate two
-ways, chosen by `AuditDetectionMode`:
+**Division of labor:** HyperPod control-plane faults (node health, capacity
+errors, lifecycle-script failures, cluster state changes) are handled
+**event-driven by the webhook bridge** — it reads the native `EventLevel` from the
+EventBridge event and forwards the real FailureMessage, for both EKS and Slurm.
+The periodic audit covers only what the event stream **cannot**: Kubernetes
+Pod/Node state, which is not in the HyperPod event stream.
 
-- **`lambda` (default):** the audit Lambda inspects cluster state itself —
-  CrashLoopBackOff pods, NotReady nodes (both via read-only EKS API access), and
-  open HyperPod fault chains (`list-cluster-events`) — and POSTs the DevOps Agent
-  webhook **only when a real issue is found**. On a healthy cluster nothing is
-  POSTed, so **no investigation runs and no cost is incurred**. A separate daily
-  `AuditHeartbeatSchedule` fires one "all clear" investigation per day so
-  operators can see the pipeline is alive.
+The audit runs on a schedule (default every 15 min), mode chosen by
+`AuditDetectionMode`:
+
+- **`lambda` (default):** the audit Lambda inspects Kubernetes state —
+  CrashLoopBackOff pods and NotReady nodes (via read-only EKS API access) — and
+  POSTs the DevOps Agent webhook **only when a real issue is found**. On a healthy
+  cluster nothing is POSTed, so **no investigation runs and no cost is incurred**.
+  A separate daily `AuditHeartbeatSchedule` fires one "all clear" investigation
+  per day so operators can see the pipeline is alive. **On Slurm (no kubectl) the
+  audit has nothing to poll, so it fires only the heartbeat** — HyperPod faults
+  on Slurm still flow through the event-driven bridge.
 - **`always-fire`:** legacy behavior — POST every audit and let the
   `hyperpod-incident-rca` skill discover issues and suppress on healthy clusters.
   Kept for comparison/rollback.
+
+The audit deliberately does **not** re-scan `list-cluster-events` for faults: that
+duplicated the bridge from a worse data source (the Lambda runtime's boto3 omits
+`EventLevel` on that API, which would force fragile hardcoded fault-string
+matching).
 
 In `lambda` mode the Lambda has its **own** read-only `AWS::EKS::AccessEntry`
 (distinct principal from the Agent Space role) carrying
@@ -167,13 +180,14 @@ Provisioning on the cluster before relying on investigations.
 
 Beyond that prerequisite: `make deploy` detects a Slurm cluster (no
 `Orchestrator.Eks.ClusterArn`) and skips both EKS access entries (the Agent
-Space role's and the audit Lambda's). In `lambda` detection mode on Slurm the
-audit reduces to the `list-cluster-events` fault-chain check only — no
-CrashLoop/NotReady checks (those are inherently EKS/kubectl). And because
-`list-cluster-events` itself requires Continuous Provisioning, the audit has
-little to inspect on a non-Continuous Slurm cluster. Validating the
-Continuous-Provisioning Slurm path end-to-end is a follow-up (see the design
-doc's "Still open" note).
+Space role's and the audit Lambda's). On Slurm the periodic audit has no
+Kubernetes to poll, so it fires **only the daily heartbeat** — all HyperPod
+faults (capacity, node health, lifecycle-script, cluster state) flow through the
+**event-driven bridge**, which works on Slurm as long as Continuous Provisioning
+is enabled. **Verified end-to-end on a Continuous Slurm cluster (slurm-2):** a
+capacity-error fault was caught + notified via the bridge with a specific
+"What happened" email subject; the audit stayed out of it and the heartbeat
+fired as expected.
 
 Notable toggles: `EnablePeriodicAudit` (default `true`), `AuditDetectionMode`
 (default `lambda`), `K8sChecksEnabled` (default `true`), `AuditSchedule`
