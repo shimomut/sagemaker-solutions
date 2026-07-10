@@ -43,8 +43,12 @@ HyperPod problems reach DevOps Agent through **two** paths, by design:
 "HyperPod periodic audit" task, the audit Lambda already detected a
 concrete issue (or a control-plane fault arrived via the bridge). Treat
 the reported issue as real and **confirm + explain it — don't assume it
-was a routine poll**. The Lambda passes what it found in the trigger
-payload's `data.metadata.detectedIssues`.
+was a routine poll**. The Lambda inlines what it found into the task
+`description` string (one `- [tag] type on resource: detail` line per
+issue) — the DevOps Agent platform preserves the top-level `description`
+verbatim but flattens nested payload sub-objects, so the description
+text, not a `data.metadata.*` field, is where the skill reads the
+findings.
 
 ## Daily heartbeat (liveness)
 
