@@ -84,19 +84,6 @@ Wildcard-bucket scope was chosen over the narrower `.../on_create*` or per-clust
 Next verification: re-run the LCS-failure test (backup + fault-injected LCS at `/tmp/lcs_test/`) and confirm the RCA cites the actual script content instead of the EFA hypothesis.
 
 
-## String truncation logics in the Lambda function
-
-Review string truncation logics in the Lambda function and make sure they are consistent
-
-
-## Incident title of periodic audit
-
-
-Got "HyperPod periodic audit: k8-1" as the incident title of periodic audit.
-Incidents triggered by EventBridge events have better name including error message, but periodic audit ones don't. Can we improve it?
-
-
-
 ## Notification integration [done — email]
 
 Set up email and see end-to-end experience. Slack is still paused on workspace 3P approval.
@@ -171,12 +158,67 @@ Two paths forward:
 Path 2 is buildable today and complements Goal 2's recurrence detection with sharper trigger signals. Path 1 is the durable fix. File the guardrail-expansion feedback either way.
 
 
-## Should we monitor HMA agent logs as the trigger of incident?
+## Can DevOps Agent access CloudWatch Metrics?
+
+We could use it to monitor hardware resource utilization, etc.
 
 
-## Should we monitor cluster status in periodic audit?
+## Periodic Auditing improvement
 
-There may be cases we can/should detect issues not by receiving Events but by periodically checking clusters, for example, number of "Ready" status nodes, number of struggling Pods, etc.
+DevOps Agent is not good at periodic auditing. It is designed to handle real issues event-driven.
 
-How about other types of notifications, such as existence of new AMI, Helm chart, etc.
+Can we detect Kubernetes resource issue not in DevOps Agent but in Lambda function side? Then call webhook only when there is a real issue.
+
+**Design written up (2026-07-10):** see
+[docs/lambda-side-audit-detection-design.md](docs/lambda-side-audit-detection-design.md).
+Confirmed empirically that on a healthy cluster the always-fire model still runs
+~2 full RCAs/hour (alternating Completed/Skipped) — triage can't LINK them away
+because it has no cheap way to know "nothing changed" without doing the RCA. The
+design moves the CrashLoop/NotReady/open-fault detection into the audit Lambda
+(reusing the existing threshold params) and POSTs the webhook only when a real
+issue trips, so a healthy cluster costs ~0 investigations. Main new requirement:
+the audit Lambda needs read-only EKS access (it has none today).
+
+
+## We are not using "Agent instructions".
+
+**Finding (2026-07-10): Agent Instructions are likely the more reliable home for
+our triage rules than a Skill — but there's no API/CFN path yet, so parked.**
+
+Difference (from the [UG](https://docs.aws.amazon.com/devopsagent/latest/userguide/about-aws-devops-agent-agent-instructions.html)):
+
+| | Skill (what we use now) | Agent Instructions (AGENTS.md) |
+|---|---|---|
+| Injection | **On demand** — the agent decides via skill-description matching; it *can skip* the content | **Always** — unconditionally injected into the system prompt every session; the agent cannot skip it |
+| Triage scoping | `agent_types: ["INCIDENT_TRIAGE"]` | Scoped to the **Incident triage** managed agent specifically |
+| Format | Markdown or ZIP (+ resource files) | Markdown only, no frontmatter, no resources |
+| Count | Many per space | Exactly one global + one per managed agent |
+| Size | — | 25 KB hard limit; ~120 lines recommended |
+
+**Why this matters for us:** our entire triage saga was about *reliability of
+invocation*. A skill fires only if the agent matches its description to the task
+(exactly why v0.6.1 silently didn't fire, and why v0.7.0 "works" but still
+depends on the agent choosing to apply it). **Incident-triage Agent Instructions
+are guaranteed-injected every session** — strictly more reliable for the
+"keep different fault types separate / concurrency-skip" rules. Our v0.7.0 skill
+is already concise declarative markdown (~50 lines), so it would drop into an
+AGENTS.md almost verbatim.
+
+**Why parked, not adopted now:** there is **no `CreateAsset`/CLI/CFN path** for
+Agent Instructions (the `CreateAsset` assetType enum is empty; the UG documents
+only the Operator Web App Knowledge → Instructions tab: View/Edit/Upload/
+Download/Delete). So they'd be a **manual, per-Agent-Space console step**, which
+breaks the one-command-deploy goal. Decision: keep the automated v0.7.0 triage
+Skill for now; revisit moving the rules to Incident-triage Instructions if/when
+AWS exposes a programmatic path. If maximum triage reliability is needed before
+then, an operator can paste the v0.7.0 rules into Knowledge → Instructions →
+Incident triage manually.
+
+Instructions are also the natural home for **always-on standing guidance** that
+isn't task-specific (e.g. "this Agent Space monitors a HyperPod cluster; treat
+`sagemaker:cluster` resources as HyperPod, not generic SageMaker") — a separate,
+smaller use we could adopt later.
+
+
+
 
