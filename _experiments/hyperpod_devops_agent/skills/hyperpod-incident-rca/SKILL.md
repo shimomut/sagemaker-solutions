@@ -76,7 +76,7 @@ and are not reintroduced — that concern is handled upstream now.
 
 ## Workflow
 
-## Trigger modes
+### Trigger modes
 
 The skill is loaded from two trigger sources, and Phase 1 / Phase 3
 behavior differs slightly between them:
@@ -353,87 +353,9 @@ Emitting both a Phase 3d verdict and a Phase 3 verdict on the same
 audit is expected and correct. Each becomes its own symptom record;
 the operator gets both signals via email.
 
-Apply the rules below **in order**. Stop at the first match.
+#### Phase 3d — Kubernetes-state checks (audit mode, EKS only)
 
-**Audit mode**: classify each open fault chain found in the
-cluster-events window independently. Emit one verdict per chain
-(plus one `Suppress — periodic audit, no open incidents` if no
-chains are open AND Phase 3d also emitted nothing). A fault chain
-is "open" if it had a fault event within the last 4 hours and has
-not yet emitted a successful `Running` transition + 30 min
-clean-window.
-
-**Historical-only chains are not open.** If the only fault events
-in the 4-hour window belong to a chain that has already completed
-(e.g., all replacements succeeded and all affected nodes are back
-in `Running` for ≥30 min), the chain is closed. Do not emit an
-`Escalate` verdict on the basis of `signature_count_7d` alone
-against a closed chain unless the recurrence rule 6/7/8 fires from
-statistics that INCLUDE at least one event within the last 4 hours.
-A 7-day-old already-recovered pattern is context, not an actionable
-incident.
-
-The recurring-pattern rules (7–9) are checked **before** the
-single-incident rules (10–13) — a node that's auto-recovering for the
-3rd time this week should be flagged as a pattern, not silently
-classified as `Monitor — first attempt`.
-
-| # | Signal pattern | Verdict |
-|---|---|---|
-| 1 | **Audit mode** AND no fault events in the 4-hour window AND no `Monitor` fault chain still open | **Suppress — periodic audit, no open incidents** (skip Phase 4 entirely or emit a minimal record; nothing actionable) |
-| 2 | A previously-`Monitor` fault chain now shows the affected instance(s) back in `Running` AND no new HMA detection for that instance in the last 30 min AND cluster status is `InService` | **Resolved — auto-recovery succeeded** (operator gets a closure email; include the original detection time and total elapsed) |
-| 3 | Trigger detail-type is `Cluster Event` with `EventLevel=Info` and the timeline shows no node-health activity | **Suppress** |
-| 4 | Cluster status is `Failed` or `RollingBack` | **Escalate** (cluster-level) |
-| 5 | `NodeRecovery=None` on the cluster AND a node has been marked `Action:*` / `UnschedulablePending*` AND no replacement has started within 5 minutes | **Escalate** — auto-recovery is off; operator must trigger replacement |
-| 6 | `signature_count_7d[<signature>] ≥ 3` for ANY signature — same fault content (Description + FailureMessage) has driven ≥3 replacements on the same InstanceGroup in the last 7 days (auto-recovery may be succeeding each time). Because signatures are the full concatenated content, this fires cleanly for repeated same-cause faults (e.g. 3× capacity errors for the same instance type) but does NOT over-merge distinct causes. | **Escalate — recurring fault pattern**: HyperPod is repairing the symptom, but the underlying cause hasn't gone away. Include the signature (first ~200 chars) and the timestamps of all prior occurrences. Recommend operator actions appropriate to the fault content (vendor-exclusion for hardware Xid faults; LCS bug for lifecycle-script failures; capacity request or IG-move for capacity failures; VPC/SG review for EFA health-check failures). Infer the appropriate action class from the FailureMessage content, not from a hard-coded category enum. |
-| 7 | `replacements_24h_total ≥ 5` — five or more replacements anywhere in the cluster within 24 hours | **Escalate — fleet-wide instability**: the rate of node churn is abnormal regardless of individual root causes. |
-| 8 | `replacements_7d_by_group[<ig>] ≥ 5` — five or more replacements on the same InstanceGroup in 7 days | **Escalate — instance-group instability**: the affected IG (which may be a specific SKU or topology placement) is failing more often than the rest of the cluster. |
-| 9 | Exactly one replacement attempt in flight, started within the last 30 minutes, no prior failure in the chain | **Monitor — first attempt** (next re-check in 30 min via scheduled audit) |
-| 10 | Multiple replacement attempts in the chain, total elapsed since the first failure ≤ 90 minutes, the most recent attempt is *Running* or *Started* (not yet failed) | **Monitor — elevated** (retry in progress, watch closely) |
-| 11 | Multiple replacement attempts, total elapsed > 90 minutes, no successful `Running` transition, AND no new attempt started within the last 30 minutes | **Escalate** — retry chain is stuck |
-| 12 | Node was in `Failed` state AND no new replacement attempt has started within the last 30 minutes AND total time in failing chain > 60 minutes | **Escalate** — HyperPod has given up |
-| 13 | Instance id from the trigger event is missing from `list-cluster-nodes` AND `list-cluster-events` shows no new attempt for the last 30 minutes AND the most recent attempt failed | **Escalate** — instance vanished, no retry |
-| 14 | HMA detection event present but no corresponding `Action:*` / replacement event in the timeline within 10 minutes | **Escalate** — HMA fired without escalating; investigate why (mismatch in node-recovery config, signal didn't classify) |
-| 15 | None of the above match | **Monitor — uncategorized** (include the full timeline; flag for review) |
-
-> **Duplicate / stale-audit suppression is handled upstream**, not by
-> this skill: the `hyperpod-incident-triage` skill LINKs/SKIPs
-> duplicate incident events and concurrent audits, and the
-> periodic-audit Lambda only invokes an investigation when a real issue
-> is present. The former RCA "stale-evidence" rules (3 / 3b) were
-> removed and are not reintroduced.
-
-**Rule 2 (`Resolved`) closes the loop on prior `Monitor` verdicts.**
-A previous `Monitor` verdict promised a re-check; this rule provides
-that re-check via the scheduled audit. The verdict description
-should explicitly say "Incident detected at <T0> is now resolved.
-Total auto-recovery time: <duration>. No operator action required."
-This is the closure email the operator needs.
-
-**Rule 1 (`Suppress — periodic audit, no open incidents`) is the no-op
-case.** When the scheduled audit fires on a healthy cluster, emit a
-single minimal record acknowledging the audit ran. The email notifier
-filters `Suppress` verdicts so no email is sent.
-
-**Recurring-pattern verdicts (6–8) are `Escalate` even when the
-individual incident is auto-recovering correctly.** The reasoning is
-in your operational goals: HyperPod's resiliency repairs the symptom,
-but a 3× recurrence of a categorized fault on the same IG is an
-underlying cause (vendor / capacity pool for `gpu-xid`, code bug for
-`lifecycle-script-failed`, pool exhaustion for `capacity-insufficient`,
-etc.) that auto-recovery can't fix. The verdict explanation should
-explicitly say "this incident is auto-recovering, but the pattern
-across the last <N> days warrants human attention" so operators
-understand the verdict isn't about *this* incident's resolution.
-
-**Time budgets are not hardcoded constants — they encode the
-mental-model doc's "How long things take" section.** A single replace
-takes 20–30 min; two attempts plus a slack gap = ~90 min. Don't change
-these without updating the mental-model doc first.
-
-### Phase 3d — Kubernetes-state checks (audit mode, EKS only)
-
-Run this **BEFORE** the fault-chain classification rules above
+Run this **BEFORE** the fault-chain classification rules below
 (see the "Ordering — MANDATORY" note at the top of Phase 3). Phase
 3d uses the `kubectl get pods` / `kubectl get nodes` output from
 Phase 1 step 8, which is mandatory in audit-mode-on-EKS regardless
@@ -509,6 +431,86 @@ even when HyperPod's own event stream is quiet. If Phase 3d
 produces any verdict, do NOT emit the rule 1 Suppress; Phase 3d has
 found something to report.
 
+#### Fault-chain classification rules
+
+Apply the rules below **in order**. Stop at the first match.
+
+**Audit mode**: classify each open fault chain found in the
+cluster-events window independently. Emit one verdict per chain
+(plus one `Suppress — periodic audit, no open incidents` if no
+chains are open AND Phase 3d also emitted nothing). A fault chain
+is "open" if it had a fault event within the last 4 hours and has
+not yet emitted a successful `Running` transition + 30 min
+clean-window.
+
+**Historical-only chains are not open.** If the only fault events
+in the 4-hour window belong to a chain that has already completed
+(e.g., all replacements succeeded and all affected nodes are back
+in `Running` for ≥30 min), the chain is closed. Do not emit an
+`Escalate` verdict on the basis of `signature_count_7d` alone
+against a closed chain unless the recurrence rule 6/7/8 fires from
+statistics that INCLUDE at least one event within the last 4 hours.
+A 7-day-old already-recovered pattern is context, not an actionable
+incident.
+
+The recurring-pattern rules (6–8) are checked **before** the
+single-incident rules (9–13) — a node that's auto-recovering for the
+3rd time this week should be flagged as a pattern, not silently
+classified as `Monitor — first attempt`.
+
+| # | Signal pattern | Verdict |
+|---|---|---|
+| 1 | **Audit mode** AND no fault events in the 4-hour window AND no `Monitor` fault chain still open | **Suppress — periodic audit, no open incidents** (skip Phase 4 entirely or emit a minimal record; nothing actionable) |
+| 2 | A previously-`Monitor` fault chain now shows the affected instance(s) back in `Running` AND no new HMA detection for that instance in the last 30 min AND cluster status is `InService` | **Resolved — auto-recovery succeeded** (operator gets a closure email; include the original detection time and total elapsed) |
+| 3 | Trigger detail-type is `Cluster Event` with `EventLevel=Info` and the timeline shows no node-health activity | **Suppress** |
+| 4 | Cluster status is `Failed` or `RollingBack` | **Escalate** (cluster-level) |
+| 5 | `NodeRecovery=None` on the cluster AND a node has been marked `Action:*` / `UnschedulablePending*` AND no replacement has started within 5 minutes | **Escalate** — auto-recovery is off; operator must trigger replacement |
+| 6 | `signature_count_7d[<signature>] ≥ 3` for ANY signature — same fault content (Description + FailureMessage) has driven ≥3 replacements on the same InstanceGroup in the last 7 days (auto-recovery may be succeeding each time). Because signatures are the full concatenated content, this fires cleanly for repeated same-cause faults (e.g. 3× capacity errors for the same instance type) but does NOT over-merge distinct causes. | **Escalate — recurring fault pattern**: HyperPod is repairing the symptom, but the underlying cause hasn't gone away. Include the signature (first ~200 chars) and the timestamps of all prior occurrences. Recommend operator actions appropriate to the fault content (vendor-exclusion for hardware Xid faults; LCS bug for lifecycle-script failures; capacity request or IG-move for capacity failures; VPC/SG review for EFA health-check failures). Infer the appropriate action class from the FailureMessage content, not from a hard-coded category enum. |
+| 7 | `replacements_24h_total ≥ 5` — five or more replacements anywhere in the cluster within 24 hours | **Escalate — fleet-wide instability**: the rate of node churn is abnormal regardless of individual root causes. |
+| 8 | `replacements_7d_by_group[<ig>] ≥ 5` — five or more replacements on the same InstanceGroup in 7 days | **Escalate — instance-group instability**: the affected IG (which may be a specific SKU or topology placement) is failing more often than the rest of the cluster. |
+| 9 | Exactly one replacement attempt in flight, started within the last 30 minutes, no prior failure in the chain | **Monitor — first attempt** (next re-check in 30 min via scheduled audit) |
+| 10 | Multiple replacement attempts in the chain, total elapsed since the first failure ≤ 90 minutes, the most recent attempt is *Running* or *Started* (not yet failed) | **Monitor — elevated** (retry in progress, watch closely) |
+| 11 | Multiple replacement attempts, total elapsed > 90 minutes, no successful `Running` transition, AND no new attempt started within the last 30 minutes | **Escalate** — retry chain is stuck |
+| 12 | Node was in `Failed` state AND no new replacement attempt has started within the last 30 minutes AND total time in failing chain > 60 minutes | **Escalate** — HyperPod has given up |
+| 13 | Instance id from the trigger event is missing from `list-cluster-nodes` AND `list-cluster-events` shows no new attempt for the last 30 minutes AND the most recent attempt failed | **Escalate** — instance vanished, no retry |
+| 14 | HMA detection event present but no corresponding `Action:*` / replacement event in the timeline within 10 minutes | **Escalate** — HMA fired without escalating; investigate why (mismatch in node-recovery config, signal didn't classify) |
+| 15 | None of the above match | **Monitor — uncategorized** (include the full timeline; flag for review) |
+
+> **Duplicate / stale-audit suppression is handled upstream**, not by
+> this skill: the `hyperpod-incident-triage` skill LINKs/SKIPs
+> duplicate incident events and concurrent audits, and the
+> periodic-audit Lambda only invokes an investigation when a real issue
+> is present. The former RCA "stale-evidence" rules (3 / 3b) were
+> removed and are not reintroduced.
+
+**Rule 2 (`Resolved`) closes the loop on prior `Monitor` verdicts.**
+A previous `Monitor` verdict promised a re-check; this rule provides
+that re-check via the scheduled audit. The verdict description
+should explicitly say "Incident detected at <T0> is now resolved.
+Total auto-recovery time: <duration>. No operator action required."
+This is the closure email the operator needs.
+
+**Rule 1 (`Suppress — periodic audit, no open incidents`) is the no-op
+case.** When the scheduled audit fires on a healthy cluster, emit a
+single minimal record acknowledging the audit ran. The email notifier
+filters `Suppress` verdicts so no email is sent.
+
+**Recurring-pattern verdicts (6–8) are `Escalate` even when the
+individual incident is auto-recovering correctly.** The reasoning is
+in your operational goals: HyperPod's resiliency repairs the symptom,
+but a 3× recurrence of a categorized fault on the same IG is an
+underlying cause (vendor / capacity pool for `gpu-xid`, code bug for
+`lifecycle-script-failed`, pool exhaustion for `capacity-insufficient`,
+etc.) that auto-recovery can't fix. The verdict explanation should
+explicitly say "this incident is auto-recovering, but the pattern
+across the last <N> days warrants human attention" so operators
+understand the verdict isn't about *this* incident's resolution.
+
+**Time budgets are not hardcoded constants — they encode the
+mental-model doc's "How long things take" section.** A single replace
+takes 20–30 min; two attempts plus a slack gap = ~90 min. Don't change
+these without updating the mental-model doc first.
+
 ### Phase 4 — Report (using DevOps Agent's native schema)
 
 DevOps Agent's investigation output is structured: the terminal tool
@@ -538,11 +540,11 @@ The agent's schema supports these record types:
    or `Escalate — <reason>`. **The `<signature-set>` suffix is
    required for any verdict that names specific fault evidence**
    (all Escalate / Monitor / Resolved variants) — it's a stable,
-   sorted-and-deduplicated string representation of the
-   `(InstanceGroup, Xid-signature)` pairs that drove the verdict,
-   formatted as `(ig1:xid_a, ig1:xid_b, ig2:xid_a, ...)`. Examples:
-   Verdict titles use the concatenated fault-content signature (per
-   Phase 2b), not a hard-coded category name. Examples (line-wrapped
+   sorted-and-deduplicated representation of the `current_signature_set`
+   computed in Phase 2d, formatted as a comma-separated list of the
+   `<ig>:<content>` signature strings (per Phase 2b) that drove the
+   verdict. Verdict titles use the full concatenated fault-content
+   signature, NOT a hard-coded category name. Examples (line-wrapped
    here for readability; the actual titles are single-line):
 
    - `Triage verdict: Escalate — recurring fault pattern :: (worker4:Description: Failed to provision EC2 Instance ... FailureMessage: We currently do not have sufficient capacity to launch new ml.g5.8xlarge instances. Please try again.)`
@@ -599,6 +601,12 @@ The agent's schema supports these record types:
    Next re-check:
    <only for Monitor verdicts: UTC timestamp 30 min from now if "first attempt",
    15 min from now if "elevated">
+
+   Recommended actions (operator runs these):
+   <only for Escalate verdicts: explicit operator-runnable remediation steps —
+   see the per-verdict guidance below and the SSM GPU-UUID step for
+   recurring-pattern verdicts. Omit this heading for Suppress / Monitor /
+   Resolved verdicts.>
    ```
 
    **The `Summary:` paragraph is REQUIRED for every non-Suppress verdict.** Write
@@ -687,9 +695,6 @@ description: |
 
   Most recent event at:
   2026-07-08T16:14:59Z
-
-  Recommendation:
-  Request an on-demand capacity increase for ml.g5.8xlarge in us-west-2 via a service quota request, or reduce worker4 target count to release the retry pressure while the request is processed. Alternatively move worker4 to a different SKU (ml.g6.8xlarge has more availability in this region).
 ```
 
 **Example B — Escalate for coordinated lifecycle-script failures across multiple instances:**
@@ -699,6 +704,9 @@ title: "Triage verdict: Escalate — coordinated lifecycle-script failure :: (wo
 
 description: |
   Verdict: Escalate — coordinated lifecycle-script failure
+
+  Summary:
+  Every new worker1 instance on cluster k8-1 is failing bootstrap with the same lifecycle-script (LCS) execution error — 6 instances failed across two waves at 2026-07-08T19:21Z and 19:32Z. The likely cause is a bug or missing/inaccessible file in the on_create script in the instance group's S3 path, so each freshly provisioned node hits the identical failure. Recommended: inspect the LCS log stream for one of the affected instances to find the failing command, then fix on_create.sh (or on_create_main.sh) in the cluster's S3 bucket; the retry loop clears on the next attempt once the script succeeds.
 
   What HyperPod is doing right now:
   HyperPod is retrying, but every new worker1 instance is failing bootstrap with the same LCS execution error. 3 instances (i-0a50b324f7072b3c3, i-053a781aec4c92c7c, i-0c76a007f45d94d6e) failed simultaneously at 2026-07-08T19:21Z, then 3 more at 2026-07-08T19:32Z with the same error. Continuous Provisioning + Automatic NodeRecovery will keep respawning these logical nodes at ~10-minute intervals until an operator fixes the LCS.
@@ -717,7 +725,7 @@ description: |
   Most recent event at:
   2026-07-08T19:32:13Z
 
-  Recommendation:
+  Recommended actions (operator runs these):
   Inspect the LCS log stream /aws/sagemaker/Clusters/k8-1/lw12e0dn1hhd/LifecycleConfig/worker1/<instance-id> for any of the affected instances to identify the failing command. Fix on_create.sh (or on_create_main.sh) in s3://sagemaker-k8-1-1bd2626f-bucket. Once fixed the retry loop will clear on its next attempt.
 
 related_resources: ["HyperPod cluster k8-1", "i-0a50b324f7072b3c3", "i-053a781aec4c92c7c", "i-0c76a007f45d94d6e"]
@@ -730,6 +738,9 @@ title: "Triage verdict: Monitor — first attempt :: (worker2:Description: Insta
 
 description: |
   Verdict: Monitor — first attempt
+
+  Summary:
+  HMA flagged instance i-0abcdef1234567890 in instance group "worker2" as unhealthy (NvidiaGPUUnhealthy) and requested a Replace, and HyperPod has already started the first replacement attempt. The likely cause is a transient or isolated GPU fault on that single node, which HyperPod's automatic recovery is equipped to handle on its own. No operator action is needed right now — the replacement is expected to reach InService within 20-30 min; the next scheduled audit will re-check and emit a Resolved closure if it succeeds.
 
   What HyperPod is doing right now:
   HMA has flagged i-0abcdef1234567890 as unhealthy (NvidiaGPUUnhealthy) and requested Replace. HyperPod has started the replacement and this is the first attempt in the chain. Expected wall-clock: 20-30 min for the new instance to reach InService.
@@ -801,8 +812,8 @@ serious failure mode because operators trust the annotation to mean
 "the agent saw this in the data."
 
 **Hypothesis discipline for recurring-pattern verdicts
-(rules 7–9).** When the verdict is one of `Escalate — recurring
-hardware fault pattern`, `Escalate — fleet-wide instability`, or
+(rules 6–8).** When the verdict is one of `Escalate — recurring
+fault pattern`, `Escalate — fleet-wide instability`, or
 `Escalate — instance-group instability`, the verdict description
 MUST enumerate at least **two** competing hypotheses for the root
 cause, each labeled `[unverified]` or `[proxy]`, and each paired with
@@ -837,7 +848,7 @@ before authoring this part of the verdict.
 physical-host affinity, and it requires SSM (operator-only).** The
 verdict's "Recommended actions" section MUST include this check as
 an explicit operator step whenever a recurring-pattern verdict is
-emitted (rules 7–9). The wording should be:
+emitted (rules 6–8). The wording should be:
 
 ```
 N. Verify or refute "same physical GPU" by capturing GPU UUIDs.
