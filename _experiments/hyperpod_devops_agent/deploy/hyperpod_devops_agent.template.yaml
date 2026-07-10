@@ -608,14 +608,14 @@ Resources:
                 Resource:
                   - "arn:aws:logs:*:*:log-group:/aws/lambda/*"
                   - "arn:aws:logs:*:*:log-group:/aws/lambda/*:log-stream:*"
-              # Lambda-detection mode: read cluster state to decide whether a real
-              # issue exists before invoking an investigation.
+              # Lambda-detection mode reads Kubernetes Pod/Node state via the EKS
+              # API. Only eks:DescribeCluster is needed here (to get the API
+              # endpoint + CA); the K8s reads themselves are authorized by the
+              # Lambda's EKS access entry, not IAM. HyperPod control-plane faults
+              # are handled event-driven by the bridge, so no sagemaker perms.
               - Effect: Allow
                 Action:
                   - eks:DescribeCluster
-                  - sagemaker:DescribeCluster
-                  - sagemaker:ListClusterEvents
-                  - sagemaker:ListClusterNodes
                 Resource: "*"
 
   PeriodicAuditFunction:
@@ -807,13 +807,20 @@ Resources:
   InvestigationLifecycleRule:
     Type: AWS::Events::Rule
     Properties:
-      Description: "Route DevOps Agent investigation lifecycle events to the email notifier."
+      Description: "Route THIS Agent Space's investigation lifecycle events to the email notifier."
       State: ENABLED
+      # Scope to THIS stack's Agent Space. Without the agent_space_id filter,
+      # every stack's notifier matches every cluster's investigations account-wide,
+      # producing one duplicate email per deployed stack.
       EventPattern:
         source:
           - aws.aidevops
         detail-type:
           - prefix: "Investigation"
+        detail:
+          metadata:
+            agent_space_id:
+              - !GetAtt AgentSpace.AgentSpaceId
       Targets:
         - Arn: !GetAtt EmailNotifierFunction.Arn
           Id: "EmailNotifierTarget"

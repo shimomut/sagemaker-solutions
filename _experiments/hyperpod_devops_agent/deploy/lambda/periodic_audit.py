@@ -3,15 +3,22 @@
 Fired on a schedule by EventBridge Scheduler. Two operating modes, chosen by the
 AUDIT_DETECTION_MODE env var:
 
-  lambda (default) — inspect the cluster HERE (CrashLoopBackOff pods, NotReady
-      nodes, open fault chains) and POST the DevOps Agent webhook ONLY when a
-      real issue is found. On a healthy cluster nothing is POSTed, so no
-      investigation runs and no cost is incurred. A separate daily "heartbeat"
-      schedule (event input {"trigger":"heartbeat"}) forces one POST per day so
-      operators can see the pipeline is alive.
+  lambda (default) — inspect Kubernetes Pod/Node state HERE (CrashLoopBackOff
+      pods, NotReady nodes) and POST the DevOps Agent webhook ONLY when a real
+      issue is found. On a healthy cluster nothing is POSTed, so no investigation
+      runs and no cost is incurred. A separate daily "heartbeat" schedule (event
+      input {"trigger":"heartbeat"}) forces one POST per day so operators can see
+      the pipeline is alive.
 
   always-fire — legacy behavior: POST every audit and let the hyperpod-incident-rca
       skill discover issues and suppress on healthy clusters.
+
+Scope note: HyperPod control-plane faults (node health, capacity errors,
+lifecycle-script failures, cluster state changes) are handled event-driven by the
+webhook bridge — which reads the native EventLevel from the EventBridge event and
+forwards the real FailureMessage verbatim. This audit deliberately does NOT
+re-scan list-cluster-events; it only covers Kubernetes state, which is not in the
+HyperPod event stream. On Slurm (no kubectl) the audit fires only the heartbeat.
 
 Either way the POST is an HMAC-signed "periodic audit" event, identical in shape
 to what the webhook bridge sends, so the RCA skill's audit-mode path handles it.
@@ -24,7 +31,7 @@ role is granted read-only cluster access by its own AWS::EKS::AccessEntry.
 
 Env vars:
   WEBHOOK_SECRET_ARN               Secrets Manager secret {"url","secret"} (shared with bridge)
-  CLUSTER_NAME                     HyperPod cluster name (payload metadata + list-cluster-events)
+  CLUSTER_NAME                     HyperPod cluster name (payload metadata)
   EKS_CLUSTER_NAME                 Underlying EKS cluster name (empty for Slurm — kubectl checks skipped)
   AUDIT_DETECTION_MODE             "lambda" (detect + fire-on-issue) | "always-fire" (legacy)
   K8S_CHECKS_ENABLED               "true"/"false" — enable CrashLoop/NotReady checks
@@ -240,42 +247,19 @@ def _detect_notready_nodes(eks_cluster_name: str, region: str, cfg: dict) -> lis
     }]
 
 
-def _detect_open_fault_chains(cluster_name: str, region: str) -> list[dict]:
-    """Error/Warn HyperPod cluster events in the last 4h (excluding scale noise)."""
-    since = _now() - datetime.timedelta(hours=4)
-    sm = boto3.client("sagemaker", region_name=region)
-    issues: list[dict] = []
-    try:
-        paginator = sm.get_paginator("list_cluster_events")
-        pages = paginator.paginate(ClusterName=cluster_name, SortBy="EventTime", SortOrder="Descending")
-    except Exception as e:  # noqa: BLE001 - not all clusters support list_cluster_events
-        print(f"list_cluster_events unavailable for {cluster_name!r}: {e!r}")
-        return []
-    for page in pages:
-        for ev in page.get("Events", []) or []:
-            et = ev.get("EventTime")
-            if isinstance(et, datetime.datetime) and et.replace(tzinfo=datetime.timezone.utc) < since:
-                return issues  # sorted descending — older than window, stop
-            level = (ev.get("EventLevel") or "").lower()
-            desc = ev.get("Description", "") or ""
-            if level not in ("error", "warn", "warning"):
-                continue
-            if "lost orchestration-ready status" in desc:
-                continue  # scale-in-progress noise
-            issues.append({
-                "type": "ClusterFaultEvent",
-                "resource": ev.get("InstanceGroupName") or cluster_name,
-                "detail": f"{level}: {desc[:180]}",
-                "tag": "hyperpod-fault",
-            })
-    return issues
-
-
 def _detect_issues(cluster_name: str, eks_cluster_name: str, region: str) -> list[dict]:
-    """Run all applicable detectors and return the combined issue list."""
+    """Run all applicable detectors and return the combined issue list.
+
+    NOTE: HyperPod control-plane fault events (node health, capacity errors,
+    lifecycle-script failures, cluster state changes) are NOT detected here —
+    they are already delivered event-driven by the webhook bridge, which reads
+    the native `EventLevel` field from the EventBridge event and forwards the
+    real FailureMessage without interpreting it. The periodic audit only covers
+    what the event stream cannot: Kubernetes Pod/Node state (CrashLoopBackOff,
+    NotReady), which is not in the HyperPod event stream. On Slurm (no kubectl)
+    the audit therefore has nothing to poll — it fires only the daily heartbeat.
+    """
     issues: list[dict] = []
-    # HyperPod control-plane fault chains work for EKS and Slurm.
-    issues.extend(_detect_open_fault_chains(cluster_name, region))
     # kubectl-based checks require an EKS cluster + K8s checks enabled.
     if eks_cluster_name and _k8s_checks_enabled():
         cfg = _build_k8s_checks_block()
