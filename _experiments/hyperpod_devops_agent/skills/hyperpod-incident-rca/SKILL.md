@@ -577,21 +577,24 @@ The agent's schema supports these record types:
    Verdict: <name>
 
    Summary:
-   - What happened: <one plain-English sentence naming the SPECIFIC observed
-     problem — the fault type, the affected instance group / node / instance
-     type, and how many times / how long. NOT the generic verdict category.
-     e.g. "Repeated capacity errors provisioning ml.p5.48xlarge for instance
-     group 'faulttest' — 4 failures in the last 45 minutes.">
-   - Likely cause: <one-to-two sentences with the most probable root cause,
-     inferred from the FailureMessage / event content and cluster context —
-     NOT a hardcoded category. e.g. "On-demand capacity for ml.p5.48xlarge is
-     unavailable in this Availability Zone; the instance group is not
-     associated with a training plan or reserved capacity.">
-   - Recommended action: <one-to-two sentences of concrete operator action(s)
-     appropriate to the cause. e.g. "Verify you are launching in an AZ where
-     you hold reserved capacity for ml.p5.48xlarge, or associate the instance
-     group with a training plan; otherwise retry later or select an available
-     instance type.">
+   <A single plain-English paragraph (2–4 sentences) that flows naturally and
+   weaves together THREE things, in this order: (1) WHAT HAPPENED — the specific
+   observed problem: fault type, affected instance group / node / instance type,
+   and how many times / how long (never just the generic verdict category);
+   (2) THE LIKELY CAUSE — the most probable root cause inferred from the
+   FailureMessage / event content and cluster context (not a hardcoded category);
+   (3) THE RECOMMENDED ACTION — concrete operator next step(s) appropriate to the
+   cause. Write it as prose, NOT as labeled fields or bullets. Lead the paragraph
+   with "what happened" so the first sentence works as a standalone headline.
+   Example:
+   "Repeated capacity errors are failing to provision ml.p5.48xlarge for instance
+   group 'faulttest' on cluster slurm-2 — 5 attempts in the last 40 minutes. The
+   likely cause is that on-demand capacity for ml.p5.48xlarge is unavailable in
+   this Availability Zone and the instance group is not backed by a training plan
+   or reserved capacity, so every Continuous-Provisioning retry hits the same
+   wall. Recommended: launch in an AZ/Region where you hold reserved capacity for
+   this instance type or associate the group with a training plan; otherwise
+   reduce the target count to stop the retry loop and request a capacity increase.">
 
    What HyperPod is doing right now:
    <one paragraph plain English summary referencing the timeline>
@@ -610,14 +613,16 @@ The agent's schema supports these record types:
    15 min from now if "elevated">
    ```
 
-   **The `Summary:` block is REQUIRED for every non-Suppress verdict**, with
-   exactly the three labeled bullets `What happened`, `Likely cause`,
-   `Recommended action`, in that order, each on its own `- ` line. Downstream
-   automation (the email notifier) parses these three fields verbatim to build
-   the notification subject and headline. Keep each to 1–2 sentences of
-   plain English naming the *specific* problem (instance type, instance group,
-   counts, AZ) — never restate the generic verdict category. Suppress verdicts
-   may omit the block (they produce no email).
+   **The `Summary:` paragraph is REQUIRED for every non-Suppress verdict.** Write
+   it as ONE natural-language paragraph (2–4 sentences) that covers, in order,
+   what happened → the likely cause → the recommended action. Do NOT use labeled
+   fields, bullets, or JSON — just prose. Lead with "what happened" so the first
+   sentence stands alone as a headline (the email notifier uses the paragraph as
+   the body summary and its first sentence as the subject). Name the *specific*
+   problem (instance type, instance group, counts, AZ) — never restate the
+   generic verdict category. Do NOT put `[direct]`/`[proxy]`/`[unverified]`
+   confidence tags in this paragraph; those belong on the detailed evidence
+   claims later in the description. Suppress verdicts may omit it (no email).
 
    `related_resources` on this symptom: `["HyperPod cluster <name>"]`
    plus any affected instance IDs.
@@ -681,9 +686,7 @@ description: |
   Verdict: Escalate — recurring fault pattern
 
   Summary:
-  - What happened: Repeated capacity errors provisioning ml.g5.8xlarge for instance group "worker4" — 4 failed replacements in the last 24 hours.
-  - Likely cause: On-demand capacity for ml.g5.8xlarge is unavailable in us-west-2 for this cluster; worker4 is not backed by a training plan or reserved capacity, so each Continuous-Provisioning retry hits the same capacity wall.
-  - Recommended action: Launch worker4 in an AZ/Region where you hold reserved capacity or a training plan for ml.g5.8xlarge, or switch to a SKU with availability (e.g. ml.g6.8xlarge); alternatively lower worker4's target count to stop the retry loop while you request a capacity increase.
+  Repeated capacity errors are failing to provision ml.g5.8xlarge for instance group "worker4" — 4 failed replacements in the last 24 hours. The likely cause is that on-demand capacity for ml.g5.8xlarge is unavailable in us-west-2 for this cluster and worker4 is not backed by a training plan or reserved capacity, so each Continuous-Provisioning retry hits the same capacity wall. Recommended: launch worker4 in an AZ/Region where you hold reserved capacity or a training plan for ml.g5.8xlarge, or switch to a SKU with availability (e.g. ml.g6.8xlarge); alternatively lower worker4's target count to stop the retry loop while you request a capacity increase.
 
   What HyperPod is doing right now:
   HyperPod is auto-retrying, but the same insufficient-capacity error has driven 4 replacements on worker4 in the last 24 hours. Continuous Provisioning is looping without progress; each new attempt hits the same on-demand capacity wall for ml.g5.8xlarge in us-west-2. Operator action is required — the pattern will not self-resolve.

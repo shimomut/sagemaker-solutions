@@ -2165,72 +2165,93 @@ Resources:
               return journal["symptoms"][0] if journal["symptoms"] else {}
 
 
-          def _parse_summary(description: str) -> dict:
-              """Parse the RCA skill's 'Summary:' block into its three fields.
+          # Section headers the RCA skill emits AFTER the Summary paragraph in the verdict
+          # description. The Summary paragraph runs from 'Summary:' up to the first of these.
+          _SUMMARY_END_HEADERS = re.compile(
+              r"^\s*(What HyperPod is doing right now|Timeline|Most recent event at|"
+              r"Next re-check|Recommended actions|Recommendation)\s*:",
+              re.IGNORECASE,
+          )
 
-              Contract (RCA SKILL.md Phase 4): the verdict symptom's description contains
-                  Summary:
-                  - What happened: ...
-                  - Likely cause: ...
-                  - Recommended action: ...
-              Each field may wrap across lines until the next '- <Label>:' or a blank line
-              that precedes the next section. Returns {} if no Summary block is present
-              (graceful fallback for skill drift / older investigations).
+
+          def _parse_summary_text(description: str) -> str:
+              """Extract the RCA skill's free-text 'Summary:' paragraph, or "".
+
+              Contract (RCA SKILL.md Phase 4): the verdict symptom's description contains a
+              single natural-language paragraph under a 'Summary:' line that weaves together
+              what happened -> likely cause -> recommended action. We capture from just
+              after 'Summary:' up to the next known section header (or a blank line that
+              precedes one). Deliberately NOT field-structured — nothing to drift. Returns
+              "" if no Summary block is present (graceful fallback).
               """
               if not description or "Summary:" not in description:
-                  return {}
-              labels = {
-                  "what happened": "what_happened",
-                  "likely cause": "likely_cause",
-                  "recommended action": "recommended_action",
-              }
-              out: dict[str, str] = {}
-              current = None
-              # Only scan the region from 'Summary:' up to the next top-level section.
+                  return ""
               after = description.split("Summary:", 1)[1]
+              lines: list[str] = []
               for raw in after.splitlines():
+                  if _SUMMARY_END_HEADERS.match(raw):
+                      break
                   line = raw.strip()
-                  m = re.match(r"^-\s*([A-Za-z ]+?):\s*(.*)$", line)
-                  if m and m.group(1).strip().lower() in labels:
-                      current = labels[m.group(1).strip().lower()]
-                      out[current] = m.group(2).strip()
-                  elif current and line and not line.endswith(":") and not line.startswith("-"):
-                      # continuation of the current bullet
-                      out[current] = (out[current] + " " + line).strip()
-                  elif current and (not line or line.endswith(":")):
-                      # blank line or a new top-level section header ends the summary
-                      if not line and out:
+                  if not line:
+                      # A blank line ends the paragraph only once we've collected content.
+                      if lines:
                           break
-                      current = None
-              return {k: v for k, v in out.items() if v}
+                      continue
+                  lines.append(line)
+              return _strip_confidence_tags(" ".join(lines))
+
+
+          def _first_sentence(text: str, limit: int = 160) -> str:
+              """First sentence of a paragraph, for use as a headline."""
+              if not text:
+                  return ""
+              m = re.search(r"(.+?[.!?])(\s|$)", text)
+              sentence = m.group(1).strip() if m else text
+              return sentence[:limit]
+
+
+          def _strip_confidence_tags(text: str) -> str:
+              """Remove RCA confidence annotations ([direct]/[proxy]/[unverified]) and tidy.
+
+              Those tags are meaningful on detailed evidence claims (kept in the body), but
+              they're noise in the one-line email subject/headline.
+              """
+              cleaned = re.sub(r"\[(?:direct|proxy|unverified)\]\s*", "", text, flags=re.IGNORECASE)
+              return re.sub(r"\s{2,}", " ", cleaned).strip()
 
 
           def _pick_headline(journal: dict, task: dict) -> str:
               """Best short headline for the subject line.
 
               Priority:
-              1. The Summary's 'What happened' (specific, human-readable) — preferred.
+              1. First sentence of the Summary paragraph (specific, human-readable).
               2. The verdict name (post-colon body of the 'Triage verdict:' title).
               3. The first symptom's title.
               4. The task title.
               5. A generic string.
+
+              Confidence tags are already stripped by _parse_summary_text; we also strip
+              the fallback branches for safety.
               """
               vs = _verdict_symptom(journal)
-              summary = _parse_summary(vs.get("description") or "")
-              if summary.get("what_happened"):
-                  return summary["what_happened"][:160]
-              for s in journal["symptoms"]:
-                  t = (s.get("title") or "").strip()
-                  if t.startswith("Triage verdict"):
-                      body = t.replace("Triage verdict:", "", 1).strip()
-                      return body.split(" :: ", 1)[0]
-              if journal["symptoms"]:
-                  first = (journal["symptoms"][0].get("title") or "").strip()
-                  if first:
-                      return first[:140]
-              if task.get("title"):
-                  return task["title"][:140]
-              return "HyperPod investigation"
+              summary = _parse_summary_text(vs.get("description") or "")
+              if summary:
+                  return _first_sentence(summary)
+
+              def _raw() -> str:
+                  for s in journal["symptoms"]:
+                      t = (s.get("title") or "").strip()
+                      if t.startswith("Triage verdict"):
+                          return t.replace("Triage verdict:", "", 1).strip().split(" :: ", 1)[0]
+                  if journal["symptoms"]:
+                      first = (journal["symptoms"][0].get("title") or "").strip()
+                      if first:
+                          return first
+                  if task.get("title"):
+                      return task["title"]
+                  return "HyperPod investigation"
+
+              return _strip_confidence_tags(_raw())[:160]
 
 
           def _console_url(event: dict, meta: dict) -> str:
@@ -2405,28 +2426,19 @@ Resources:
                   f'</div>'
               )
 
-              # RCA 3-part summary (What happened / Likely cause / Recommended action),
-              # parsed from the verdict symptom's description. Rendered prominently up top.
-              summary = _parse_summary((_verdict_symptom(journal).get("description") or ""))
+              # RCA summary — a single free-text paragraph (what happened -> likely cause
+              # -> recommended action) from the verdict symptom's description. Rendered
+              # prominently up top.
+              summary = _parse_summary_text(_verdict_symptom(journal).get("description") or "")
               summary_html = ""
               if summary:
-                  parts = [
-                      ("What happened", summary.get("what_happened")),
-                      ("Likely cause", summary.get("likely_cause")),
-                      ("Recommended action", summary.get("recommended_action")),
-                  ]
-                  rows = "".join(
-                      f'<div style="margin-bottom:10px;">'
+                  summary_html = (
+                      f'<div style="background:#f8f9fa;border:1px solid #e0e0e0;'
+                      f'border-radius:3px;padding:14px 16px;margin:0 0 16px 0;">'
                       f'<div style="color:#616161;font-size:11px;letter-spacing:1px;'
-                      f'text-transform:uppercase;margin-bottom:2px;">{esc(label)}</div>'
-                      f'<div style="font-size:14px;color:#111;">{esc(val)}</div></div>'
-                      for label, val in parts if val
+                      f'text-transform:uppercase;margin-bottom:4px;">Summary</div>'
+                      f'<div style="font-size:14px;color:#111;">{esc(summary)}</div></div>'
                   )
-                  if rows:
-                      summary_html = (
-                          f'<div style="background:#f8f9fa;border:1px solid #e0e0e0;'
-                          f'border-radius:3px;padding:14px 16px;margin:0 0 16px 0;">{rows}</div>'
-                      )
 
               return (
                   f'<html><body style="margin:0;padding:24px;background:#f5f5f5;'
@@ -2460,15 +2472,9 @@ Resources:
           ) -> str:
               """Plain-text fallback."""
               lines = ["HyperPod investigation completed", "=" * 32, "", f"Headline: {headline}", ""]
-              summary = _parse_summary((_verdict_symptom(journal).get("description") or ""))
+              summary = _parse_summary_text(_verdict_symptom(journal).get("description") or "")
               if summary:
-                  if summary.get("what_happened"):
-                      lines += [f"What happened:      {summary['what_happened']}"]
-                  if summary.get("likely_cause"):
-                      lines += [f"Likely cause:       {summary['likely_cause']}"]
-                  if summary.get("recommended_action"):
-                      lines += [f"Recommended action: {summary['recommended_action']}"]
-                  lines += [""]
+                  lines += ["Summary:", summary, ""]
               lines += [
                   f"Priority:         {meta['priority'] or 'n/a'}",
                   f"Event:            {event.get('detail-type', '')}",
