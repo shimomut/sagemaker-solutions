@@ -299,17 +299,17 @@ Verified end-to-end: after three injected Xid 74 faults on `worker2`, the skill 
 
 Native DevOps Agent triggers were tried first and **ruled out** (see "Why the
 native path doesn't work" below). The audit is an `AWS::Scheduler::Schedule` →
-Lambda in the same stack. **The audit was later redesigned** (see
-[docs/lambda-side-audit-detection-design.md](docs/lambda-side-audit-detection-design.md)):
-the Lambda now inspects Kubernetes state itself (CrashLoopBackOff / NotReady) and
-POSTs the webhook **only when a real issue is found**, plus a daily heartbeat —
-rather than firing every 15 min and relying on the skill to suppress. HyperPod
-control-plane faults are handled by the event-driven bridge, not the audit. On
-Slurm the audit is heartbeat-only. Verdicts go through the existing email path.
+Lambda in the same stack. **The audit was later redesigned**: the Lambda now
+inspects Kubernetes state itself (CrashLoopBackOff / NotReady) and POSTs the
+webhook **only when a real issue is found**, plus a daily heartbeat — rather than
+firing every 15 min and relying on the skill to suppress. HyperPod control-plane
+faults are handled by the event-driven bridge, not the audit. On Slurm the audit
+is heartbeat-only. Verdicts go through the existing email path. The as-built
+detection modes are documented in [deploy/README.md](deploy/README.md#periodic-audit--detection-modes).
 
 > **Note:** the "always-fire + 5-layer dedup" description in the subsections below
 > reflects the *original* audit design and is retained for history. The current
-> behavior is the Lambda-side detection model in the design doc linked above.
+> behavior is the Lambda-side detection model described above.
 
 #### Kubernetes-state checks in audit mode
 

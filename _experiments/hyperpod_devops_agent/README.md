@@ -227,8 +227,7 @@ of the stack and is removed with it.
 ├── README.md         - this file (value, architecture, quick start)
 ├── IMPLEMENTATION.md - design decisions, DevOps Agent findings, skill-authoring lessons
 ├── docs/
-│   ├── devops-agent-mental-model.md          - undocumented DevOps Agent behaviors (read before changing skills)
-│   └── lambda-side-audit-detection-design.md - periodic-audit design + as-built
+│   └── devops-agent-mental-model.md          - undocumented DevOps Agent behaviors (read before changing skills)
 ├── deploy/           - the single-template deployment (see deploy/README.md)
 │   ├── hyperpod_devops_agent.template.yaml   - the one template (with # *_CODE_PLACEHOLDER markers)
 │   ├── hyperpod_devops_agent.yaml            - generated: template with Lambda code embedded
