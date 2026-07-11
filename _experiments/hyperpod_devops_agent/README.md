@@ -72,8 +72,8 @@ email leads with a headline, then a *what happened / likely cause / recommended
 action* breakdown (right):
 
 <p>
-  <img src="./images/incident-response-dashboard.jpeg" alt="DevOps Agent Incident Response dashboard listing HyperPod investigations" width="440">
-  <img src="./images/investigation-verdict-email.jpeg" alt="Verdict email for a HyperPod capacity-shortage investigation, showing headline, what happened, likely cause, and recommended action" width="320">
+  <img src="./images/incident-response-dashboard.jpeg" alt="DevOps Agent Incident Response dashboard listing HyperPod investigations" width="440" valign="middle">
+  <img src="./images/investigation-verdict-email.jpeg" alt="Verdict email for a HyperPod capacity-shortage investigation, showing headline, what happened, likely cause, and recommended action" width="320" valign="middle">
 </p>
 
 ## Architecture
