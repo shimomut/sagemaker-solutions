@@ -264,5 +264,4 @@ sync time from `../../docs/hyperpod-mental-model.md` (single source of truth).
   listen on the same `aws.aidevops` event stream the email notifier uses.
 
 Slack notifications can be added via DevOps Agent's built-in Slack integration or
-via a sibling stack that listens on the same `aws.aidevops` event stream (paused
-pending workspace 3P approval).
+via a sibling stack that listens on the same `aws.aidevops` event stream.
