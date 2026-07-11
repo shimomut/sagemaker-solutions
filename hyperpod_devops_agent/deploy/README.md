@@ -48,7 +48,7 @@ file customers download and deploy directly; they don't need the template).
 ## Quick start
 
 ```bash
-cd _experiments/hyperpod_devops_agent
+cd hyperpod_devops_agent
 cp deploy/params.example.json deploy/params.json
 # edit deploy/params.json: HyperPodClusterName, EmailSender, EmailRecipients
 #   (the SES sender must be verified in the target region first)
@@ -66,7 +66,7 @@ hand. It also pre-flights the EKS auth mode (must be `API` or
 
 - **Parameters / thresholds:** edit `deploy/params.json`, re-run `make deploy`.
 - **Skills or the mental-model doc:** edit the file under `../skills/` (or
-  `../../docs/hyperpod-mental-model.md`), then `make deploy`. `sync-skills`
+  `../docs/hyperpod-mental-model.md`), then `make deploy`. `sync-skills`
   recomputes the content hash (`SkillsVersion`); the change makes CloudFormation
   re-run `SkillUploader`, which re-uploads only what changed.
 

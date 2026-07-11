@@ -250,7 +250,7 @@ of the stack and is removed with it.
 ```
 
 The `hyperpod-mental-model.md` reference doc is bundled into the RCA skill at
-sync time from `../../docs/hyperpod-mental-model.md` (single source of truth).
+sync time from `../docs/hyperpod-mental-model.md` (single source of truth).
 
 ## What's next
 

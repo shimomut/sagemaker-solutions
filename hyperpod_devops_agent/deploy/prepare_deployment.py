@@ -35,8 +35,8 @@ import zipfile
 
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-SOLUTION_ROOT = os.path.dirname(HERE)              # _experiments/hyperpod_devops_agent
-REPO_ROOT = os.path.dirname(os.path.dirname(SOLUTION_ROOT))  # sagemaker-solutions
+SOLUTION_ROOT = os.path.dirname(HERE)              # hyperpod_devops_agent
+REPO_ROOT = os.path.dirname(SOLUTION_ROOT)         # sagemaker-solutions
 MENTAL_MODEL = os.path.join(REPO_ROOT, "docs", "hyperpod-mental-model.md")
 
 LAMBDA_DIR = os.path.join(HERE, "lambda")

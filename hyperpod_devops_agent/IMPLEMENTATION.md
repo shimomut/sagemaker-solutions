@@ -67,7 +67,7 @@ DevOps Agent does not understand HyperPod out of the box — a HyperPod cluster 
 
 1. **Our two skills**:
    - **`hyperpod-incident-triage`** (INCIDENT_TRIAGE) — runs at the triage stage and decides LINKED / SKIPPED / PROCEED. See [skills/hyperpod-incident-triage/SKILL.md](skills/hyperpod-incident-triage/SKILL.md). Why it exists: the platform's default correlator merges cross-fault-type events on the same instance group, which causes information loss; this skill instructs the triage agent to keep them separate. Authoring matters — an earlier algorithmic version didn't take effect; v0.7.0 uses concise declarative rules. See [Triage-skill correlation: status and how to author it](#triage-skill-correlation-status-and-how-to-author-it).
-   - **`hyperpod-incident-rca`** (INCIDENT_RCA) — runs after the triage skill produces PROCEED. Reads `describe-cluster`, `list-cluster-nodes`, `list-cluster-events`, and HMA CloudWatch streams; reconstructs a timeline; classifies as Suppress / Monitor / Escalate / Resolved against time budgets derived from the [HyperPod mental model](../../docs/hyperpod-mental-model.md). Bundles the mental-model doc as a reference. See [skills/hyperpod-incident-rca/SKILL.md](skills/hyperpod-incident-rca/SKILL.md).
+   - **`hyperpod-incident-rca`** (INCIDENT_RCA) — runs after the triage skill produces PROCEED. Reads `describe-cluster`, `list-cluster-nodes`, `list-cluster-events`, and HMA CloudWatch streams; reconstructs a timeline; classifies as Suppress / Monitor / Escalate / Resolved against time budgets derived from the [HyperPod mental model](../docs/hyperpod-mental-model.md). Bundles the mental-model doc as a reference. See [skills/hyperpod-incident-rca/SKILL.md](skills/hyperpod-incident-rca/SKILL.md).
 
 2. **Curated upstream skills from [awslabs/agent-plugins](https://github.com/awslabs/agent-plugins)** — supporting reference. `make import-upstream-skills` imports a **curated subset** of the `hyperpod-*` skills (see "Skill curation" below). Use the `SKILLS=...` env var to import a different subset. Subsequent runs `git pull` upstream and re-upload.
 
@@ -234,7 +234,7 @@ The proxy path is sufficient for HMA-classified faults. The Xid 79 fault-injecti
 
 Because the guardrail is fixed by AWS, the only realistic paths are **side-loading on-node data into surfaces the guardrail already permits**:
 
-1. **External collector → CloudWatch Logs.** A Lambda or cron uses `StartSession` + `AWS-StartNonInteractiveCommand` (the [`hyperpod_run_on_multi_nodes.py`](../../hyperpod_run_on_multi_nodes/) pattern in this repo), runs a fixed read-only diagnostic script on each node, writes output to a CloudWatch Logs group. The agent reads via `logs:FilterLogEvents` which IS in the guardrail. SSM throttle is 3 TPS — fan-out must serialize or back off.
+1. **External collector → CloudWatch Logs.** A Lambda or cron uses `StartSession` + `AWS-StartNonInteractiveCommand` (the [`hyperpod_run_on_multi_nodes.py`](../hyperpod_run_on_multi_nodes/) pattern in this repo), runs a fixed read-only diagnostic script on each node, writes output to a CloudWatch Logs group. The agent reads via `logs:FilterLogEvents` which IS in the guardrail. SSM throttle is 3 TPS — fan-out must serialize or back off.
 2. **Periodic snapshot to S3.** Same shape, but writes structured JSON to a versioned S3 prefix. Agent reads via `s3:GetObject` (which is in the guardrail's opt-in allowlist — must be added to the role explicitly). Better for time-series reconstruction across investigations.
 3. **On-demand collector before investigation.** The HyperPod EventBridge → webhook bridge invokes the collector first, waits for output to land in CloudWatch Logs, then fires the investigation webhook. Highest fidelity, every investigation pays the collector's wall-clock.
 
@@ -268,7 +268,7 @@ The skill classifies each event into one of these verdicts:
 
 `Monitor` verdicts are not silent — the email tells the user "HyperPod is auto-recovering, expected completion by HH:MM UTC, you'll be notified again only if the situation changes." The follow-up only fires if the verdict transitions on a later event.
 
-Time budgets in the skill encode the "How long things take" table in the [HyperPod mental model](../../docs/hyperpod-mental-model.md). Update the mental-model doc first if the budgets need to change.
+Time budgets in the skill encode the "How long things take" table in the [HyperPod mental model](../docs/hyperpod-mental-model.md). Update the mental-model doc first if the budgets need to change.
 
 ### First symptom must be the verdict symptom (skill ↔ notifier contract)
 

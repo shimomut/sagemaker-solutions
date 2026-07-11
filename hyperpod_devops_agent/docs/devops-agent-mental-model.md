@@ -4,7 +4,7 @@ This document captures operational knowledge about **AWS DevOps Agent**
 that is NOT in the product docs (UG / API reference) but that we
 discovered empirically while building the HyperPod × DevOps Agent
 solution. It is the DevOps-Agent counterpart to
-[`hyperpod-mental-model.md`](../../../docs/hyperpod-mental-model.md):
+[`hyperpod-mental-model.md`](../../docs/hyperpod-mental-model.md):
 that doc explains HyperPod; this one explains the *investigation
 platform* we wire HyperPod into.
 
