@@ -380,7 +380,7 @@ Three channels stack:
    - SES sender must be verified in `$REGION`. If SES is in sandbox mode, every recipient must also be verified.
    - The IAM policy on the Lambda restricts `ses:SendEmail` to the configured `EMAIL_SENDER` via the `ses:FromAddress` condition. S3 read/write is scoped to the marker bucket only.
 2. **DevOps Agent web app** — every investigation is visible at the Agent Space console URL in `make stack-outputs`.
-3. **Slack / ServiceNow / PagerDuty / Microsoft Teams** — configure once in the Agent Space console (paused on workspace 3P approval for the originating project). The same `aws.aidevops` event stream the email notifier listens on is available for any additional fan-out.
+3. **Slack / ServiceNow / PagerDuty / Microsoft Teams** — configure once in the Agent Space console. The same `aws.aidevops` event stream the email notifier listens on is available for any additional fan-out.
 
 ## Findings from the DevOps Agent docs (anchor for design)
 
