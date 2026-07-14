@@ -268,18 +268,16 @@ Sources of the content, in order of preference:
 4. Cluster State Change events: use `ClusterStatus + Description`.
 
 **Why full concatenated content, not hard-coded categories.**
-Earlier versions of this skill classified events into a fixed enum
-of categories (`gpu-xid`, `lifecycle-script-failed`, `capacity-
-insufficient`, etc.) via regex rules. Verified empirically that this
-approach silently merges distinct fault types — for example, all of
-"capacity for ml.g5.8xlarge", "capacity for ml.p5.48xlarge", "EFA
-health check failed", and "generic provisioning failure" produced
-the same regex-classified `instance-creation-failed:generic` key
-because the top-level `Description` field only says `"Failed to
-provision EC2 Instance in Cluster ..."`. The actual root cause lives
-in `FailureMessage` (a different string per fault type), which we
-now include. Concatenated raw content is more robust than
-enum-based categories.
+Classifying events into a fixed enum of categories (`gpu-xid`,
+`lifecycle-script-failed`, `capacity-insufficient`, etc.) via regex
+rules merges distinct fault types — for example, "capacity for
+ml.g5.8xlarge", "capacity for ml.p5.48xlarge", "EFA health check
+failed", and "generic provisioning failure" all collapse to the same
+`instance-creation-failed:generic` key, because the top-level
+`Description` field only says `"Failed to provision EC2 Instance in
+Cluster ..."`. The actual root cause lives in `FailureMessage` (a
+different string per fault type), so include it. Concatenated raw
+content is more robust than enum-based categories.
 
 **InstanceGroup extraction**:
 - Cluster Event: `detail.EventDetails.InstanceGroupName`

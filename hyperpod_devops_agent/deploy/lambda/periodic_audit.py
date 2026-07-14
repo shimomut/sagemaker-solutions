@@ -10,7 +10,7 @@ AUDIT_DETECTION_MODE env var:
       input {"trigger":"heartbeat"}) forces one POST per day so operators can see
       the pipeline is alive.
 
-  always-fire — legacy behavior: POST every audit and let the hyperpod-incident-rca
+  always-fire — alternative mode: POST every audit and let the hyperpod-incident-rca
       skill discover issues and suppress on healthy clusters.
 
 Scope note: HyperPod control-plane faults (node health, capacity errors,
@@ -33,7 +33,7 @@ Env vars:
   WEBHOOK_SECRET_ARN               Secrets Manager secret {"url","secret"} (shared with bridge)
   CLUSTER_NAME                     HyperPod cluster name (payload metadata)
   EKS_CLUSTER_NAME                 Underlying EKS cluster name (empty for Slurm — kubectl checks skipped)
-  AUDIT_DETECTION_MODE             "lambda" (detect + fire-on-issue) | "always-fire" (legacy)
+  AUDIT_DETECTION_MODE             "lambda" (detect + fire-on-issue) | "always-fire"
   K8S_CHECKS_ENABLED               "true"/"false" — enable CrashLoop/NotReady checks
   CRASHLOOP_HOURS_THRESHOLD        Fire if a pod is CrashLoopBackOff longer than this (0 = any)
   NOT_READY_NODE_PERCENT_THRESHOLD Fire if >= this percent of nodes are NotReady (after duration gate)
@@ -448,7 +448,7 @@ def lambda_handler(event, context):
     k8s_checks = _build_k8s_checks_block()
 
     if mode == "always-fire":
-        # Legacy: always POST, skill discovers + suppresses.
+        # Always POST; the skill discovers issues + suppresses on healthy clusters.
         payload = _build_payload(cluster_name, k8s_checks, [], heartbeat=False)
         print(f"always-fire audit: cluster={cluster_name!r} incidentId={payload['incidentId']}")
         url, secret = _load_webhook_credentials()

@@ -166,7 +166,7 @@ Parameters:
     Type: String
     Default: "lambda"
     AllowedValues: ["lambda", "always-fire"]
-    Description: "How the periodic audit decides whether to invoke an investigation. 'lambda' (default): the audit Lambda inspects cluster state (CrashLoopBackOff / NotReady / open fault chains) and POSTs the webhook ONLY when a real issue is found (plus a once-daily heartbeat). 'always-fire': legacy behavior — POST every audit and let the RCA skill suppress on healthy clusters."
+    Description: "How the periodic audit decides whether to invoke an investigation. 'lambda' (default): the audit Lambda inspects cluster state (CrashLoopBackOff / NotReady / open fault chains) and POSTs the webhook ONLY when a real issue is found (plus a once-daily heartbeat). 'always-fire': POST every audit and let the RCA skill suppress on healthy clusters."
 
   HeartbeatSchedule:
     Type: String

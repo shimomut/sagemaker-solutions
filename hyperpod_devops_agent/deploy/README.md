@@ -18,8 +18,8 @@ CloudFormation cannot express:
 2. **Skill assets** — there is no `AWS::DevOpsAgent::Asset` resource type.
    → `Custom::SkillUploader` (create/update/delete skill assets from S3).
 
-The EKS access grant, previously an imperative script, is now the native
-`AWS::EKS::AccessEntry` (skipped automatically for Slurm clusters).
+The EKS access grant is the native `AWS::EKS::AccessEntry` (skipped automatically
+for Slurm clusters).
 
 ## Layout
 
@@ -135,9 +135,9 @@ The audit runs on a schedule (default every 15 min), mode chosen by
   per day so operators can see the pipeline is alive. **On Slurm (no kubectl) the
   audit has nothing to poll, so it fires only the heartbeat** — HyperPod faults
   on Slurm still flow through the event-driven bridge.
-- **`always-fire`:** legacy behavior — POST every audit and let the
+- **`always-fire`:** an alternative mode — POST every audit and let the
   `hyperpod-incident-rca` skill discover issues and suppress on healthy clusters.
-  Kept for comparison/rollback.
+  Costs one investigation per audit cycle even when the cluster is healthy.
 
 The audit deliberately does **not** re-scan `list-cluster-events` for faults: that
 duplicated the bridge from a worse data source (the Lambda runtime's boto3 omits
