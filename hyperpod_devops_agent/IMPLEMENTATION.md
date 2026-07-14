@@ -258,7 +258,7 @@ than firing every 15 min and relying on the skill to suppress. On a healthy
 cluster nothing is POSTed, so no investigation runs. On Slurm the audit has no
 Kubernetes to poll, so it fires only the heartbeat. Verdicts go through the
 email path. The detection modes are documented in
-[deploy/README.md](deploy/README.md#periodic-audit--detection-modes).
+[README.md](README.md#periodic-audit--detection-modes).
 
 ### Kubernetes-state checks
 

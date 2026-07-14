@@ -2,7 +2,7 @@
 #
 # Single-template deployment. Everything (IAM, Agent Space, EKS access, webhook
 # bridge, periodic audit, email notifier, skills) is deployed by one
-# CloudFormation stack per cluster, driven by deploy/deploy.sh. See deploy/README.md.
+# CloudFormation stack per cluster, driven by deploy/deploy.sh. See README.md.
 #
 # Quick start:
 #   cp deploy/params.example.json deploy/params.json   # edit cluster + email
