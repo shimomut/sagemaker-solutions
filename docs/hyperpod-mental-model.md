@@ -1314,7 +1314,7 @@ Where `cluster-id` is the last segment of the cluster ARN
 Example:
 
 ```
-aws ssm start-session --target sagemaker-cluster:4ibb4k5dfr8r_controller-machine-i-0e20fd1c9dbd89be5
+aws ssm start-session --target sagemaker-cluster:<cluster-id>_controller-machine-i-0123456789abcdef0
 ```
 
 Once in, you have shell access on the node and can run anything: read

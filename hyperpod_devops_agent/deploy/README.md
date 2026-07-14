@@ -3,13 +3,12 @@
 One CloudFormation stack that deploys the entire HyperPod × AWS DevOps Agent
 solution — foundation (IAM roles + Agent Space + AWS-monitor association), EKS
 read-only access, the webhook bridge, the periodic audit, the email notifier,
-and the two skills. Replaces the four separate stacks + imperative scripts under
-the parent directory (those are kept until this path is validated).
+and the two skills.
 
 ## Why two custom resources
 
 Everything is deployed with official resource types **except** two gaps that
-CloudFormation cannot express (verified against the Dec 2025 template reference):
+CloudFormation cannot express:
 
 1. **eventChannel webhook** — `AWS::DevOpsAgent::Service` has no `eventChannel`
    ServiceType, and `AWS::DevOpsAgent::Association` with an `EventChannel`
@@ -73,10 +72,10 @@ hand. It also pre-flights the EKS auth mode (must be `API` or
 ## Operating
 
 ```bash
-make bridge-logs2    # tail the webhook bridge Lambda
-make audit-logs2     # tail the periodic-audit Lambda
-make email-logs2     # tail the email notifier Lambda
-make audit-test2     # invoke the periodic-audit Lambda once
+make bridge-logs    # tail the webhook bridge Lambda
+make audit-logs     # tail the periodic-audit Lambda
+make email-logs     # tail the email notifier Lambda
+make audit-test     # invoke the periodic-audit Lambda once
 make stack-status
 ```
 
@@ -153,7 +152,7 @@ The Lambda calls the K8s API directly (SigV4 token + stdlib `urllib`) — no
 `kubernetes` client or Lambda layer.
 
 Audit investigation **titles are issue-descriptive and timestamp-free** (e.g.
-`HyperPod k8-1: CrashLoopBackOff (crashloop-test/crashloop-canary:fail)`), so a
+`HyperPod my-cluster: CrashLoopBackOff (my-namespace/my-pod)`), so a
 recurring issue produces an identical title and the platform/triage skill LINK or
 SKIP the repeat instead of emailing every cycle.
 
@@ -184,10 +183,9 @@ Space role's and the audit Lambda's). On Slurm the periodic audit has no
 Kubernetes to poll, so it fires **only the daily heartbeat** — all HyperPod
 faults (capacity, node health, lifecycle-script, cluster state) flow through the
 **event-driven bridge**, which works on Slurm as long as Continuous Provisioning
-is enabled. **Verified end-to-end on a Continuous Slurm cluster (slurm-2):** a
-capacity-error fault was caught + notified via the bridge with a specific
-"What happened" email subject; the audit stayed out of it and the heartbeat
-fired as expected.
+is enabled. On a Continuous Slurm cluster, a capacity-error fault is caught and
+notified via the bridge with a specific "What happened" email subject; the audit
+stays out of it and the heartbeat fires as expected.
 
 Notable toggles: `EnablePeriodicAudit` (default `true`), `AuditDetectionMode`
 (default `lambda`), `K8sChecksEnabled` (default `true`), `AuditSchedule`

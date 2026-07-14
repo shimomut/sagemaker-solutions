@@ -12,15 +12,6 @@
 
 PYTHON3 ?= python3
 
-VENV_DIR    := .venv
-VENV_PYTHON := $(VENV_DIR)/bin/python
-VENV_PIP    := $(VENV_DIR)/bin/pip
-VENV_STAMP  := $(VENV_DIR)/.installed
-
-DOCS_DIR := docs
-PDFS     := $(wildcard $(DOCS_DIR)/*.pdf)
-TXTS     := $(PDFS:.pdf=.txt)
-
 DEPLOY_DIR   := deploy
 PARAMS_FILE  ?= $(DEPLOY_DIR)/params.json
 
@@ -33,12 +24,11 @@ s=re.sub(r'-{2,}','-',re.sub(r'[^a-z0-9]+','-',n.lower()).strip('-'))[:20].strip
 print(s or 'cluster')" 2>/dev/null)
 STACK_NAME   ?= hyperpod-devops-agent-$(NAME_PREFIX)
 
-.PHONY: help venv extract-docs \
+.PHONY: help \
         deploy update teardown-stack \
         sync-skills import-upstream-skills \
         stack-status stack-outputs \
-        bridge-logs audit-logs email-logs audit-test \
-        clean
+        bridge-logs audit-logs email-logs audit-test
 
 help:
 	@echo "Single-stack deployment (deploy/hyperpod_devops_agent.template.yaml):"
@@ -58,11 +48,6 @@ help:
 	@echo "  stack-outputs - Show the stack outputs (console URL, secret ARN, ...)."
 	@echo "  bridge-logs / audit-logs / email-logs - Tail a Lambda's logs."
 	@echo "  audit-test    - Manually invoke the periodic-audit Lambda once."
-	@echo
-	@echo "Docs tooling:"
-	@echo "  venv          - Create local virtualenv (for extract-docs)."
-	@echo "  extract-docs  - Extract docs/*.pdf to docs/*.txt for grep."
-	@echo "  clean         - Remove venv and extracted .txt files."
 
 # ------------------------------------------------------------ deploy / teardown
 
@@ -133,25 +118,3 @@ audit-test:
 		echo "Invoking $$FUNC..."; \
 		aws lambda invoke --region $$REGION --function-name $$FUNC --payload "{\"trigger\":\"periodic\"}" /tmp/audit-test-output.json \
 			--cli-binary-format raw-in-base64-out >/dev/null && cat /tmp/audit-test-output.json && echo'
-
-# ------------------------------------------------------------ docs tooling
-
-venv: $(VENV_STAMP)
-
-$(VENV_STAMP): requirements.txt
-	@if [ ! -x "$(VENV_PYTHON)" ]; then \
-		echo "Creating venv at $(VENV_DIR) using $(PYTHON3)..."; \
-		$(PYTHON3) -m venv $(VENV_DIR); \
-	fi
-	$(VENV_PIP) install --upgrade pip
-	$(VENV_PIP) install -r requirements.txt
-	@touch $(VENV_STAMP)
-
-extract-docs: venv
-	@if [ -z "$(PDFS)" ]; then echo "No PDFs under $(DOCS_DIR)/"; exit 0; fi
-	$(VENV_PYTHON) extract_pdf.py $(PDFS)
-
-clean:
-	rm -rf $(VENV_DIR)
-	rm -f $(TXTS)
-	rm -f $(DEPLOY_DIR)/hyperpod_devops_agent.embedded.yaml

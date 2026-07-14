@@ -320,7 +320,7 @@ investigation.
 - `current_signature_set` — sorted, deduplicated set of signature
   strings (per Phase 2b) for every distinct fault event in the
   4-hour window. Examples:
-  - `{"worker4:Description: Failed to provision EC2 Instance in Cluster k8-1 and InstanceGroup worker4. FailureMessage: We currently do not have sufficient capacity to launch new ml.g5.8xlarge instances. Please try again."}`
+  - `{"worker4:Description: Failed to provision EC2 Instance in Cluster my-cluster and InstanceGroup worker4. FailureMessage: We currently do not have sufficient capacity to launch new ml.g5.8xlarge instances. Please try again."}`
   - `{"worker2:Description: Instance i-XXXX is unhealthy. HyperPod Health Monitoring Agent (HMA) has detected fault type NvidiaGPUUnhealthy on this node and is unhealthy. Repair action: Replace."}`
 
   Render in the verdict title as a sorted comma-separated list.
@@ -578,7 +578,7 @@ The agent's schema supports these record types:
    with "what happened" so the first sentence works as a standalone headline.
    Example:
    "Repeated capacity errors are failing to provision ml.p5.48xlarge for instance
-   group 'faulttest' on cluster slurm-2 — 5 attempts in the last 40 minutes. The
+   group 'faulttest' on cluster my-slurm-cluster — 5 attempts in the last 40 minutes. The
    likely cause is that on-demand capacity for ml.p5.48xlarge is unavailable in
    this Availability Zone and the instance group is not backed by a training plan
    or reserved capacity, so every Continuous-Provisioning retry hits the same
@@ -660,10 +660,10 @@ The agent's schema supports these record types:
 Downstream automation (email notifier, dashboards, dedup) keys off the
 FIRST symptom's title matching `Triage verdict: <name> :: <signature>`.
 If you emit a descriptively-titled symptom first (e.g.
-`"worker1 lifecycle script execution failures across multiple nodes on k8-1"`)
+`"worker1 lifecycle script execution failures across multiple nodes on my-cluster"`)
 the verdict is invisible to the pipeline and no email is sent.
 
-This has been observed to fail in production RCA runs. **The first
+This has been observed to fail in RCA runs. **The first
 `symptom` record you emit MUST have `title` beginning with
 `Triage verdict:`.** Descriptive titles are for the *second* and later
 symptom records, which capture per-resource observations.
@@ -706,29 +706,29 @@ description: |
   Verdict: Escalate — coordinated lifecycle-script failure
 
   Summary:
-  Every new worker1 instance on cluster k8-1 is failing bootstrap with the same lifecycle-script (LCS) execution error — 6 instances failed across two waves at 2026-07-08T19:21Z and 19:32Z. The likely cause is a bug or missing/inaccessible file in the on_create script in the instance group's S3 path, so each freshly provisioned node hits the identical failure. Recommended: inspect the LCS log stream for one of the affected instances to find the failing command, then fix on_create.sh (or on_create_main.sh) in the cluster's S3 bucket; the retry loop clears on the next attempt once the script succeeds.
+  Every new worker1 instance on cluster my-cluster is failing bootstrap with the same lifecycle-script (LCS) execution error — 6 instances failed across two waves at 2026-07-08T19:21Z and 19:32Z. The likely cause is a bug or missing/inaccessible file in the on_create script in the instance group's S3 path, so each freshly provisioned node hits the identical failure. Recommended: inspect the LCS log stream for one of the affected instances to find the failing command, then fix on_create.sh (or on_create_main.sh) in the cluster's S3 bucket; the retry loop clears on the next attempt once the script succeeds.
 
   What HyperPod is doing right now:
-  HyperPod is retrying, but every new worker1 instance is failing bootstrap with the same LCS execution error. 3 instances (i-0a50b324f7072b3c3, i-053a781aec4c92c7c, i-0c76a007f45d94d6e) failed simultaneously at 2026-07-08T19:21Z, then 3 more at 2026-07-08T19:32Z with the same error. Continuous Provisioning + Automatic NodeRecovery will keep respawning these logical nodes at ~10-minute intervals until an operator fixes the LCS.
+  HyperPod is retrying, but every new worker1 instance is failing bootstrap with the same LCS execution error. 3 instances (i-0aaaa1111bbbb2222, i-0cccc3333dddd4444, i-0eeee5555ffff6666) failed simultaneously at 2026-07-08T19:21Z, then 3 more at 2026-07-08T19:32Z with the same error. Continuous Provisioning + Automatic NodeRecovery will keep respawning these logical nodes at ~10-minute intervals until an operator fixes the LCS.
 
   Timeline (UTC):
-  2026-07-08T19:20:01Z  aws.sagemaker Cluster Event Info  Instance lifecycle script execution for i-0a50b3... has Started
-  2026-07-08T19:20:05Z  aws.sagemaker Cluster Event Info  Instance lifecycle script execution for i-0c76a0... has Started
-  2026-07-08T19:20:07Z  aws.sagemaker Cluster Event Info  Instance lifecycle script execution for i-053a78... has Started
-  2026-07-08T19:21:02Z  aws.sagemaker Cluster Event Error Lifecycle scripts did not run successfully (i-0a50b3...)
-  2026-07-08T19:21:05Z  aws.sagemaker Cluster Event Error Lifecycle scripts did not run successfully (i-0c76a0...)
-  2026-07-08T19:21:08Z  aws.sagemaker Cluster Event Error Lifecycle scripts did not run successfully (i-053a78...)
-  2026-07-08T19:31:53Z  aws.sagemaker Cluster Event Error Lifecycle scripts did not run successfully (i-000901...)
-  2026-07-08T19:32:04Z  aws.sagemaker Cluster Event Error Lifecycle scripts did not run successfully (i-05936d...)
-  2026-07-08T19:32:13Z  aws.sagemaker Cluster Event Error Lifecycle scripts did not run successfully (i-06a00d...)
+  2026-07-08T19:20:01Z  aws.sagemaker Cluster Event Info  Instance lifecycle script execution for i-0aaaa1... has Started
+  2026-07-08T19:20:05Z  aws.sagemaker Cluster Event Info  Instance lifecycle script execution for i-0cccc3... has Started
+  2026-07-08T19:20:07Z  aws.sagemaker Cluster Event Info  Instance lifecycle script execution for i-0eeee5... has Started
+  2026-07-08T19:21:02Z  aws.sagemaker Cluster Event Error Lifecycle scripts did not run successfully (i-0aaaa1...)
+  2026-07-08T19:21:05Z  aws.sagemaker Cluster Event Error Lifecycle scripts did not run successfully (i-0cccc3...)
+  2026-07-08T19:21:08Z  aws.sagemaker Cluster Event Error Lifecycle scripts did not run successfully (i-0eeee5...)
+  2026-07-08T19:31:53Z  aws.sagemaker Cluster Event Error Lifecycle scripts did not run successfully (i-07777a...)
+  2026-07-08T19:32:04Z  aws.sagemaker Cluster Event Error Lifecycle scripts did not run successfully (i-08888b...)
+  2026-07-08T19:32:13Z  aws.sagemaker Cluster Event Error Lifecycle scripts did not run successfully (i-09999c...)
 
   Most recent event at:
   2026-07-08T19:32:13Z
 
   Recommended actions (operator runs these):
-  Inspect the LCS log stream /aws/sagemaker/Clusters/k8-1/lw12e0dn1hhd/LifecycleConfig/worker1/<instance-id> for any of the affected instances to identify the failing command. Fix on_create.sh (or on_create_main.sh) in s3://sagemaker-k8-1-1bd2626f-bucket. Once fixed the retry loop will clear on its next attempt.
+  Inspect the LCS log stream /aws/sagemaker/Clusters/my-cluster/<cluster-id>/LifecycleConfig/worker1/<instance-id> for any of the affected instances to identify the failing command. Fix on_create.sh (or on_create_main.sh) in s3://<your-lcs-bucket>. Once fixed the retry loop will clear on its next attempt.
 
-related_resources: ["HyperPod cluster k8-1", "i-0a50b324f7072b3c3", "i-053a781aec4c92c7c", "i-0c76a007f45d94d6e"]
+related_resources: ["HyperPod cluster my-cluster", "i-0aaaa1111bbbb2222", "i-0cccc3333dddd4444", "i-0eeee5555ffff6666"]
 ```
 
 **Example C — Monitor (first attempt in flight):**
@@ -773,8 +773,8 @@ description: |
 If your first symptom looks like this, downstream automation is broken:
 
 ```
-title: "worker1 lifecycle script execution failures across multiple nodes on k8-1"    ← WRONG: missing "Triage verdict:" prefix
-description: "HyperPod cluster k8-1 emitted coordinated lifecycle-script execution failures..."
+title: "worker1 lifecycle script execution failures across multiple nodes on my-cluster"    ← WRONG: missing "Triage verdict:" prefix
+description: "HyperPod cluster my-cluster emitted coordinated lifecycle-script execution failures..."
 ```
 
 The content is fine as a *second* symptom record. But the FIRST symptom

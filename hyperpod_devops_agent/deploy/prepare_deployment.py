@@ -19,7 +19,10 @@ inputs 'aws cloudformation deploy' can consume:
                {"manifest": [...], "version": "<sha256>"}
            The Makefile captures that and passes it to CloudFormation.
 
-Kept dependency-free (stdlib only) so it runs in the solution venv or bare.
+The `embed` and `sync-skills` subcommands are stdlib-only. `build-skill-uploader`
+additionally requires a suitable boto3 (see BOTO3_MIN) to already be installed in
+the environment running this script — it bundles that copy into the Lambda and
+never pip-installs, so nothing is added to the caller's environment silently.
 """
 import argparse
 import hashlib
@@ -54,7 +57,12 @@ PLACEHOLDERS = {
 }
 
 # Minimum boto3 that includes the DevOps Agent Asset API (list_assets etc.).
-BOTO3_MIN = "boto3>=1.40.0"
+# The skill-uploader Lambda needs this bundled because the Lambda runtime's
+# built-in boto3 predates the Asset API. We do NOT pip-install it during deploy;
+# it must already be present in the environment running this script (see
+# _require_boto3), and we bundle that installed copy.
+BOTO3_MIN_VERSION = (1, 40, 0)
+BOTO3_MIN = "boto3>=" + ".".join(str(n) for n in BOTO3_MIN_VERSION)
 
 
 def _indent_of(line: str) -> str:
@@ -178,13 +186,80 @@ def sync_skills(bucket: str, region: str) -> None:
     print(json.dumps({"manifest": manifest, "version": hasher.hexdigest()[:32]}))
 
 
+# boto3's runtime dependency closure — the importable packages we bundle into
+# the skill-uploader Lambda. Copied from the already-installed environment; never
+# fetched from the network.
+BOTO3_BUNDLE_MODULES = (
+    "boto3", "botocore", "jmespath", "s3transfer", "dateutil", "urllib3", "six",
+)
+
+
+def _require_boto3() -> "module":  # noqa: F821 - returns the imported boto3 module
+    """Import boto3 from the current environment and enforce the minimum version.
+
+    We deliberately do NOT pip-install boto3 during deploy — that would silently
+    pull an arbitrary version from the network into the customer's environment.
+    Instead, require a suitable boto3 to already be installed and fail loudly with
+    remediation if it is missing or too old.
+    """
+    try:
+        import boto3  # noqa: E402 - imported lazily so `embed` needs no boto3
+    except ImportError:
+        sys.exit(
+            f"boto3 is required to build the skill-uploader Lambda ({BOTO3_MIN}) "
+            f"but is not installed in this environment ({sys.executable}).\n"
+            f"Install it first, e.g.:  {sys.executable} -m pip install '{BOTO3_MIN}'"
+        )
+
+    def _parse(v: str) -> tuple:
+        parts = []
+        for token in v.split(".")[:3]:
+            num = "".join(c for c in token if c.isdigit())
+            parts.append(int(num) if num else 0)
+        return tuple(parts)
+
+    installed = getattr(boto3, "__version__", "0")
+    if _parse(installed) < BOTO3_MIN_VERSION:
+        sys.exit(
+            f"boto3 {installed} is installed, but the skill-uploader Lambda needs "
+            f"{BOTO3_MIN} (the DevOps Agent Asset API — list_assets etc. — is not in "
+            f"older versions).\n"
+            f"Upgrade it first, e.g.:  {sys.executable} -m pip install --upgrade '{BOTO3_MIN}'"
+        )
+    return boto3
+
+
+def _copy_installed_module(module_name: str, stage: str) -> bool:
+    """Copy an already-imported module's package dir (or single .py file) into
+    the Lambda staging dir. Returns True if copied, False if not importable."""
+    import importlib.util
+
+    spec = importlib.util.find_spec(module_name)
+    if spec is None:
+        return False
+    if spec.submodule_search_locations:  # a package
+        pkg_dir = list(spec.submodule_search_locations)[0]
+        shutil.copytree(
+            pkg_dir, os.path.join(stage, module_name),
+            ignore=shutil.ignore_patterns("__pycache__", "*.pyc", "*.pyo"),
+        )
+    elif spec.origin and spec.origin.endswith(".py"):  # a single-file module
+        shutil.copy2(spec.origin, os.path.join(stage, os.path.basename(spec.origin)))
+    else:
+        return False
+    return True
+
+
 def build_skill_uploader(bucket: str, region: str) -> None:
     """Package the skill uploader Lambda (handler + cfnresponse + current boto3)
     as an S3 zip and upload it. The Lambda runtime's bundled boto3 predates the
-    DevOps Agent Asset API (list_assets etc.), so we bundle a current one.
+    DevOps Agent Asset API (list_assets etc.), so we bundle the current one from
+    this environment (requiring — never installing — a suitable boto3).
 
     Prints {"bucket": ..., "key": ...} for the template's Code.S3Bucket/S3Key.
     """
+    _require_boto3()
+
     stage = tempfile.mkdtemp(prefix="skilluploader-")
     try:
         # index.py = handler; cfnresponse.py = the S3-package shim.
@@ -197,12 +272,19 @@ def build_skill_uploader(bucket: str, region: str) -> None:
         with open(os.path.join(stage, "cfnresponse.py"), "w") as f:
             f.write(shim)
 
-        print(f"pip installing {BOTO3_MIN} into the package...", file=sys.stderr)
-        subprocess.run(
-            [sys.executable, "-m", "pip", "install", "--quiet",
-             "--target", stage, BOTO3_MIN],
-            check=True,
-        )
+        print(f"bundling installed {BOTO3_MIN} into the package...", file=sys.stderr)
+        missing = [
+            m for m in BOTO3_BUNDLE_MODULES if not _copy_installed_module(m, stage)
+        ]
+        # botocore/jmespath/s3transfer are hard boto3 deps; six only matters for
+        # some dateutil builds. Fail only if a core dependency is absent.
+        core_missing = [m for m in missing if m in ("boto3", "botocore", "jmespath", "s3transfer")]
+        if core_missing:
+            sys.exit(
+                "Could not locate installed boto3 dependencies "
+                f"{core_missing} to bundle. Reinstall boto3: "
+                f"{sys.executable} -m pip install '{BOTO3_MIN}'"
+            )
 
         # Deterministic-ish zip (member order sorted; fixed timestamps).
         members: list[tuple[str, str]] = []

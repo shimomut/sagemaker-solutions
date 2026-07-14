@@ -1,5 +1,3 @@
-/docs/*.pdf
-/docs/*.txt
 /.venv/
 /.state.json
 /skills/upstream/
@@ -12,5 +10,4 @@
 /deploy/params.json
 /deploy/params.*.json
 !/deploy/params.example.json
-/**/template.embedded.yaml
 __pycache__/

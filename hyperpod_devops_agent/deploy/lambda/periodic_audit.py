@@ -305,8 +305,8 @@ def _build_title(cluster_name: str, detected_issues: list[dict], heartbeat: bool
     title on every audit so the DevOps Agent platform links the repeat
     investigations (one email per issue, not one per 15-min audit). The title
     names what the Lambda detected, e.g.:
-        HyperPod k8-1: CrashLoopBackOff (crashloop-test/crashloop-canary:fail)
-        HyperPod k8-1: NotReadyNodes; ClusterFaultEvent (worker4)
+        HyperPod my-cluster: CrashLoopBackOff (my-namespace/my-pod)
+        HyperPod my-cluster: NotReadyNodes; ClusterFaultEvent (worker-ig)
     """
     if not detected_issues:
         # heartbeat / healthy — stable so consecutive all-clears don't spawn new

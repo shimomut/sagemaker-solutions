@@ -163,7 +163,7 @@ if [[ "${SKIP_SKILLS:-no}" != "yes" ]]; then
     echo "    skills version: ${SKILLS_VERSION}"
 
     echo
-    echo "==> Packaging skill-uploader Lambda (bundles current boto3 for the Asset API)"
+    echo "==> Packaging skill-uploader Lambda (bundles the installed boto3 for the Asset API)"
     UPLOADER_JSON="$(python3 "${HERE}/prepare_deployment.py" build-skill-uploader --bucket "${ASSETS_BUCKET}" --region "${REGION}")"
     UPLOADER_BUCKET="$(echo "${UPLOADER_JSON}" | python3 -c "import json,sys; print(json.load(sys.stdin)['bucket'])")"
     UPLOADER_KEY="$(echo "${UPLOADER_JSON}" | python3 -c "import json,sys; print(json.load(sys.stdin)['key'])")"

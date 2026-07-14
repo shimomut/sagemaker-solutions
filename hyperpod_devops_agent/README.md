@@ -1,65 +1,64 @@
 # HyperPod x AWS DevOps Agent
 
-Keep 24/7 watch over an expensive SageMaker HyperPod GPU fleet by wiring it into
-[AWS DevOps Agent](https://docs.aws.amazon.com/devopsagent/) — so the failures
-HyperPod's built-in resiliency *doesn't* self-heal get auto-detected, triaged,
-root-caused, and delivered as a human-readable verdict email, with room to add
-your own detection rules.
+Keep 24/7 watch over a large-scale SageMaker HyperPod GPU fleet by wiring it into
+[AWS DevOps Agent](https://docs.aws.amazon.com/devopsagent/) — so the operational
+conditions that call for a human decision get auto-detected, triaged, root-caused,
+and delivered as a human-readable verdict email, with room to add your own
+detection rules.
 
 ## Why this exists
 
-GPU clusters are expensive and must be watched around the clock. SageMaker
-HyperPod's built-in resiliency already detects and self-heals **instance-level
-GPU failures** — a bad GPU is drained, replaced, and the job resumes without a
-human. That covers a lot.
+SageMaker HyperPod's built-in resiliency automatically detects and self-heals
+**instance-level GPU failures** — a bad GPU is drained, replaced, and the job
+resumes without a human. This solution **complements** that resiliency by
+watching for the operational conditions where a human still wants to be in the
+loop or decide:
 
-But clusters still fail for reasons that layer doesn't catch:
-
-- **Configuration errors** — a broken lifecycle script, a misconfigured mount, an
-  auth-mode change that quietly breaks provisioning.
-- **Capacity shortages** — a replacement that can't find an instance in the pool,
-  so a "self-healing" replacement silently never completes.
-- **Unnaturally high-frequency hardware faults** — each fault self-heals
-  correctly, but the *same* Xid signature recurring across 3+ replacements on one
-  instance group in a week is a hardware/capacity-pool problem no single
-  auto-recovery can fix.
-- **Workload-level problems** — a Pod stuck in CrashLoopBackOff for hours, nodes
+- **Configuration issues** — a lifecycle-script change, a misconfigured mount, or
+  an auth-mode change that affects provisioning on new nodes.
+- **Capacity conditions** — a replacement waiting on capacity in the pool, so the
+  operator knows recovery is in flight and can decide whether to intervene.
+- **Recurring hardware faults** — each fault self-heals correctly, but the *same*
+  Xid signature recurring across 3+ replacements on one instance group in a week
+  is a pattern worth surfacing to an operator as a single signal.
+- **Workload-level conditions** — a Pod stuck in CrashLoopBackOff for hours, nodes
   sitting NotReady, GPU allocation chronically low.
 
-Today these force operators into round-the-clock manual triage: someone gets
-paged at 2 a.m., SSHes around, correlates events across the SageMaker control
-plane, EKS, and CloudWatch, and decides whether HyperPod is *still recovering* or
-*actually stuck*. This solution does that correlation automatically and only
-pages a human when something truly needs one — **complementing** HyperPod
-resiliency rather than replacing it.
+Without automation, these conditions push operators into round-the-clock manual
+triage: correlating events across the SageMaker control plane, EKS, and
+CloudWatch, and deciding whether HyperPod is *still recovering* or needs a hand.
+This solution does that correlation automatically and only pages a human when
+something truly needs one — **complementing** HyperPod resiliency, not replacing
+it.
 
 ### Example use cases
 
-- **Silent capacity failure.** A node fails; HyperPod tries to replace it but the
-  instance pool is empty. No further events fire, so nothing pages anyone — the
-  cluster just runs degraded. This solution catches the stalled replacement and
-  escalates with "auto-recovery started 90 min ago and never completed."
+- **Capacity-bound recovery.** A node fails and HyperPod initiates a replacement
+  that is waiting on capacity in the pool. This solution tracks the in-flight
+  recovery and, if it stays pending past its expected window, surfaces it so an
+  operator can decide whether to intervene.
 - **Recurring hardware fault.** The same GPU Xid error hits the same instance
-  group three times in a week. Each replacement succeeds, so each looks fine in
-  isolation — but the pattern says "pull this hardware / exclude this pool." The
-  solution surfaces the recurrence as a single escalation.
-- **Configuration regression.** A lifecycle-script change starts failing
-  provisioning on new nodes. The solution root-causes it to the LCS failure and
+  group three times in a week. Each replacement succeeds, so each looks routine in
+  isolation — the solution surfaces the recurrence as a single signal an operator
+  can act on.
+- **Configuration change.** A lifecycle-script change starts affecting
+  provisioning on new nodes. The solution root-causes it to the LCS step and
   points the operator at the script instead of the symptom.
 - **Custom workload rule.** You add a rule (a plain-English *skill*) that
   escalates when any Pod is in CrashLoopBackOff longer than 4 hours, or when an
-  instance group's GPU allocation stays low — issues specific to *your* workloads
-  that no generic monitor knows about.
+  instance group's GPU allocation stays low — conditions specific to *your*
+  workloads that no generic monitor knows about.
 - **Quiet nights.** On a healthy cluster, nothing pages. A once-a-day heartbeat
   confirms the pipeline is alive; everything else is suppressed.
 
 ## What you get
 
-- **Auto-detection** of HyperPod faults beyond resiliency's self-healing scope,
-  from the live SageMaker event stream and a periodic Kubernetes-state audit.
+- **Auto-detection** of HyperPod conditions that complement resiliency's
+  self-healing, from the live SageMaker event stream and a periodic
+  Kubernetes-state audit.
 - **Triage + root-cause analysis** by the DevOps Agent, taught HyperPod's
   operational model via two custom *skills* — it reconstructs the incident
-  timeline and decides whether HyperPod is still recovering or genuinely stuck.
+  timeline and decides whether HyperPod is still recovering or needs an operator.
 - **Human-readable verdict emails** — `Monitor` (recovery in flight, here's the
   ETA), `Escalate` (you need to act, here's why and what to do), or `Resolved`
   (auto-recovery closed the loop) — with the noise filtered out.
@@ -142,7 +141,8 @@ paths feed the DevOps Agent, and one path carries its verdicts back out to you.
    stream covers Pod/Node state.)
 3. **Investigation** — the DevOps Agent runs the **triage skill** (decide whether
    this is a new incident or a duplicate) then the **RCA skill** (reconstruct the
-   timeline, classify against HyperPod's recovery time budgets, write a verdict).
+   timeline, classify against HyperPod's expected recovery time budgets, write a
+   verdict).
 4. **Notification** — the agent emits an `Investigation Completed` event; the
    **email notifier** Lambda composes an email from the investigation journal,
    filters `Suppress` verdicts and duplicates, and sends via SES.
@@ -162,14 +162,14 @@ rules**: drop a new skill directory under `skills/` and redeploy. See
 [IMPLEMENTATION.md](IMPLEMENTATION.md#authoring-your-own-skill-custom-detection-rules).
 
 > **Implementation details** — the resource-by-resource CloudFormation breakdown,
-> the event→payload mapping, how the skills are authored (and the lessons behind
-> why they're written the way they are), the DevOps Agent behaviors we
-> reverse-engineered, the permission-guardrail findings, and the anti-spam dedup
-> design all live in **[IMPLEMENTATION.md](IMPLEMENTATION.md)**.
+> the event→payload mapping, how the skills are authored, the permission-guardrail
+> behavior, and the anti-spam dedup design all live in
+> **[IMPLEMENTATION.md](IMPLEMENTATION.md)**.
 
 ## Prerequisites
 
 - AWS CLI v2 configured for the target account, with a region set (`aws configure set region <region>`) or `Region` in `params.json`.
+- Python 3.9+ with **boto3 ≥ 1.40.0** installed in the environment you run `make deploy` from — it's bundled into the skill-uploader Lambda (the Lambda runtime's built-in boto3 predates the DevOps Agent Asset API). The deploy fails fast with an install hint if it's missing or too old; it never installs boto3 for you. Install it into a venv, e.g. `python3 -m venv .venv && source .venv/bin/activate && pip install 'boto3>=1.40.0'`.
 - An existing HyperPod cluster (EKS or Slurm orchestrator). For Slurm, **Continuous Provisioning is required** for `list-cluster-events` and the correct EventBridge event format (see the Slurm note in [deploy/README.md](deploy/README.md)).
 - Permission to create IAM roles, Secrets Manager secrets, CloudFormation stacks, `aidevops:*`, `eks:CreateAccessEntry`, and (for email) `ses:SendEmail` from a verified sender.
 - An SES-verified sender identity in the target region (and, in SES sandbox, verified recipients).
@@ -225,9 +225,7 @@ of the stack and is removed with it.
 .
 ├── Makefile          - unified make targets (deploy / teardown-stack / *-logs / import-upstream-skills)
 ├── README.md         - this file (value, architecture, quick start)
-├── IMPLEMENTATION.md - design decisions, DevOps Agent findings, skill-authoring lessons
-├── docs/
-│   └── devops-agent-mental-model.md          - undocumented DevOps Agent behaviors (read before changing skills)
+├── IMPLEMENTATION.md - design decisions and skill-authoring notes
 ├── deploy/           - the single-template deployment (see deploy/README.md)
 │   ├── hyperpod_devops_agent.template.yaml   - the one template (with # *_CODE_PLACEHOLDER markers)
 │   ├── hyperpod_devops_agent.yaml            - generated: template with Lambda code embedded
@@ -242,11 +240,10 @@ of the stack and is removed with it.
 │   ├── deploy.sh / teardown.sh      - one-command deploy / teardown
 │   ├── import_upstream_skills.sh    - stage curated awslabs/agent-plugins hyperpod-* skills
 │   └── params.example.json          - copy to params.json (or params.<cluster>.json) and edit
-├── skills/
-│   ├── hyperpod-incident-triage/    - INCIDENT_TRIAGE skill (LINKED/SKIPPED/PROCEED)
-│   ├── hyperpod-incident-rca/       - INCIDENT_RCA skill (investigation + verdict + summary)
-│   └── upstream/                    - awslabs/agent-plugins clone (git-ignored)
-├── extract_pdf.py / requirements.txt- PDF -> .txt helper for the docs
+└── skills/
+    ├── hyperpod-incident-triage/    - INCIDENT_TRIAGE skill (LINKED/SKIPPED/PROCEED)
+    ├── hyperpod-incident-rca/       - INCIDENT_RCA skill (investigation + verdict + summary)
+    └── upstream/                    - awslabs/agent-plugins clone (git-ignored)
 ```
 
 The `hyperpod-mental-model.md` reference doc is bundled into the RCA skill at
