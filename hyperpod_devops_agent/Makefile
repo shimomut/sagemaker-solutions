@@ -40,6 +40,8 @@ help:
 	@echo
 	@echo "Skills:"
 	@echo "  sync-skills            - Zip skills + mental-model doc, upload to the S3 assets bucket."
+	@echo "                           (Uploads only; unlike 'make deploy' it does not rebuild the"
+	@echo "                           skill-uploader Lambda or apply the stack. Prefer 'make deploy'.)"
 	@echo "  import-upstream-skills - Stage curated awslabs/agent-plugins hyperpod-* skills into"
 	@echo "                           skills/ (then 'make deploy' uploads them)."
 	@echo
@@ -61,6 +63,9 @@ teardown-stack:
 
 # ------------------------------------------------------------ skills
 
+# Upload skills to S3 only. Does NOT rebuild the skill-uploader Lambda or apply
+# the stack (so a lone 'make sync-skills' can leave the uploader Lambda stale);
+# 'make deploy' does the full path and is preferred.
 sync-skills:
 	@bash -c 'set -euo pipefail; \
 		REGION=$${REGION:-$$(aws configure get region)}; \

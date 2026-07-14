@@ -55,7 +55,6 @@ Metadata:
           default: "Periodic audit"
         Parameters:
           - EnablePeriodicAudit
-          - AuditDetectionMode
           - AuditSchedule
           - HeartbeatSchedule
           - K8sChecksEnabled
@@ -162,16 +161,10 @@ Parameters:
     Default: "rate(15 minutes)"
     Description: "EventBridge Scheduler expression for the periodic audit."
 
-  AuditDetectionMode:
-    Type: String
-    Default: "lambda"
-    AllowedValues: ["lambda", "always-fire"]
-    Description: "How the periodic audit decides whether to invoke an investigation. 'lambda' (default): the audit Lambda inspects cluster state (CrashLoopBackOff / NotReady / open fault chains) and POSTs the webhook ONLY when a real issue is found (plus a once-daily heartbeat). 'always-fire': POST every audit and let the RCA skill suppress on healthy clusters."
-
   HeartbeatSchedule:
     Type: String
     Default: "cron(0 12 * * ? *)"
-    Description: "EventBridge Scheduler expression for the daily heartbeat (lambda detection mode only). Fires one 'all clear' audit per day even when the cluster is healthy, so operators see the pipeline is alive. Default: 12:00 UTC daily."
+    Description: "EventBridge Scheduler expression for the daily heartbeat. Fires one 'all clear' audit per day even when the cluster is healthy, so operators see the pipeline is alive. Default: 12:00 UTC daily."
 
   K8sChecksEnabled:
     Type: String
@@ -219,7 +212,7 @@ Parameters:
   ConsoleUrlTemplate:
     Type: String
     Default: "https://%agent_space_id%.aidevops.global.app.aws/investigation/%task_id%"
-    Description: "URL template included in emails. Tokens: %region%, %account%, %agent_space_id%, %task_id%."
+    Description: "Per-investigation Operator Web App URL included in emails. Tokens: %region%, %account%, %agent_space_id%, %task_id%. Points at the Agent Space Operator Web App (<agent_space_id>.aidevops.global.app.aws), where investigations open directly."
 
   ForceSend:
     Type: String
@@ -261,18 +254,11 @@ Conditions:
   IsEksCluster: !Not [!Equals [!Ref EksClusterName, ""]]
   IsClusterFilterSet: !Not [!Equals [!Ref ClusterFilter, ""]]
   PeriodicAuditEnabled: !Equals [!Ref EnablePeriodicAudit, "true"]
-  LambdaDetectionMode: !Equals [!Ref AuditDetectionMode, "lambda"]
-  # Audit Lambda gets read-only EKS access only when: audit enabled, EKS cluster,
-  # and lambda-detection mode (always-fire mode doesn't inspect the cluster).
+  # Audit Lambda gets read-only EKS access only when audit is enabled AND the
+  # cluster is EKS (the Lambda inspects Kubernetes state).
   AuditLambdaNeedsEks: !And
     - !Condition PeriodicAuditEnabled
     - !Condition IsEksCluster
-    - !Condition LambdaDetectionMode
-  # Daily heartbeat schedule only in lambda-detection mode (always-fire already
-  # fires every audit, so no separate heartbeat needed).
-  HeartbeatEnabled: !And
-    - !Condition PeriodicAuditEnabled
-    - !Condition LambdaDetectionMode
   GrantLcsBucketAccess: !Not [!Equals [!Ref LcsBucketArnPattern, ""]]
   UploadSkills: !Not [!Equals [!Ref AssetsBucket, ""]]
   HasAgentSpaceName: !Not [!Equals [!Ref AgentSpaceName, ""]]
@@ -608,7 +594,7 @@ Resources:
                 Resource:
                   - "arn:aws:logs:*:*:log-group:/aws/lambda/*"
                   - "arn:aws:logs:*:*:log-group:/aws/lambda/*:log-stream:*"
-              # Lambda-detection mode reads Kubernetes Pod/Node state via the EKS
+              # The audit Lambda reads Kubernetes Pod/Node state via the EKS
               # API. Only eks:DescribeCluster is needed here (to get the API
               # endpoint + CA); the K8s reads themselves are authorized by the
               # Lambda's EKS access entry, not IAM. HyperPod control-plane faults
@@ -632,7 +618,6 @@ Resources:
           CLUSTER_NAME: !Ref HyperPodClusterName
           EKS_CLUSTER_NAME: !Ref EksClusterName
           AWS_ACCOUNT_ID: !Sub "${AWS::AccountId}"
-          AUDIT_DETECTION_MODE: !Ref AuditDetectionMode
           K8S_CHECKS_ENABLED: !Ref K8sChecksEnabled
           CRASHLOOP_HOURS_THRESHOLD: !Ref CrashLoopHoursThreshold
           NOT_READY_NODE_PERCENT_THRESHOLD: !Ref NotReadyNodePercentThreshold
@@ -677,12 +662,12 @@ Resources:
         RoleArn: !GetAtt PeriodicAuditSchedulerRole.Arn
         Input: '{"trigger":"periodic"}'
 
-  # Daily heartbeat (lambda-detection mode only): fires one "all clear" audit per
-  # day even when healthy, so operators see the pipeline is alive. Reuses the
-  # same Lambda + scheduler role; the "heartbeat" input forces a webhook POST.
+  # Daily heartbeat: fires one "all clear" audit per day even when healthy, so
+  # operators see the pipeline is alive. Reuses the same Lambda + scheduler role;
+  # the "heartbeat" input forces a webhook POST.
   AuditHeartbeatSchedule:
     Type: AWS::Scheduler::Schedule
-    Condition: HeartbeatEnabled
+    Condition: PeriodicAuditEnabled
     Properties:
       ScheduleExpression: !Ref HeartbeatSchedule
       FlexibleTimeWindow:
@@ -912,8 +897,8 @@ Outputs:
     Description: "ARN of the Secrets Manager secret holding the webhook {url, secret}."
 
   ConsoleUrl:
-    Value: !Sub "https://${AWS::Region}.console.aws.amazon.com/aidevops/home?region=${AWS::Region}#/agentspaces/${AgentSpace.AgentSpaceId}"
-    Description: "AWS DevOps Agent console URL for this Agent Space."
+    Value: !Sub "https://${AgentSpace.AgentSpaceId}.aidevops.global.app.aws/home"
+    Description: "AWS DevOps Agent Operator Web App URL for this Agent Space."
 
   MarkerBucketName:
     Value: !Ref MarkerBucket

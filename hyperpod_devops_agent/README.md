@@ -280,7 +280,7 @@ Makefile, `deploy.sh`, and `teardown.sh`. Everything else (Lambdas, EventBridge
 rules, execution roles, the scheduler) is unnamed and CloudFormation auto-names
 it per stack.
 
-## Periodic audit — detection modes
+## Periodic audit
 
 **Division of labor:** HyperPod control-plane faults (node health, capacity
 errors, lifecycle-script failures, cluster state changes) are handled
@@ -289,41 +289,33 @@ EventBridge event and forwards the real FailureMessage, for both EKS and Slurm.
 The periodic audit covers only what the event stream **cannot**: Kubernetes
 Pod/Node state, which is not in the HyperPod event stream.
 
-The audit runs on a schedule (default every 15 min), mode chosen by
-`AuditDetectionMode`:
-
-- **`lambda` (default):** the audit Lambda inspects Kubernetes state —
-  CrashLoopBackOff pods and NotReady nodes (via read-only EKS API access) — and
-  POSTs the DevOps Agent webhook **only when a real issue is found**. On a healthy
-  cluster nothing is POSTed, so **no investigation runs and no cost is incurred**.
-  A separate daily `AuditHeartbeatSchedule` fires one "all clear" investigation
-  per day so operators can see the pipeline is alive. **On Slurm (no kubectl) the
-  audit has nothing to poll, so it fires only the heartbeat** — HyperPod faults
-  on Slurm still flow through the event-driven bridge.
-- **`always-fire`:** an alternative mode — POST every audit and let the
-  `hyperpod-incident-rca` skill discover issues and suppress on healthy clusters.
-  Costs one investigation per audit cycle even when the cluster is healthy.
+The audit runs on a schedule (default every 15 min): the Lambda inspects
+Kubernetes state — CrashLoopBackOff pods and NotReady nodes (via read-only EKS API
+access) — and POSTs the DevOps Agent webhook **only when a real issue is found**.
+On a healthy cluster nothing is POSTed, so **no investigation runs and no cost is
+incurred**. A separate daily `AuditHeartbeatSchedule` fires one "all clear"
+investigation per day so operators can see the pipeline is alive. **On Slurm (no
+kubectl) the audit has nothing to poll, so it fires only the heartbeat** — HyperPod
+faults on Slurm still flow through the event-driven bridge.
 
 The audit deliberately does **not** re-scan `list-cluster-events` for faults: that
 duplicated the bridge from a worse data source (the Lambda runtime's boto3 omits
 `EventLevel` on that API, which would force fragile hardcoded fault-string
 matching).
 
-In `lambda` mode the Lambda has its **own** read-only `AWS::EKS::AccessEntry`
-(distinct principal from the Agent Space role) carrying
-`AmazonAIOpsAssistantPolicy` — note **not** `AmazonEKSViewPolicy`, whose `view`
-role excludes cluster-scoped `nodes` and can't satisfy the NotReady-node check.
-The Lambda calls the K8s API directly (SigV4 token + stdlib `urllib`) — no
-`kubernetes` client or Lambda layer.
+The audit Lambda has its **own** read-only `AWS::EKS::AccessEntry` (distinct
+principal from the Agent Space role) carrying `AmazonAIOpsAssistantPolicy` — note
+**not** `AmazonEKSViewPolicy`, whose `view` role excludes cluster-scoped `nodes`
+and can't satisfy the NotReady-node check. The Lambda calls the K8s API directly
+(SigV4 token + stdlib `urllib`) — no `kubernetes` client or Lambda layer.
 
 Audit investigation **titles are issue-descriptive and timestamp-free** (e.g.
 `HyperPod my-cluster: CrashLoopBackOff (my-namespace/my-pod)`), so a
 recurring issue produces an identical title and the platform/triage skill LINK or
 SKIP the repeat instead of emailing every cycle.
 
-Relevant params: `AuditDetectionMode` (`lambda`), `AuditSchedule`
-(`rate(15 minutes)`), `HeartbeatSchedule` (`cron(0 12 * * ? *)`),
-`K8sChecksEnabled` (`true`), `CrashLoopHoursThreshold` (4),
+Relevant params: `AuditSchedule` (`rate(15 minutes)`), `HeartbeatSchedule`
+(`cron(0 12 * * ? *)`), `K8sChecksEnabled` (`true`), `CrashLoopHoursThreshold` (4),
 `NotReadyNodePercentThreshold` (10), `NotReadyDurationMinutes` (15).
 
 ## Slurm clusters

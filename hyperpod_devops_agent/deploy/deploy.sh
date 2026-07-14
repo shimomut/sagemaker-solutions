@@ -10,7 +10,8 @@
 #   5. Embed the Lambda sources into hyperpod_devops_agent.yaml.
 #   6. aws cloudformation deploy with the assembled parameters.
 #
-# Env overrides: REGION, STACK_NAME, PARAMS_FILE, SKIP_SKILLS=yes.
+# Env overrides: REGION, STACK_NAME, PARAMS_FILE, SKIP_SKILLS=yes,
+#   TEMPLATE_SRC (source template), TEMPLATE_OUT (generated deployable template).
 
 set -euo pipefail
 

@@ -1,17 +1,11 @@
 """Periodic-audit Lambda for the HyperPod x DevOps Agent solution.
 
-Fired on a schedule by EventBridge Scheduler. Two operating modes, chosen by the
-AUDIT_DETECTION_MODE env var:
-
-  lambda (default) — inspect Kubernetes Pod/Node state HERE (CrashLoopBackOff
-      pods, NotReady nodes) and POST the DevOps Agent webhook ONLY when a real
-      issue is found. On a healthy cluster nothing is POSTed, so no investigation
-      runs and no cost is incurred. A separate daily "heartbeat" schedule (event
-      input {"trigger":"heartbeat"}) forces one POST per day so operators can see
-      the pipeline is alive.
-
-  always-fire — alternative mode: POST every audit and let the hyperpod-incident-rca
-      skill discover issues and suppress on healthy clusters.
+Fired on a schedule by EventBridge Scheduler. It inspects Kubernetes Pod/Node
+state HERE (CrashLoopBackOff pods, NotReady nodes) and POSTs the DevOps Agent
+webhook ONLY when a real issue is found. On a healthy cluster nothing is POSTed,
+so no investigation runs and no cost is incurred. A separate daily "heartbeat"
+schedule (event input {"trigger":"heartbeat"}) forces one POST per day so
+operators can see the pipeline is alive.
 
 Scope note: HyperPod control-plane faults (node health, capacity errors,
 lifecycle-script failures, cluster state changes) are handled event-driven by the
@@ -22,8 +16,8 @@ HyperPod event stream. On Slurm (no kubectl) the audit fires only the heartbeat.
 
 Either way the POST is an HMAC-signed "periodic audit" event, identical in shape
 to what the webhook bridge sends, so the RCA skill's audit-mode path handles it.
-In lambda mode the payload additionally carries data.metadata.detectedIssues so
-the RCA skill starts from the finding instead of rediscovering it.
+The payload carries data.metadata.detectedIssues so the RCA skill starts from
+the finding instead of rediscovering it.
 
 Cluster reads use the EKS API server directly (SigV4 bearer token via boto3 +
 stdlib urllib) — no kubernetes client / Lambda layer. The Lambda's execution
@@ -33,7 +27,6 @@ Env vars:
   WEBHOOK_SECRET_ARN               Secrets Manager secret {"url","secret"} (shared with bridge)
   CLUSTER_NAME                     HyperPod cluster name (payload metadata)
   EKS_CLUSTER_NAME                 Underlying EKS cluster name (empty for Slurm — kubectl checks skipped)
-  AUDIT_DETECTION_MODE             "lambda" (detect + fire-on-issue) | "always-fire"
   K8S_CHECKS_ENABLED               "true"/"false" — enable CrashLoop/NotReady checks
   CRASHLOOP_HOURS_THRESHOLD        Fire if a pod is CrashLoopBackOff longer than this (0 = any)
   NOT_READY_NODE_PERCENT_THRESHOLD Fire if >= this percent of nodes are NotReady (after duration gate)
@@ -74,10 +67,6 @@ def _parse_namespace_list(env_name: str) -> list[str]:
 
 def _k8s_checks_enabled() -> bool:
     return os.environ.get("K8S_CHECKS_ENABLED", "true").strip().lower() in ("true", "1", "yes", "on")
-
-
-def _detection_mode() -> str:
-    return os.environ.get("AUDIT_DETECTION_MODE", "lambda").strip().lower()
 
 
 def _namespace_config() -> tuple[list[str], list[str]]:
@@ -364,7 +353,8 @@ def _build_payload(cluster_name: str, k8s_checks: dict | None,
             f"Monitor / Escalate / Resolved:\n{lines}"
         )
     else:
-        # always-fire mode with no Lambda detection
+        # Defensive fallback (the handler POSTs only on detected issues or the
+        # heartbeat, so this is not normally reached).
         description = (
             f"Periodic audit invocation for HyperPod cluster '{cluster_name}'. "
             f"The hyperpod-incident-rca skill should run in audit mode: discover "
@@ -442,20 +432,12 @@ def lambda_handler(event, context):
     cluster_name = os.environ.get("CLUSTER_NAME", "unknown-cluster")
     eks_cluster_name = os.environ.get("EKS_CLUSTER_NAME", "").strip()
     region = os.environ.get("AWS_REGION", "us-west-2")
-    mode = _detection_mode()
     trigger = (event or {}).get("trigger", "periodic")
     heartbeat = trigger == "heartbeat"
     k8s_checks = _build_k8s_checks_block()
 
-    if mode == "always-fire":
-        # Always POST; the skill discovers issues + suppresses on healthy clusters.
-        payload = _build_payload(cluster_name, k8s_checks, [], heartbeat=False)
-        print(f"always-fire audit: cluster={cluster_name!r} incidentId={payload['incidentId']}")
-        url, secret = _load_webhook_credentials()
-        _post(url, secret, payload)
-        return {"statusCode": 200, "body": json.dumps({"posted": True, "incidentId": payload["incidentId"]})}
-
-    # lambda-detection mode
+    # Inspect cluster state and POST only when a real issue is found (plus the
+    # daily heartbeat), so a healthy cluster costs zero investigations.
     issues = _detect_issues(cluster_name, eks_cluster_name, region)
     print(
         f"lambda audit: cluster={cluster_name!r} trigger={trigger} "

@@ -1,28 +1,34 @@
 #!/usr/bin/env python3
 """Prepare the single-template HyperPod x DevOps Agent deployment.
 
-Two subcommands, both driven by the Makefile, that turn the source tree into
+Four subcommands (mostly driven by deploy.sh) that turn the source tree into
 inputs 'aws cloudformation deploy' can consume:
 
   embed    Inline each deploy/lambda/*.py into hyperpod_devops_agent.template.yaml
            at its "# <NAME>_CODE_PLACEHOLDER" marker, producing the deployable
-           hyperpod_devops_agent.yaml. This mirrors the repo's existing
-           awk-based embed convention, but handles the five distinct placeholders
-           in one pass.
+           hyperpod_devops_agent.yaml, handling every placeholder in one pass.
 
   sync-skills
            For each skill directory under ../skills/, stage its contents
            (bundling docs/hyperpod-mental-model.md into references/ when the
-           SKILL.md references it — the same staging logic the earlier per-skill upload used
-           used), zip it, upload to s3://<bucket>/skills/<name>.zip, and print
-           a JSON object with the manifest + a content-hash version:
+           SKILL.md references it), zip it, upload to s3://<bucket>/skills/<name>.zip,
+           and print a JSON object with the manifest + a content-hash version:
                {"manifest": [...], "version": "<sha256>"}
-           The Makefile captures that and passes it to CloudFormation.
+           deploy.sh captures that and passes it to CloudFormation.
+
+  build-skill-uploader
+           Package the skill-uploader Lambda (handler + bundled boto3) as an S3
+           zip and upload it; print its {bucket, key} for the template.
+
+  check-boto3
+           Preflight: verify a suitable boto3 is importable (see BOTO3_MIN); exit
+           nonzero with an install hint otherwise. deploy.sh runs this up front.
 
 The `embed` and `sync-skills` subcommands are stdlib-only. `build-skill-uploader`
-additionally requires a suitable boto3 (see BOTO3_MIN) to already be installed in
-the environment running this script — it bundles that copy into the Lambda and
-never pip-installs, so nothing is added to the caller's environment silently.
+and `check-boto3` require a suitable boto3 (see BOTO3_MIN) to already be installed
+in the environment running this script — `build-skill-uploader` bundles that copy
+into the Lambda and never pip-installs, so nothing is added to the caller's
+environment silently.
 """
 import argparse
 import hashlib
