@@ -179,9 +179,16 @@ rules**: drop a new skill directory under `skills/` and redeploy. See
 Everything deploys as **one CloudFormation stack per cluster**:
 
 ```bash
+# 1. Deploy from a Python env that has boto3 >= 1.40.0 (bundled into the
+#    skill-uploader Lambda). A venv is the simplest way; make deploy fails fast
+#    with an install hint if boto3 is missing or too old.
+python3 -m venv .venv && source .venv/bin/activate && pip install 'boto3>=1.40.0'
+
+# 2. Fill in your cluster + email.
 cp deploy/params.example.json deploy/params.json
 # edit: HyperPodClusterName, EmailSender, EmailRecipients (see params.example.json)
 
+# 3. Deploy.
 make deploy            # sync skills -> embed Lambdas -> deploy the whole stack
 make stack-outputs     # console URL, webhook secret ARN, marker bucket, ...
 ```

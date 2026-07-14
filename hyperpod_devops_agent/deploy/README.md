@@ -48,6 +48,12 @@ file customers download and deploy directly; they don't need the template).
 
 ```bash
 cd hyperpod_devops_agent
+
+# boto3 >= 1.40.0 must be importable by the python3 that runs make deploy — it's
+# bundled into the skill-uploader Lambda (the Lambda runtime's built-in boto3
+# predates the DevOps Agent Asset API). A venv is the simplest way:
+python3 -m venv .venv && source .venv/bin/activate && pip install 'boto3>=1.40.0'
+
 cp deploy/params.example.json deploy/params.json
 # edit deploy/params.json: HyperPodClusterName, EmailSender, EmailRecipients
 #   (the SES sender must be verified in the target region first)
@@ -56,7 +62,9 @@ make deploy          # sync skills -> embed Lambdas -> deploy the whole stack
 make stack-outputs   # console URL, webhook secret ARN, marker bucket, ...
 ```
 
-`make deploy` auto-discovers the underlying EKS cluster name from the HyperPod
+Before touching any AWS resources, `make deploy` pre-flights that boto3 is present
+(it never installs it for you — it aborts with an install hint if missing or too
+old). It then auto-discovers the underlying EKS cluster name from the HyperPod
 cluster's `Orchestrator.Eks.ClusterArn` and passes it in; you never set it by
 hand. It also pre-flights the EKS auth mode (must be `API` or
 `API_AND_CONFIG_MAP`) and aborts with the corrective command if not.

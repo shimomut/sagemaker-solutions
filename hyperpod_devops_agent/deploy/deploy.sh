@@ -128,6 +128,17 @@ else
     fi
 fi
 
+# --------------------------------------------------------- boto3 preflight
+# Building the skill-uploader Lambda bundles a current boto3 (the Lambda runtime's
+# built-in boto3 predates the DevOps Agent Asset API). Verify it's present up front
+# so we fail cleanly BEFORE creating any AWS resources, rather than mid-deploy.
+# Skipped when SKIP_SKILLS=yes (build-skill-uploader doesn't run then).
+if [[ "${SKIP_SKILLS:-no}" != "yes" ]]; then
+    if ! python3 "${HERE}/prepare_deployment.py" check-boto3; then
+        exit 1
+    fi
+fi
+
 # ------------------------------------------------------ ensure assets bucket
 # The bucket is always needed: it holds the staged skill zips AND (because the
 # embedded template exceeds CloudFormation's 51,200-byte inline limit) the
@@ -208,7 +219,8 @@ aws cloudformation describe-stacks \
     --region "${REGION}" \
     --stack-name "${STACK_NAME}" \
     --query 'Stacks[0].Outputs' \
-    --output table
+    --output table \
+    --no-cli-pager
 
 echo
 echo "Done."

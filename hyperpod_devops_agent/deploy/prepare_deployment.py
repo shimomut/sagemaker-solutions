@@ -340,6 +340,10 @@ def main() -> None:
     b.add_argument("--bucket", required=True)
     b.add_argument("--region", required=True)
 
+    # Preflight: fail fast (before any AWS calls) if the deploy environment can't
+    # build the skill-uploader Lambda. Used by deploy.sh up front.
+    sub.add_parser("check-boto3")
+
     args = ap.parse_args()
     if args.cmd == "embed":
         embed(args.template_in, args.template_out)
@@ -347,6 +351,10 @@ def main() -> None:
         sync_skills(args.bucket, args.region)
     elif args.cmd == "build-skill-uploader":
         build_skill_uploader(args.bucket, args.region)
+    elif args.cmd == "check-boto3":
+        boto3 = _require_boto3()
+        min_str = ".".join(str(n) for n in BOTO3_MIN_VERSION)
+        print(f"boto3 {boto3.__version__} OK (>= {min_str})", file=sys.stderr)
 
 
 if __name__ == "__main__":

@@ -89,7 +89,7 @@ stack-status:
 stack-outputs:
 	@bash -c 'REGION=$${REGION:-$$(aws configure get region)}; \
 		aws cloudformation describe-stacks --region $$REGION --stack-name $(STACK_NAME) \
-			--query "Stacks[0].Outputs" --output table'
+			--query "Stacks[0].Outputs" --output table --no-cli-pager'
 
 # Tail a Lambda's logs by reading its function name from a stack output.
 # $(1) = output key
