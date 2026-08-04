@@ -7,7 +7,17 @@ AIs typically get wrong** because their training data treats HyperPod as
 "basically EC2 + Slurm/EKS" — which is only partially true.
 
 Keep this file open while doing any HyperPod testing or debugging. Update
-it when you discover a new source of confusion.
+it when you discover a new source of confusion — but via the process in
+[knowledge-updates/](knowledge-updates/), not by editing this file mid-discovery.
+See [docs/README.md](README.md) for the full lifecycle.
+
+This is the **main curated doc**. Deep, self-contained topics live in dedicated
+supplemental docs under [`mental-model/`](mental-model/) and are linked here:
+
+<!-- SUPPLEMENTAL-DOCS:START — keep this list in sync with mental-model/ -->
+- _(none yet — add supplemental docs here as topics grow, e.g._
+  `mental-model/hyperpod-ssm.md`, `mental-model/hyperpod-events.md`_)_
+<!-- SUPPLEMENTAL-DOCS:END -->
 
 ## Audience and scope
 
