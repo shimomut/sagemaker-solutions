@@ -1,4 +1,8 @@
-# HyperPod EKS Ray
+# HyperPod EKS Ray (archived)
+
+**Archived:** Ray on SageMaker HyperPod is now an official feature, which supersedes this
+self-managed KubeRay setup. Use the official feature instead. This directory is kept for
+reference only and is no longer maintained.
 
 Setup and utilities for running Ray on AWS SageMaker HyperPod EKS clusters using KubeRay operator.
 
