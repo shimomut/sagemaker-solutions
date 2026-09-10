@@ -1,0 +1,43 @@
+# Minimal RayCluster for verifying the Ray on HyperPod setup.
+#
+# The head uses the CPU image and the workers use the GPU image. Do not put a
+# GPU image on a CPU-only node: the NVIDIA env vars baked into it trigger CDI
+# device injection and the container fails to start.
+#
+# Keep rayVersion and the image tags on the same Ray version.
+apiVersion: ray.io/v1
+kind: RayCluster
+metadata:
+  name: ray-example
+spec:
+  rayVersion: "2.55.1"
+  headGroupSpec:
+    rayStartParams:
+      # Required for authenticated Ray Dashboard access through the
+      # HyperPod Ray Endpoint Operator.
+      dashboard-host: "0.0.0.0"
+    template:
+      spec:
+        containers:
+          - name: ray-head
+            image: rayproject/ray:2.55.1
+            ports:
+              - { containerPort: 6379, name: gcs-server }
+              - { containerPort: 8265, name: dashboard }
+              - { containerPort: 10001, name: client }
+            resources:
+              requests: { cpu: "2", memory: "4Gi" }
+  workerGroupSpecs:
+    - groupName: gpu-workers
+      replicas: 1
+      rayStartParams: {}
+      template:
+        spec:
+          nodeSelector:
+            node.kubernetes.io/instance-type: ml.g5.xlarge
+          containers:
+            - name: ray-worker
+              image: rayproject/ray:2.55.1-gpu
+              resources:
+                limits: { nvidia.com/gpu: "1" }
+                requests: { cpu: "4", memory: "16Gi", nvidia.com/gpu: "1" }

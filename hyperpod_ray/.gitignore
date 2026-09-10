@@ -1,0 +1,3 @@
+/docs/*.pdf
+/docs/*.md
+__pycache__/

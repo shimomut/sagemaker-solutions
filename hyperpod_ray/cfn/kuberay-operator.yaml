@@ -1,0 +1,304 @@
+AWSTemplateFormatVersion: '2010-09-09'
+
+Description: >-
+  Minimal "Ray on SageMaker HyperPod" setup. Installs the open source KubeRay
+  operator onto an existing HyperPod cluster orchestrated by Amazon EKS, which
+  is all that Ray on HyperPod requires beyond the cluster itself.
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: Target cluster
+        Parameters:
+          - EKSClusterName
+          - ResourceNamePrefix
+      - Label:
+          default: KubeRay
+        Parameters:
+          - KubeRayVersion
+          - KubeRayNamespace
+          - KubeRayReleaseName
+          - ChartRepository
+      - Label:
+          default: Installer (advanced)
+        Parameters:
+          - HelmToolsLayerS3Bucket
+          - HelmToolsLayerS3Key
+          - InstallerSubnetIds
+          - InstallerSecurityGroupIds
+
+Parameters:
+  EKSClusterName:
+    Type: String
+    MinLength: 1
+    Description: >-
+      Name of the existing Amazon EKS cluster that orchestrates your HyperPod
+      cluster. Its authentication mode must include API (API or
+      API_AND_CONFIG_MAP), which is the default for HyperPod EKS clusters.
+
+  ResourceNamePrefix:
+    Type: String
+    Default: hyperpod-ray
+    AllowedPattern: '[a-z0-9][a-z0-9-]*'
+    Description: Prefix for the names of the resources this template creates.
+
+  KubeRayVersion:
+    Type: String
+    Default: 1.7.0
+    Description: >-
+      KubeRay Helm chart version. Ray on HyperPod needs 1.6.0 or later for the
+      RayCronJob resource and for Ray's Kubernetes RBAC authentication mode.
+
+  KubeRayNamespace:
+    Type: String
+    Default: kuberay-operator
+    Description: Namespace for the operator. Created if it does not exist.
+
+  KubeRayReleaseName:
+    Type: String
+    Default: kuberay-operator
+    Description: Helm release name for the operator.
+
+  ChartRepository:
+    Type: String
+    Default: https://ray-project.github.io/kuberay-helm/
+    Description: Helm repository that hosts the kuberay-operator chart.
+
+  HelmToolsLayerS3Bucket:
+    Type: String
+    Default: ''
+    Description: >-
+      Bucket holding the Lambda layer with the helm, kubectl, and
+      aws-iam-authenticator binaries. Leave empty to use the public
+      aws-sagemaker-hyperpod-cluster-setup-<region>-prod bucket published by
+      the HyperPod cluster setup assets.
+
+  HelmToolsLayerS3Key:
+    Type: String
+    Default: resources/artifacts/helm-lambda-layer.zip
+    Description: Key of the Lambda layer zip file in the bucket above.
+
+  InstallerSubnetIds:
+    Type: CommaDelimitedList
+    Default: ''
+    Description: >-
+      Only needed when the EKS cluster API endpoint is private. Private subnets
+      with a route to the endpoint, plus NAT egress so the installer can reach
+      the Helm repository. Leave empty for a public endpoint.
+
+  InstallerSecurityGroupIds:
+    Type: CommaDelimitedList
+    Default: ''
+    Description: >-
+      Security groups for the installer function when InstallerSubnetIds is
+      set. They must be allowed inbound on 443 by the EKS cluster security
+      group.
+
+Conditions:
+  UseDefaultLayerBucket: !Equals [!Ref HelmToolsLayerS3Bucket, '']
+  RunInVpc: !Not [!Equals [!Join ['', !Ref InstallerSubnetIds], '']]
+
+Resources:
+  # Cluster-admin is required: the chart installs CRDs and cluster-scoped RBAC.
+  InstallerRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - !Sub arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+        - !If
+          - RunInVpc
+          - !Sub arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole
+          - !Ref AWS::NoValue
+      Policies:
+        - PolicyName: DescribeTargetCluster
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: eks:DescribeCluster
+                Resource: !Sub arn:${AWS::Partition}:eks:${AWS::Region}:${AWS::AccountId}:cluster/${EKSClusterName}
+
+  InstallerAccessEntry:
+    Type: AWS::EKS::AccessEntry
+    Properties:
+      ClusterName: !Ref EKSClusterName
+      PrincipalArn: !GetAtt InstallerRole.Arn
+      AccessPolicies:
+        - PolicyArn: !Sub arn:${AWS::Partition}:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy
+          AccessScope:
+            Type: cluster
+
+  HelmToolsLayer:
+    Type: AWS::Lambda::LayerVersion
+    Properties:
+      LayerName: !Sub ${ResourceNamePrefix}-helm-tools
+      Description: helm, kubectl, and aws-iam-authenticator binaries
+      CompatibleRuntimes:
+        - python3.12
+      CompatibleArchitectures:
+        - x86_64
+      Content:
+        S3Bucket: !If
+          - UseDefaultLayerBucket
+          - !Sub aws-sagemaker-hyperpod-cluster-setup-${AWS::Region}-prod
+          - !Ref HelmToolsLayerS3Bucket
+        S3Key: !Ref HelmToolsLayerS3Key
+
+  InstallerLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/lambda/${ResourceNamePrefix}-kuberay-installer
+      RetentionInDays: 14
+
+  InstallerFunction:
+    Type: AWS::Lambda::Function
+    DependsOn:
+      - InstallerAccessEntry
+      - InstallerLogGroup
+    Properties:
+      FunctionName: !Sub ${ResourceNamePrefix}-kuberay-installer
+      Description: !Sub Installs the KubeRay operator on ${EKSClusterName}
+      Runtime: python3.12
+      Architectures:
+        - x86_64
+      Handler: index.lambda_handler
+      Role: !GetAtt InstallerRole.Arn
+      Layers:
+        - !Ref HelmToolsLayer
+      MemorySize: 512
+      # Helm waits for the operator deployment to become available.
+      Timeout: 900
+      VpcConfig: !If
+        - RunInVpc
+        - SubnetIds: !Ref InstallerSubnetIds
+          SecurityGroupIds: !Ref InstallerSecurityGroupIds
+        - !Ref AWS::NoValue
+      Environment:
+        Variables:
+          EKS_CLUSTER_NAME: !Ref EKSClusterName
+          PATH: /opt/python/bin:/var/lang/bin:/usr/local/bin:/usr/bin:/bin
+          LD_LIBRARY_PATH: /opt/python/lib
+          KUBECONFIG: /tmp/kubeconfig
+          HOME: /tmp
+      Code:
+        ZipFile: |
+          import json
+          import os
+          import subprocess
+          import urllib.request
+
+          import boto3
+
+          KUBECONFIG = os.environ["KUBECONFIG"]
+
+
+          def respond(event, context, physical_id, status, reason, data=None):
+              body = json.dumps({
+                  "Status": status,
+                  "Reason": reason[:1000],
+                  "PhysicalResourceId": physical_id or context.log_stream_name,
+                  "StackId": event["StackId"],
+                  "RequestId": event["RequestId"],
+                  "LogicalResourceId": event["LogicalResourceId"],
+                  "Data": data or {},
+              }).encode()
+              request = urllib.request.Request(
+                  event["ResponseURL"], data=body, method="PUT",
+                  headers={"content-type": "", "content-length": str(len(body))},
+              )
+              urllib.request.urlopen(request).read()
+
+
+          def run(*args, check=True):
+              print("+ " + " ".join(args))
+              result = subprocess.run(args, capture_output=True, text=True)
+              print(result.stdout, result.stderr)
+              if check and result.returncode:
+                  raise RuntimeError(f"{args[0]} failed: {result.stderr.strip()[-800:]}")
+              return result.returncode
+
+
+          def write_kubeconfig(cluster_name):
+              cluster = boto3.client("eks").describe_cluster(name=cluster_name)["cluster"]
+              with open(KUBECONFIG, "w") as handle:  # JSON is valid YAML
+                  json.dump({
+                      "apiVersion": "v1",
+                      "kind": "Config",
+                      "current-context": cluster_name,
+                      "clusters": [{"name": cluster_name, "cluster": {
+                          "server": cluster["endpoint"],
+                          "certificate-authority-data": cluster["certificateAuthority"]["data"]}}],
+                      "contexts": [{"name": cluster_name, "context": {
+                          "cluster": cluster_name, "user": cluster_name}}],
+                      "users": [{"name": cluster_name, "user": {"exec": {
+                          "apiVersion": "client.authentication.k8s.io/v1beta1",
+                          "command": "aws-iam-authenticator",
+                          "args": ["token", "-i", cluster_name]}}}],
+                  }, handle)
+
+
+          def lambda_handler(event, context):
+              print(json.dumps({k: v for k, v in event.items() if k != "ResponseURL"}))
+              props = event["ResourceProperties"]
+              release, namespace = props["ReleaseName"], props["Namespace"]
+              physical_id = f"{namespace}/{release}"
+              deleting = event["RequestType"] == "Delete"
+              if deleting:
+                  # Honour the id we reported earlier, so a renamed release is
+                  # replaced rather than orphaned.
+                  physical_id = event["PhysicalResourceId"]
+                  namespace, _, release = physical_id.partition("/")
+              try:
+                  write_kubeconfig(os.environ["EKS_CLUSTER_NAME"])
+                  if deleting:
+                      run("helm", "uninstall", release, "-n", namespace, "--wait", check=False)
+                  else:
+                      run("helm", "repo", "add", "kuberay", props["ChartRepository"],
+                          "--force-update")
+                      run("helm", "upgrade", "--install", release, "kuberay/kuberay-operator",
+                          "--version", props["ChartVersion"], "-n", namespace,
+                          "--create-namespace", "--wait", "--timeout", "10m")
+                      run("kubectl", "get", "deployment", release, "-n", namespace)
+                  respond(event, context, physical_id, "SUCCESS", "ok",
+                          {"Namespace": namespace, "ReleaseName": release})
+              except Exception as error:  # report it, or CloudFormation waits an hour
+                  print(f"error: {error}")
+                  respond(event, context, physical_id, "FAILED", str(error))
+
+  KubeRayOperator:
+    Type: AWS::CloudFormation::CustomResource
+    Properties:
+      ServiceToken: !GetAtt InstallerFunction.Arn
+      Namespace: !Ref KubeRayNamespace
+      ReleaseName: !Ref KubeRayReleaseName
+      ChartRepository: !Ref ChartRepository
+      ChartVersion: !Ref KubeRayVersion
+
+Outputs:
+  KubeRayNamespace:
+    Description: Namespace the KubeRay operator runs in
+    Value: !GetAtt KubeRayOperator.Namespace
+
+  KubeRayReleaseName:
+    Description: Helm release name of the KubeRay operator
+    Value: !GetAtt KubeRayOperator.ReleaseName
+
+  KubeRayVersion:
+    Description: Installed KubeRay chart version
+    Value: !Ref KubeRayVersion
+
+  InstallerLogGroup:
+    Description: CloudWatch log group with the helm output, for troubleshooting
+    Value: !Ref InstallerLogGroup
+
+  VerifyCommand:
+    Description: Confirms the operator pod is running
+    Value: !Sub kubectl get pods -n ${KubeRayNamespace} -l app.kubernetes.io/name=kuberay-operator
