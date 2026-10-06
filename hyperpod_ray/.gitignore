@@ -1,3 +1,5 @@
-/docs/*.pdf
-/docs/*.md
+# The developer-guide dump: a ~180 MB PDF and the Markdown extracted from it.
+# Regenerate with `make extract-docs` after cloning; see README.md.
+/docs/user-guide/
+
 __pycache__/

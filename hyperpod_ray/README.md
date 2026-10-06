@@ -23,7 +23,7 @@ fast: you create the cluster once and redo just the Ray part as it grows.
 table, but its `Install` button opens the documentation. Helm is the only
 mechanism. The panel does read real cluster state, so it reports `Installed`
 after a Helm or Makefile install it had no part in. See
-[console-install-walkthrough.md](console-install-walkthrough.md).
+[docs/console-install-walkthrough.md](docs/console-install-walkthrough.md).
 
 ## Contents
 
@@ -31,7 +31,8 @@ after a Helm or Makefile install it had no part in. See
 |---|---|
 | [Makefile](Makefile) | `make install-kuberay` and the domain stack, plus inspection and teardown. `make help` lists every target. |
 | [cfn/sagemaker-domain.yaml](cfn/sagemaker-domain.yaml) | SageMaker AI domain, user profile, and the EKS access entry that puts Ray workloads on Studio's Tasks tab. |
-| [console-install-walkthrough.md](console-install-walkthrough.md) | Step-by-step record of setting this up through the console, with what each step actually changes and which steps are worth automating. |
+| [docs/console-install-walkthrough.md](docs/console-install-walkthrough.md) | Step-by-step record of setting this up through the console, with what each step actually changes and which steps are worth automating. |
+| [docs/doc-issues-report.md](docs/doc-issues-report.md) | The documentation and console issues this walkthrough turned up, written to be reportable: each with the page, the claim, what is actually true, and the command that shows it. |
 | [scripts/capture-cluster-state.sh](scripts/capture-cluster-state.sh) | Read-only snapshot of Helm releases, Ray CRDs, EKS add-ons and access entries. Run before and after a step, then diff. |
 | [examples/ray-cluster-cpu.yaml](examples/ray-cluster-cpu.yaml) | A minimal CPU-only `RayCluster` for verifying the setup. The default. |
 | [examples/ray-cluster-gpu.yaml](examples/ray-cluster-gpu.yaml) | The same thing with a GPU worker group. |
@@ -42,7 +43,7 @@ after a Helm or Makefile install it had no part in. See
 | [examples/rayservice-serve.yaml](examples/rayservice-serve.yaml) | A `RayService` running the Ray Serve app. |
 | [examples/scripts/](examples/scripts/) | The three workloads: Ray Data, Ray Train, Ray Serve. Mounted into the pods as a ConfigMap. |
 | [scripts/extract_pdf_docs.py](scripts/extract_pdf_docs.py) | Extracts a page range of an AWS docs PDF to Markdown. |
-| `docs/ray-on-hyperpod.md` | The "Ray on SageMaker HyperPod" chapter, extracted for easy reading by humans and agents. Generated locally, not committed. |
+| `docs/user-guide/` | The developer-guide PDF and the Markdown extracted from it, for greppable reading by humans and agents. Generated locally, gitignored. |
 
 ## Prerequisites
 
@@ -231,7 +232,7 @@ make governed-quota       # the queues, and how the quota was translated
 ```
 
 Three things that cost time, all recorded in
-[console-install-walkthrough.md](console-install-walkthrough.md):
+[docs/console-install-walkthrough.md](docs/console-install-walkthrough.md):
 
 - **You cannot allocate to an existing namespace.** A compute allocation for team
   `ray` generates namespace `hyperpod-ns-ray` with `hyperpod-ns-ray-localqueue`
@@ -267,21 +268,22 @@ with running apps will not delete.
 
 ## Documentation
 
-`docs/ray-on-hyperpod.md` is the "Ray on SageMaker HyperPod" chapter of the
-SageMaker AI Developer Guide (pages 2784-2849), extracted to Markdown so it is
-greppable and cheap for an agent to read. Download the
+`docs/user-guide/` holds the "Ray on SageMaker HyperPod" chapter of the SageMaker AI
+Developer Guide, extracted to Markdown so it is greppable and cheap for an agent to
+read. Download the
 [SageMaker AI Developer Guide PDF](https://docs.aws.amazon.com/pdfs/sagemaker/latest/dg/sagemaker-dg.pdf)
-into `docs/`, then:
+into `docs/user-guide/`, then:
 
 ```bash
 make extract-docs                                   # defaults to pages 2784-2849
 make extract-docs DOC_FIRST_PAGE=... DOC_LAST_PAGE=...
 ```
 
-Both the PDF (roughly 180 MB) and the generated Markdown are gitignored, so run
+The whole of `docs/user-guide/` is gitignored — the PDF is roughly 180 MB — so run
 this once after cloning. Never hand-edit the Markdown. Find the page range for a
-chapter from the PDF bookmarks, which the script also uses to assign heading
-levels.
+chapter from the PDF bookmarks, which the script also uses to assign heading levels;
+it moves between revisions, so date-stamp what you download rather than assuming the
+defaults still apply.
 
 Extraction runs out of the repository-level `.venv`, shared with the other
 solutions here. `make extract-docs` creates it if missing and installs

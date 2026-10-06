@@ -41,7 +41,7 @@ Keep two facts in view while reading:
 Two `ThreadsPerCore: 1` nodes report 2 CPUs each, roughly 1.9 allocatable, and
 the HyperPod daemonsets take a share of that. Enough for one small
 `RayCluster`; not enough to run a standing cluster and a `RayJob` with its own
-cluster at the same time. See the sizing note in [README.md](README.md).
+cluster at the same time. See the sizing note in [README.md](../README.md).
 
 ## Before you start
 
@@ -71,7 +71,7 @@ aws eks update-kubeconfig --name sagemaker-k8-ray-3-6b1c5ff4-eks \
 bash scripts/capture-cluster-state.sh k8-ray-3 before
 ```
 
-[scripts/capture-cluster-state.sh](scripts/capture-cluster-state.sh) records Helm
+[scripts/capture-cluster-state.sh](../scripts/capture-cluster-state.sh) records Helm
 releases, Ray CRDs, namespaces, EKS add-ons, EKS access entries, non-system
 workloads, Ray resources, and nodes. Every call is read-only. Re-run it with a
 different label after each step and diff, so each step's effect is a reviewable
@@ -104,7 +104,7 @@ Three things to carry forward:
 
 - **1930m allocatable CPU per node**, so 3.86 CPU for the whole cluster, minus
   whatever the Ray head reserves. This is the `ThreadsPerCore: 1` arithmetic from
-  [README.md](README.md) showing up in practice: the `ml.m5.xlarge` label says
+  [README.md](../README.md) showing up in practice: the `ml.m5.xlarge` label says
   4 vCPU, the node reports 2 and offers 1.93.
 - `eks-pod-identity-agent` is already present, which satisfies a prerequisite of
   the HyperPod Ray Endpoint Operator later on.
@@ -452,10 +452,10 @@ On `k8-ray-3`, with KubeRay and the HyperPod daemonsets already placed:
 | `…0add9` | 1930m | 380m | **1550m** |
 | `…a8425` | 1930m | 1250m | **680m** |
 
-[examples/ray-cluster-cpu.yaml](examples/ray-cluster-cpu.yaml) asks for 1 CPU per
+[examples/ray-cluster-cpu.yaml](../examples/ray-cluster-cpu.yaml) asks for 1 CPU per
 pod — head plus two workers, so **3000m in 1000m chunks**. Only one such chunk
 fits (node A), and the two workers would pin `Pending` indefinitely. The example
-is sized for the four-node reference cluster in [README.md](README.md); two nodes
+is sized for the four-node reference cluster in [README.md](../README.md); two nodes
 is below it.
 
 ### Shrink the request, not the shape
@@ -659,7 +659,7 @@ Two details in the policy that are easy to get wrong:
   *HyperPod* cluster; the `eks:` actions to the *EKS* cluster. The guide warns that
   leaving the example ARNs in place means Studio cannot describe your cluster and
   the Tasks tab does not load. This is why
-  [cfn/sagemaker-domain.yaml](cfn/sagemaker-domain.yaml) takes both
+  [cfn/sagemaker-domain.yaml](../cfn/sagemaker-domain.yaml) takes both
   `EKSClusterName` and `HyperPodClusterName`.
 - **`eks:DescribeAddon` is scoped to a sub-resource**, `cluster/<name>/*`, so it is
   a separate statement. It is how Studio detects the Spaces add-on.
@@ -918,7 +918,7 @@ accepted and simply grants nothing, so the failure here is silent. Possibly
 `jupyter-k8s-shared` is for templates *you* create and share; nothing on this
 cluster puts anything there.
 
-[cfn/sagemaker-domain.yaml](cfn/sagemaker-domain.yaml) therefore scopes that policy
+[cfn/sagemaker-domain.yaml](../cfn/sagemaker-domain.yaml) therefore scopes that policy
 to **both** namespaces, which costs nothing and does not depend on which is right:
 
 ```console
@@ -1008,7 +1008,7 @@ ssm-agent-sidecar  100m      # the "Remote access: Enabled" machinery
 ```
 
 The `Task governance is not enabled for this namespace` warning on the form is
-expected here and can be ignored — see [5e](#5e-deliberately-skipped).
+expected here and can be ignored — see [5e](#5f-deliberately-skipped).
 
 The pod reached `2/2 Running` in about 60 seconds. It is `3/3` once Ray is attached.
 
@@ -1073,7 +1073,7 @@ caused it.
 
 The guide's own recommendation, and the only reliable one: *"choose the same
 SageMaker AI Distribution image for both the Ray cluster and the Space Image."*
-That is [examples/ray-cluster-space.yaml](examples/ray-cluster-space.yaml):
+That is [examples/ray-cluster-space.yaml](../examples/ray-cluster-space.yaml):
 
 ```bash
 make deploy-example EXAMPLE_FLAVOR=space
@@ -1188,7 +1188,7 @@ The friction is all downstream of it, and none of it is automatable away:
   catch.
 
 What *is* worth keeping in this repo is
-[examples/ray-cluster-space.yaml](examples/ray-cluster-space.yaml): a cluster whose
+[examples/ray-cluster-space.yaml](../examples/ray-cluster-space.yaml): a cluster whose
 image matches the space's, pinned by digest.
 ### 5c. HyperPod Observability add-on
 
@@ -1346,7 +1346,11 @@ That last one is worth a thought before you accept it: capacity you do not alloc
 cannot be used by anyone. On a single-team cluster, allocate everything, or you will
 be debugging a `Pending` pod while a node sits empty.
 
-Then **Compute allocations** → `Create`. The decisive detail is on this form:
+Then **Compute allocations** → `Create`.
+
+![The Create compute allocation form](images/taskgov-compute-allocation-form.png)
+
+The decisive detail is on this form:
 
 > Namespace will be **auto-generated** based on the defined team name.
 
@@ -1464,7 +1468,7 @@ events. **The governance layer admits the workload and the admission layer refus
 its pods.**
 
 **Label on the `RayCluster` and both pod templates — works.** That is
-[examples/ray-cluster-governed.yaml](examples/ray-cluster-governed.yaml):
+[examples/ray-cluster-governed.yaml](../examples/ray-cluster-governed.yaml):
 
 ```bash
 make deploy-governed              # TEAM_NAME=ray by default
@@ -1494,6 +1498,8 @@ instructive.
 **The namespace appears in the Create space form, and the form changes shape.** The
 `Task governance is not enabled for this namespace` warning seen on `default` is
 replaced by an **Allocations / Utilization** panel showing the team's quota.
+
+![Create space with a governed namespace selected](images/taskgov-create-space-form.png)
 
 **The Spaces controller adds the label itself.** No manual step, no failure:
 
@@ -1656,11 +1662,11 @@ makes you collect ARNs from three consoles does.
 | Step | Clicks | Inputs you must look up | Repeated per cluster / team / namespace? | Creates IAM or trust? | Worth CloudFormation? |
 |---|---|---|---|---|---|
 | 3. KubeRay install | 0 — console only links to docs | chart version (floor ≥ 1.6.0, undocumented) | per cluster | no | **Scripted, not CFN** — `make install-kuberay`. Creates no AWS resources, so a stack bought nothing a target does not |
-| 5a. Studio access | 2 consoles, ~15 fields | HyperPod **and** EKS cluster ARNs, VPC + subnet IDs, 5 policies with 3 scoping rules | per team and namespace | yes (IAM role + EKS access entry) | **Yes** — [cfn/sagemaker-domain.yaml](cfn/sagemaker-domain.yaml). Nothing validates the config until Studio renders or does not |
-| 5b. Spaces add-on | 1 click + 1 dialog, then a space form | the space image's digest, if you want Ray to work | per cluster, per space | yes (3 IAM roles, created for you) | **No** for the add-on. Yes for a matching RayCluster: [examples/ray-cluster-space.yaml](examples/ray-cluster-space.yaml) |
+| 5a. Studio access | 2 consoles, ~15 fields | HyperPod **and** EKS cluster ARNs, VPC + subnet IDs, 5 policies with 3 scoping rules | per team and namespace | yes (IAM role + EKS access entry) | **Yes** — [cfn/sagemaker-domain.yaml](../cfn/sagemaker-domain.yaml). Nothing validates the config until Studio renders or does not |
+| 5b. Spaces add-on | 1 click + 1 dialog, then a space form | the space image's digest, if you want Ray to work | per cluster, per space | yes (3 IAM roles, created for you) | **No** for the add-on. Yes for a matching RayCluster: [examples/ray-cluster-space.yaml](../examples/ray-cluster-space.yaml) |
 | 5c. Observability | _TODO_ | Grafana workspace, Prometheus workspace, role | per account | yes | _TODO_ |
 | 5d. AMI floor | unknown | none you can read | unclear | no | No — cluster-lifecycle concern, and the signal is unexplained |
-| 5e. Task governance | 3 forms | team name (it becomes the namespace), the derived LocalQueue name | per team | no | **No** for the console flow. Yes for a labelled manifest: [examples/ray-cluster-governed.yaml](examples/ray-cluster-governed.yaml). The Kueue labels are undocumented and fail silently when half-applied |
+| 5e. Task governance | 3 forms | team name (it becomes the namespace), the derived LocalQueue name | per team | no | **No** for the console flow. Yes for a labelled manifest: [examples/ray-cluster-governed.yaml](../examples/ray-cluster-governed.yaml). The Kueue labels are undocumented and fail silently when half-applied |
 
 ### How to read the verdict
 
@@ -1713,7 +1719,7 @@ resources with identities and lifecycles, or merely runs commands against a
 cluster. KubeRay is the latter.
 
 Where the console *does* act, the answer flips. **5a — the Studio domain — is
-genuinely CloudFormation-shaped**, and is now [cfn/sagemaker-domain.yaml](cfn/sagemaker-domain.yaml):
+genuinely CloudFormation-shaped**, and is now [cfn/sagemaker-domain.yaml](../cfn/sagemaker-domain.yaml):
 it creates an IAM execution role and an EKS access entry, spans two consoles, and
 needs VPC and subnet IDs that are pure lookup. **5c — observability — may need no
 new template at all**, since the cluster-setup stack already carries

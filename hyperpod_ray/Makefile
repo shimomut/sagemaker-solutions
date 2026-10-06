@@ -79,10 +79,10 @@ SERVICE_NAME ?= ray-serve-example
 # Documentation extraction. Shares the repository-level virtual environment.
 VENV ?= ../.venv
 PYTHON ?= $(VENV)/bin/python3
-SOURCE_PDF ?= docs/sagemaker-dg.pdf
+SOURCE_PDF ?= docs/user-guide/sagemaker-dg.pdf
 DOC_FIRST_PAGE ?= 2784
 DOC_LAST_PAGE ?= 2849
-DOC_MARKDOWN ?= docs/ray-on-hyperpod.md
+DOC_MARKDOWN ?= docs/user-guide/ray-on-hyperpod.md
 
 AWS := aws --region $(AWS_REGION)
 
@@ -424,7 +424,7 @@ venv:
 .PHONY: extract-docs
 extract-docs: venv
 	@if [ ! -f $(SOURCE_PDF) ]; then \
-		echo "$(SOURCE_PDF) not found. Download the SageMaker AI Developer Guide PDF into docs/."; \
+		echo "$(SOURCE_PDF) not found. Download the SageMaker AI Developer Guide PDF into docs/user-guide/."; \
 		exit 1; \
 	fi
 	$(PYTHON) scripts/extract_pdf_docs.py \
