@@ -1279,10 +1279,13 @@ workload whose pods are not all ready within its timeout.
 
 #### Cluster policy, then compute allocation
 
-**Policies** tab → **Cluster policy** → `Create`. The defaults offered are
-`Task ranking` with four priority classes (inference 100, experimentation 80,
-training 70, fine-tuning 60), `Fair-share` for idle compute, and **`Unallocated
-resource sharing: Disabled`**.
+**Policies** tab → **Cluster policy** → `Create`.
+
+![The Create cluster policy form](images/taskgov-cluster-policy-form.png)
+
+The defaults offered are `Task ranking` with four priority classes (inference 100,
+experimentation 80, training 70, fine-tuning 60), `Fair-share` for idle compute, and
+**`Unallocated resource sharing: Disabled`**.
 
 That last one is worth a thought before you accept it: capacity you do not allocate
 cannot be used by anyone. On a single-team cluster, allocate everything, or you will
