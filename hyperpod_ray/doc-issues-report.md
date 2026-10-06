@@ -61,8 +61,18 @@ telling them apart is already available: the UI's own feature detection uses
 
 **Severity: High.** Both halves of the incompatibility come from the documentation.
 
-**Pages:** `sagemaker-hyperpod-ray-attach-space.html`, and the `RayCluster`
-examples throughout the Ray chapter.
+**Pages.** The requirement and the failure are on
+`sagemaker-hyperpod-ray-attach-space.html`; the incompatible examples are on other
+pages of the same chapter:
+
+| Page | Section | Image |
+|---|---|---|
+| `sagemaker-hyperpod-ray-manage-kubectl.html` | *Creating a cluster* | `rayproject/ray:2.55.1`, `:2.55.1-gpu` |
+| `sagemaker-hyperpod-ray-deploy-model.html` | *A RayService manifest* | `rayproject/ray:2.56.1`, `:2.56.1-gpu` |
+
+`attach-space.html` itself carries no `RayCluster` manifest, which is part of the
+problem: the page that states the version requirement is not the page a reader
+copies a manifest from.
 
 **What happens.** Create a `RayCluster` from the chapter's example manifests, create
 a space from the default template, attach them. The Connect dialog accepts the
@@ -81,17 +91,18 @@ This process on node 10.1.151.109 was started with:
 
 | Side | Documented source | Python |
 |---|---|---|
-| `RayCluster` | the chapter's examples use `rayproject/ray:2.55.1` (and `2.56.1`) | 3.10.20 |
-| Space | the default space template's `sagemaker-distribution:latest-cpu` | 3.12.14 |
+| `RayCluster` | `rayproject/ray:2.55.1`, from *Creating a cluster* | 3.10.20 |
+| Space | `sagemaker-distribution:latest-cpu`, the default space template | 3.12.14 |
 
 The **Ray versions match** at 2.55.1, which is exactly why this is easy to walk
 into. The chapter does state the requirement — *"The Python version must match as
 well, including the patch version"* — and does recommend using the same SageMaker
 Distribution image on both sides. Its own examples do not follow that advice.
 
-**Suggested fix.** Use a SageMaker Distribution image in the `RayCluster` examples
-on the pages that lead to a space, or add a prominent note on those examples that
-they are not suitable for attaching a space. Pinning by digest rather than
+**Suggested fix.** Use a SageMaker Distribution image in the *Creating a cluster*
+example, or note on it that a cluster built from `rayproject/ray` cannot have a
+space attached. Repeating the version requirement next to the manifest, rather than
+only on `attach-space.html`, would also close the gap. Pinning by digest rather than
 `latest-cpu` would also help, since `latest` on one side and a fixed tag on the
 other reintroduces the drift later.
 
