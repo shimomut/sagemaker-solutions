@@ -578,9 +578,9 @@ installing the add-on, as we did.
 
 ---
 
-## 15. Quota counts nominal vCPUs, not what the scheduler can place
+## 15. Quota is reported in nominal vCPUs, which overstates an SMT-disabled cluster
 
-**Severity: Medium.**
+**Severity: Low.** The number is misleading; the behaviour is correct.
 
 An allocation of 4 × `ml.m5.xlarge` produced:
 
@@ -590,16 +590,31 @@ $ kubectl get clusterqueue hyperpod-ns-ray-clusterqueue -o yaml
   memory  nominalQuota: 64Gi   borrowingLimit: 32Gi
 ```
 
-16 CPU is 4 vCPU × 4 instances, the instance type's nominal figure. The nodes in
-question run with `ThreadsPerCore: 1` and report **1930m allocatable each — 7720m
-total**. Quota is therefore more than double real capacity, and a workload can be
-admitted by governance and then sit `Pending` because Kubernetes has nowhere to put
-it: two layers with two different ideas of how large the cluster is.
+16 CPU is 4 vCPU × 4 instances, the instance type's nominal figure. Those nodes run
+with `ThreadsPerCore: 1` and report **1930m allocatable each — 7720m total**, so the
+quota shown is more than double what the cluster can actually run. Anyone sizing a
+team's allocation from this number will overestimate by a factor of two.
 
-This compounds the `ThreadsPerCore` trap that already exists elsewhere (the Create
-space form's 2-vCPU default, issue 11). A note in the task governance documentation
-that quota is accounted in nominal vCPUs — and that SMT-disabled instance groups
-offer about half that — would prevent a confusing class of `Pending`.
+**It does not cause bad admissions, which we checked.** The obvious worry is that
+governance admits a workload the scheduler then cannot place. It does not: Kueue runs
+with `TopologyAwareScheduling: true` and a `hyperpod-default` topology, and that
+checks real node capacity. A `RayCluster` whose head requests 2 CPU — comfortably
+inside the 16 CPU quota, impossible on a 1930m node — is held at the Kueue layer with
+an accurate message:
+
+```
+[QuotaReserved] False  Pending: couldn't assign flavors to pod set head:
+  topology "hyperpod-default" doesn't allow to fit any of 1 pod(s).
+  Total nodes: 4; excluded: resource "cpu": 4
+```
+
+That is a good error: it names the resource and says all four nodes were excluded.
+
+So the remaining issue is presentational, and it compounds the `ThreadsPerCore` trap
+that appears elsewhere with real consequences (the Create space form's unschedulable
+2-vCPU default, issue 11). A note in the task governance documentation that quota is
+accounted in nominal vCPUs — and that SMT-disabled instance groups offer roughly half
+that — would stop people planning against a number twice too large.
 
 ---
 

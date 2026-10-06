@@ -337,12 +337,22 @@ API model (botocore 1.42.34). Call scope: read-only.
   you create Ray workloads", which reads as pointing allocations at namespaces you
   already have.
 
-- **Quota is accounted in nominal vCPUs.** 4 × `ml.m5.xlarge` became
-  `cpu nominalQuota: 16`, against **7720m** actually allocatable across those four
-  `ThreadsPerCore: 1` nodes. Quota is more than double real capacity, so governance
-  can admit a workload that Kubernetes then cannot place. Same root cause as the
-  Create space form's unschedulable 2-vCPU default: the console and the quota both
-  use the instance type's nominal figure, the scheduler does not.
+- **Quota is reported in nominal vCPUs, but Topology Aware Scheduling stops it
+  causing bad admissions.** 4 × `ml.m5.xlarge` became `cpu nominalQuota: 16`, against
+  **7720m** actually allocatable across those four `ThreadsPerCore: 1` nodes — so the
+  number you plan an allocation against is double the truth. The tempting conclusion,
+  that governance admits workloads Kubernetes cannot place, was **tested and is
+  false**: Kueue runs with `TopologyAwareScheduling: true` and a `hyperpod-default`
+  topology, which checks real node capacity. A head pod requesting 2 CPU (inside the
+  quota, impossible on a 1930m node) is held at the Kueue layer with
+  `QuotaReserved: False` and the message *"topology 'hyperpod-default' doesn't allow
+  to fit any of 1 pod(s). Total nodes: 4; excluded: resource 'cpu': 4"*.
+
+  Recorded with the correction because the inference was written down before being
+  checked, and checking changed the severity from a real failure mode to a
+  presentational one. The `ThreadsPerCore` nominal-vs-allocatable gap still bites
+  elsewhere, where nothing re-checks — notably the Create space form's 2-vCPU default,
+  which produces a genuinely unschedulable pod.
 
 - **Gang scheduling ships disabled, and is not configurable.** The add-on sets
   `DisableWaitForPodsReady: true` in `kueue-manager-config`, and the console's

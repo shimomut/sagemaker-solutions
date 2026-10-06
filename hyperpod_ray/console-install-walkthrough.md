@@ -1348,9 +1348,23 @@ flavor ml.m5.xlarge
 
 **16 CPU, against 7720m the scheduler can actually place.** The quota counts
 `ml.m5.xlarge` at its nominal 4 vCPU × 4 instances; with `ThreadsPerCore: 1` each
-node offers 1930m allocatable. So quota is more than double real capacity, and a
-workload can be admitted by governance and then sit `Pending` because Kubernetes has
-nowhere to put it. Two layers, two different ideas of how big the cluster is.
+node offers 1930m allocatable. So the figure you plan a team's allocation against is
+more than double the cluster's real capacity.
+
+It does not cause bad admissions, though — worth checking rather than assuming, which
+is what we did. A head pod requesting 2 CPU is inside the quota and impossible on any
+node, and Kueue refuses it rather than admitting it:
+
+```
+[QuotaReserved] False  Pending: couldn't assign flavors to pod set head:
+  topology "hyperpod-default" doesn't allow to fit any of 1 pod(s).
+  Total nodes: 4; excluded: resource "cpu": 4
+```
+
+That is `TopologyAwareScheduling: true` in the Kueue feature gates, with a
+`hyperpod-default` topology, checking real node capacity. The quota number is
+misleading; the enforcement is honest, and the message names both the resource and
+how many nodes were excluded.
 
 #### Three ways to label a RayCluster, two of which fail
 
