@@ -296,6 +296,73 @@ API model (botocore 1.42.34). Call scope: read-only.
   is unschedulable on every node. Add the sidecars (250m Ray, 100m SSM) on top. The
   instance-type figure in that dropdown is not what the scheduler sees.
 
+- **Task governance changes what a valid `RayCluster` looks like, and the Ray chapter
+  never mentions a label.** This is the most expensive undocumented thing found so
+  far. In a governed namespace there are three states, verified 2026-10-06:
+
+  | Labels | Result |
+  |---|---|
+  | none | creation **refused** by `ValidatingAdmissionPolicy hyperpod-task-governance-admission-policy` |
+  | on the `RayCluster` only | **admitted, then stuck forever** |
+  | on the `RayCluster` and both pod templates | works |
+
+  The middle state is the dangerous one. Kueue reserves quota and reports
+  `QuotaReserved: True` / `Admitted: True`, while the `RayCluster` stays `suspended`
+  and `FailedToCreateHeadPod` repeats in the events — the admission policy's
+  `resourceRules` also cover `pods`, `deployments` and `statefulsets`, and KubeRay's
+  generated pods inherit no labels. Its only exclusion is HPTO-owned objects, via
+  `matchConditions`. So the governance layer admits the workload while the admission
+  layer refuses its pods, and every obvious check reports health.
+
+  Corollary worth recording: `manageJobsWithoutQueueName: false` in the Kueue config
+  does **not** mean unlabelled workloads run unmanaged, because the admission policy
+  rejects them before Kueue is consulted.
+
+- **Governance is scoped by namespace labels, not cluster-wide.** The policy binding
+  matches `sagemaker.amazonaws.com/activate-quota: Enabled` and
+  `sagemaker.amazonaws.com/sagemaker-managed-queue: "true"`, which only the generated
+  `hyperpod-ns-*` namespaces carry. Workloads in `default` were unaffected by
+  installing the add-on. The chapter's "a workload in a namespace with no allocation
+  stays pending and is never admitted" reads like a global switch and is not one —
+  this session drained its cluster before installing on the strength of that
+  sentence, unnecessarily.
+
+- **Compute allocations generate their namespace; you cannot target an existing
+  one.** Team `ray` produces `hyperpod-ns-ray`, and everything else is derived too:
+  `hyperpod-ns-<team>-clusterqueue`, `hyperpod-ns-<team>-localqueue`, and priority
+  classes with `-priority` appended to the names typed into the cluster policy. The
+  namespace appears in neither the `CreateComputeQuota` request nor its response, so
+  automation must trust the undocumented convention or discover it afterwards. This
+  directly contradicts the chapter's "create an allocation for every namespace where
+  you create Ray workloads", which reads as pointing allocations at namespaces you
+  already have.
+
+- **Quota is accounted in nominal vCPUs.** 4 × `ml.m5.xlarge` became
+  `cpu nominalQuota: 16`, against **7720m** actually allocatable across those four
+  `ThreadsPerCore: 1` nodes. Quota is more than double real capacity, so governance
+  can admit a workload that Kubernetes then cannot place. Same root cause as the
+  Create space form's unschedulable 2-vCPU default: the console and the quota both
+  use the instance type's nominal figure, the scheduler does not.
+
+- **Gang scheduling ships disabled, and is not configurable.** The add-on sets
+  `DisableWaitForPodsReady: true` in `kueue-manager-config`, and the console's
+  Policies tab agrees (`Gang scheduling: Disabled`) — while the Ray chapter instructs
+  the reader to *"confirm that gang scheduling is enabled"*. Neither surface exposes
+  it: `aws eks describe-addon-configuration` returns an empty schema
+  (`additionalProperties: false`, no properties), and the SageMaker API's
+  `SchedulerConfig` carries only `PriorityClasses` and `FairShare`. The timeout is
+  not exposed either, which matters because `waitForPodsReady` evicts and requeues a
+  workload whose pods are not all ready in time, and the default space image takes
+  160s to pull cold.
+
+- **The add-on installs Kueue and nothing else.** 11 `kueue.x-k8s.io` CRDs, the
+  `kueue-system` namespace and `kueue-controller-manager` — and zero ClusterQueues,
+  LocalQueues, ResourceFlavors or WorkloadPriorityClasses until a cluster policy and
+  a compute allocation are created. Kueue version 0.19.2 under add-on
+  `v1.6.1-eksbuild.1`. The integration list covers `ray.io/raycluster` and
+  `ray.io/rayjob` alongside the kubeflow frameworks, plus `pod`, `deployment`,
+  `statefulset` and `leaderworkerset`.
+
 ## Proposed edits to the main doc
 
 ### 1. Hung job detection has a node AMI floor

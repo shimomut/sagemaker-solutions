@@ -35,6 +35,8 @@ after a Helm or Makefile install it had no part in. See
 | [scripts/capture-cluster-state.sh](scripts/capture-cluster-state.sh) | Read-only snapshot of Helm releases, Ray CRDs, EKS add-ons and access entries. Run before and after a step, then diff. |
 | [examples/ray-cluster-cpu.yaml](examples/ray-cluster-cpu.yaml) | A minimal CPU-only `RayCluster` for verifying the setup. The default. |
 | [examples/ray-cluster-gpu.yaml](examples/ray-cluster-gpu.yaml) | The same thing with a GPU worker group. |
+| [examples/ray-cluster-space.yaml](examples/ray-cluster-space.yaml) | For attaching a SageMaker Studio space. Runs the same SageMaker Distribution image the space does, pinned by digest, because Ray refuses to connect when the driver's Python differs from the cluster's. |
+| [examples/ray-cluster-governed.yaml](examples/ray-cluster-governed.yaml) | For a namespace under task governance. Carries the Kueue labels on the cluster **and** both pod templates — labelling only the cluster leaves it `suspended` forever. |
 | [examples/rayjob-ephemeral.yaml](examples/rayjob-ephemeral.yaml) | A `RayJob` that creates its own cluster and deletes it afterwards. |
 | [examples/rayjob-existing.yaml](examples/rayjob-existing.yaml) | A `RayJob` that runs on a `RayCluster` you already have. |
 | [examples/rayservice-serve.yaml](examples/rayservice-serve.yaml) | A `RayService` running the Ray Serve app. |
@@ -215,6 +217,37 @@ ones — use the cluster-access policies for Ray.
 The official assets do have a `sagemaker-domain-template.yaml`, but it takes an
 `EKSClusterName` parameter and never uses it, so it grants no cluster access, and
 the EKS main stack hardcodes `CreateDomain: 'false'`.
+
+## Task governance
+
+Optional. Once a namespace is governed, a `RayCluster` needs Kueue labels in three
+places and nothing in the documentation says so:
+
+```bash
+# After creating a compute allocation for team <name> from the Policies tab
+make deploy-governed TEAM_NAME=<name>
+make governed-status      # the RayCluster, the Kueue workload, and warnings together
+make governed-quota       # the queues, and how the quota was translated
+```
+
+Three things that cost time, all recorded in
+[console-install-walkthrough.md](console-install-walkthrough.md):
+
+- **You cannot allocate to an existing namespace.** A compute allocation for team
+  `ray` generates namespace `hyperpod-ns-ray` with `hyperpod-ns-ray-localqueue`
+  inside it; governed Ray workloads move there. `default` cannot be governed.
+- **Labelling only the `RayCluster` fails silently.** Kueue reports the workload
+  `Admitted: True` while the cluster sits `suspended`, because the same admission
+  policy covers `pods` and KubeRay's generated pods carry no labels. The cause
+  appears only in `kubectl get events`. `make governed-status` prints both layers
+  for this reason.
+- **Quota counts nominal vCPUs.** 4 × `ml.m5.xlarge` becomes a quota of 16 CPU,
+  against 7720m the scheduler can actually place on `ThreadsPerCore: 1` nodes — so a
+  workload can be admitted and then sit `Pending`.
+
+Gang scheduling is **disabled** by the add-on even though the developer guide says to
+confirm it is enabled, and neither the EKS add-on configuration nor the SageMaker
+API exposes it.
 
 ## Deleting
 

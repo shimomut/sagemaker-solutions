@@ -58,6 +58,18 @@ RAY_NAMESPACE ?= default
 RAY_CLUSTER_NAME ?= ray-example-$(EXAMPLE_FLAVOR)
 EXAMPLE_MANIFEST ?= examples/ray-cluster-$(EXAMPLE_FLAVOR).yaml
 
+# Task governance. Creating a compute allocation for a team auto-generates the
+# namespace and the Kueue queues from the team name, so everything here is derived
+# from TEAM_NAME rather than chosen.
+TEAM_NAME ?= ray
+GOVERNED_NAMESPACE ?= hyperpod-ns-$(TEAM_NAME)
+GOVERNED_QUEUE ?= $(GOVERNED_NAMESPACE)-localqueue
+# The console appends `-priority` to the priority class names you type into the
+# cluster policy. Only used when the policy uses Task ranking.
+GOVERNED_PRIORITY_CLASS ?= training-priority
+GOVERNED_MANIFEST ?= examples/ray-cluster-governed.yaml
+GOVERNED_CLUSTER_NAME ?= ray-example-governed
+
 # The example workload scripts, delivered to the pods as a ConfigMap so the
 # manifests stay self-contained (no image build, no S3, no working_dir upload).
 EXAMPLES_CONFIGMAP ?= ray-examples
@@ -108,6 +120,12 @@ help:
 	@echo "  make describe-example                  Describe the example RayCluster"
 	@echo "  make dashboard                         Port-forward the Ray Dashboard to :8265"
 	@echo "  make delete-example                    Delete the example RayCluster"
+	@echo ""
+	@echo "Task governance (team $(TEAM_NAME) -> namespace $(GOVERNED_NAMESPACE)):"
+	@echo "  make deploy-governed                   RayCluster with the Kueue labels it needs"
+	@echo "  make governed-status                   RayCluster, Kueue workload, and warnings"
+	@echo "  make governed-quota                    Queues and how the quota was translated"
+	@echo "  make delete-governed                   Delete the governed RayCluster"
 	@echo ""
 	@echo "Example workloads (Ray Data, Ray Train, Ray Serve):"
 	@echo "  make examples-configmap                Publish examples/scripts as a ConfigMap"
@@ -266,6 +284,50 @@ crds:
 .PHONY: deploy-example
 deploy-example:
 	kubectl apply -f $(EXAMPLE_MANIFEST) -n $(RAY_NAMESPACE)
+
+# A RayCluster in a task-governed namespace. Separate from deploy-example because
+# the Kueue queue name is derived from the team name and has to be substituted in.
+.PHONY: deploy-governed
+deploy-governed:
+	@if ! kubectl get ns $(GOVERNED_NAMESPACE) >/dev/null 2>&1; then \
+		echo "Namespace $(GOVERNED_NAMESPACE) does not exist."; \
+		echo "Create a compute allocation for team '$(TEAM_NAME)' first, from the"; \
+		echo "cluster's Policies tab. The namespace is generated from the team name."; \
+		exit 1; \
+	fi
+	@if ! kubectl get localqueue $(GOVERNED_QUEUE) -n $(GOVERNED_NAMESPACE) >/dev/null 2>&1; then \
+		echo "LocalQueue $(GOVERNED_QUEUE) not found in $(GOVERNED_NAMESPACE)."; \
+		kubectl get localqueues -n $(GOVERNED_NAMESPACE) 2>&1; \
+		exit 1; \
+	fi
+	@sed -e 's/TEAM_LOCALQUEUE/$(GOVERNED_QUEUE)/g' \
+		-e 's/TEAM_PRIORITY_CLASS/$(GOVERNED_PRIORITY_CLASS)/g' \
+		$(GOVERNED_MANIFEST) | kubectl apply -n $(GOVERNED_NAMESPACE) -f -
+	@$(MAKE) --no-print-directory governed-status
+
+# Both layers, because they disagree when the labels are wrong: Kueue can report a
+# workload as Admitted while the RayCluster stays suspended because its pods are
+# being denied.
+.PHONY: governed-status
+governed-status:
+	@kubectl get raycluster $(GOVERNED_CLUSTER_NAME) -n $(GOVERNED_NAMESPACE) 2>&1 || true
+	@kubectl get workloads -n $(GOVERNED_NAMESPACE) 2>&1 || true
+	@kubectl get events -n $(GOVERNED_NAMESPACE) --sort-by=.lastTimestamp \
+		--field-selector type=Warning,involvedObject.name=$(GOVERNED_CLUSTER_NAME) \
+		2>/dev/null | tail -3 || true
+
+.PHONY: delete-governed
+delete-governed:
+	kubectl delete raycluster $(GOVERNED_CLUSTER_NAME) -n $(GOVERNED_NAMESPACE)
+
+# What task governance created, and how the quota translates. Worth reading: the
+# quota counts an instance type's nominal vCPUs, which on ThreadsPerCore: 1 nodes
+# is roughly double what the scheduler can actually place.
+.PHONY: governed-quota
+governed-quota:
+	@kubectl get clusterqueues,localqueues -A 2>&1
+	@kubectl get clusterqueue $(GOVERNED_NAMESPACE)-clusterqueue \
+		-o jsonpath='{range .spec.resourceGroups[*].flavors[*]}{.name}{"\n"}{range .resources[*]}  {.name}={.nominalQuota} borrow={.borrowingLimit}{"\n"}{end}{end}' 2>&1
 
 .PHONY: list-clusters
 list-clusters:

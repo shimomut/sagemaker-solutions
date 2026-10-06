@@ -439,6 +439,184 @@ picks `/opt/conda/bin/python` manually. Worth a line in the remote-IDE setup pag
 
 ---
 
+## 12. A governed `RayCluster` needs Kueue labels in three places, and none are documented
+
+**Severity: High.** One of the three states fails silently and looks healthy.
+
+**Page:** `sagemaker-hyperpod-ray-task-governance.html` and its child *Setting up
+task governance for Ray*. Neither mentions `kueue.x-k8s.io/queue-name`, or any
+label. Searching the whole Ray chapter for `queue-name` or `kueue` returns only an
+aside about `waitForPodsReady` and a mention of Kueue as a metrics source.
+
+**What is actually required.** In a namespace under task governance, the label must
+appear on the `RayCluster` **and on both pod templates**. The three outcomes:
+
+| Labels | Result |
+|---|---|
+| none | **Creation refused.** `ValidatingAdmissionPolicy 'hyperpod-task-governance-admission-policy' denied request: The label 'kueue.x-k8s.io/queue-name' is either missing or does not have a value set.` Clear and actionable. |
+| on the `RayCluster` only | **Accepted, then stuck forever.** See below. |
+| on the `RayCluster` and both pod templates | Works. |
+
+**The middle case is the problem.** Kueue admits the workload and reserves quota, so
+every obvious check reports success. The admission policy's `resourceRules` also
+cover `pods`, and KubeRay's generated pods inherit no labels, so each pod creation is
+denied and retried forever:
+
+```console
+$ kubectl get workload -n hyperpod-ns-ray
+NAME                            ADMITTED
+raycluster-ray-governed-0ded7   True
+
+$ kubectl get raycluster -n hyperpod-ns-ray
+NAME            STATUS
+ray-governed    suspended
+
+$ kubectl get events -n hyperpod-ns-ray
+Warning  FailedToCreateHeadPod  pods "ray-governed-head-4hh4r" is forbidden:
+  ValidatingAdmissionPolicy … denied request: The label
+  'kueue.x-k8s.io/queue-name' is either missing or does not have a value set.
+```
+
+The Kueue `Workload` says `QuotaReserved: True` and `Admitted: True`. The
+`RayCluster` says `suspended`. The cause is only in the events. The governance layer
+admits the workload while the admission layer refuses its pods.
+
+**Suggested fix.** Document the labels, with the pod templates called out
+explicitly, in *Setting up task governance for Ray* — a worked manifest would be
+best, since this is exactly the kind of thing readers copy. Alternatively have the
+admission policy exempt pods owned by a `RayCluster` whose own labels are correct,
+the way it already exempts HPTO-owned objects via `matchConditions`. That would
+reduce the three states to two, and remove the one that lies.
+
+---
+
+## 13. Gang scheduling is off by default, the docs say to verify it is on, and it cannot be configured
+
+**Severity: Medium.**
+
+**Page:** *Setting up task governance for Ray*:
+
+> **Confirm that gang scheduling is enabled for your cluster.** A Ray cluster needs
+> its head and all of its workers running together, so without gang scheduling a
+> partially scheduled cluster holds capacity without making progress. Task
+> Governance implements gang scheduling with the Kueue `waitForPodsReady` feature…
+> For the configuration settings, see the section called "Gang scheduling".
+
+**What is actually true.** The add-on ships it disabled, and the console agrees:
+
+```console
+$ # Policies tab
+Gang scheduling: Disabled
+
+$ kubectl get cm kueue-manager-config -n kueue-system -o yaml | grep -A2 featureGates
+featureGates:
+  DisableWaitForPodsReady: true
+```
+
+**And there is no way to change it.** The EKS add-on publishes an empty
+configuration schema:
+
+```console
+$ aws eks describe-addon-configuration --addon-name amazon-sagemaker-hyperpod-taskgovernance \
+    --addon-version v1.6.1-eksbuild.1 --query configurationSchema
+{"$schema":"…","additionalProperties":false,"description":"Amazon SageMaker HyperPod task governance","type":"object"}
+```
+
+and the SageMaker API's `SchedulerConfig` carries only `PriorityClasses` and
+`FairShare` — no gang scheduling, no `waitForPodsReady` timeout. So the reader is
+told to verify a setting that is off, pointed at a section for "the configuration
+settings", and given no API that exposes it.
+
+The timeout matters in practice: `waitForPodsReady` evicts and requeues a workload
+whose pods are not all ready in time, and the default space image
+(`sagemaker-distribution`) takes **160 seconds** to pull on a cold node. If gang
+scheduling is enabled with a short timeout, Ray clusters would enter an
+eviction/requeue loop on first start.
+
+---
+
+## 14. Compute allocations cannot target an existing namespace
+
+**Severity: Medium.** The documentation implies the opposite.
+
+**Page:** *Setting up task governance for Ray*:
+
+> Task Governance admits a Ray workload only in a namespace that has a compute
+> allocation. **Create an allocation for every namespace where you create Ray
+> workloads.**
+
+**What is actually true.** The Create compute allocation form states:
+
+> Namespace will be **auto-generated** based on the defined team name.
+
+Team `ray` produces namespace `hyperpod-ns-ray`. There is no field for an existing
+namespace, so `default` — or any namespace you already use — cannot be governed from
+the console. The instruction reads as "point allocations at your namespaces"; the
+reality is "the allocation creates the namespace, move your workloads there".
+
+**Also undocumented: the derived names.** Everything is generated from the team
+name, and automation needs all of them:
+
+```
+namespace              hyperpod-ns-<team>
+ClusterQueue           hyperpod-ns-<team>-clusterqueue
+LocalQueue             hyperpod-ns-<team>-localqueue
+WorkloadPriorityClass  <name-you-typed>-priority
+```
+
+The namespace is not in the `CreateComputeQuota` request or response, so anything
+automating this must either trust the undocumented convention or discover the
+namespace afterwards.
+
+**One thing the docs get right but state too weakly.** "A workload in a namespace
+with no allocation stays pending and is never admitted" reads like a cluster-wide
+switch, and it is not: the admission policy binding is scoped by namespace labels
+(`sagemaker.amazonaws.com/activate-quota: Enabled` and
+`sagemaker.amazonaws.com/sagemaker-managed-queue: "true"`). Workloads in ungoverned
+namespaces are unaffected. Saying so would save people from draining clusters before
+installing the add-on, as we did.
+
+---
+
+## 15. Quota counts nominal vCPUs, not what the scheduler can place
+
+**Severity: Medium.**
+
+An allocation of 4 × `ml.m5.xlarge` produced:
+
+```console
+$ kubectl get clusterqueue hyperpod-ns-ray-clusterqueue -o yaml
+  cpu     nominalQuota: 16     borrowingLimit: 8
+  memory  nominalQuota: 64Gi   borrowingLimit: 32Gi
+```
+
+16 CPU is 4 vCPU × 4 instances, the instance type's nominal figure. The nodes in
+question run with `ThreadsPerCore: 1` and report **1930m allocatable each — 7720m
+total**. Quota is therefore more than double real capacity, and a workload can be
+admitted by governance and then sit `Pending` because Kubernetes has nowhere to put
+it: two layers with two different ideas of how large the cluster is.
+
+This compounds the `ThreadsPerCore` trap that already exists elsewhere (the Create
+space form's 2-vCPU default, issue 11). A note in the task governance documentation
+that quota is accounted in nominal vCPUs — and that SMT-disabled instance groups
+offer about half that — would prevent a confusing class of `Pending`.
+
+---
+
+## 16. `Quick Install` is not latest, again
+
+**Severity: Low**, but now a pattern.
+
+Task governance `Quick Install` chose `v1.6.1-eksbuild.1` while the catalog offered
+`v1.6.1-eksbuild.2`. The Spaces add-on did the same (issue 11). The two panels are
+also inconsistent about telling you: task governance shows *"A new version is
+available for this add-on"* with an `Update version` button, Spaces shows nothing.
+
+Task governance also installs no confirmation dialog enumerating what it creates,
+where the Spaces add-on does — a dialog that was genuinely useful. Worth aligning.
+
+---
+
 ## What worked well, for balance
 
 Several things were better than expected and are worth preserving:

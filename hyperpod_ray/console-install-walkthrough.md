@@ -1211,21 +1211,241 @@ a cluster created today would be a no-op. Not a candidate for a Ray-specific
 template either way: AMI currency is a cluster-lifecycle concern, and the
 developer guide already covers updating a cluster's AMI version on a schedule.
 
-### 5e. Deliberately skipped
+### 5e. Task governance
+
+Queueing, team quotas and priority-based preemption, through the add-on and a
+Kueue installation it brings with it. The console side is three screens; the part
+that costs time is that **a governed namespace changes what a valid `RayCluster`
+looks like, and the Ray chapter never says so.**
+
+#### Install the add-on
+
+Cluster → **Add-ons** → **Amazon SageMaker HyperPod task governance** → `Install`.
+
+![The task governance add-on before installation](images/taskgov-addon-not-installed.png)
+![The add-on reporting Active, with a newer version available](images/taskgov-addon-installed.png)
+
+No confirmation dialog enumerating resources this time, unlike the Spaces add-on.
+It does tell you a newer version exists, which the Spaces panel did not — the two
+add-ons are inconsistent about both. `Quick Install` picked
+**`v1.6.1-eksbuild.1`** while the catalog offered `v1.6.1-eksbuild.2`, so this is
+the second add-on where "Quick" is not "latest".
+
+What it created:
+
+```diff
+ ===== namespaces =====
++namespace/kueue-system
+
+ ===== eks addons =====
++amazon-sagemaker-hyperpod-taskgovernance
+
+ ===== workloads outside kube-system =====
++kueue-system deployment.apps/kueue-controller-manager
+```
+
+Plus 11 `kueue.x-k8s.io` CRDs — and **no queues, flavors or priority classes at
+all**. The machinery is present and nothing is allocated.
+
+#### Gang scheduling is off, and the documentation says to check that it is on
+
+The Ray chapter says:
+
+> Confirm that gang scheduling is enabled for your cluster. A Ray cluster needs its
+> head and all of its workers running together… Task Governance implements gang
+> scheduling with the Kueue `waitForPodsReady` feature.
+
+The add-on default is the opposite. Both the console and the Kueue config agree:
+
+```console
+$ # Policies tab
+Gang scheduling: Disabled
+
+$ kubectl get cm kueue-manager-config -n kueue-system -o yaml | grep -A2 featureGates
+featureGates:
+  DisableWaitForPodsReady: true
+```
+
+Worse, there is no customer-visible way to change it or to read the timeout. The
+EKS add-on publishes **no configuration schema** —
+`{"additionalProperties": false, "type": "object"}` — and the SageMaker API's
+`SchedulerConfig` carries only `PriorityClasses` and `FairShare`. So the setting the
+documentation tells you to verify is one you cannot configure through either API.
+
+One accidental mercy: with `waitForPodsReady` off, the eviction risk it carries does
+not apply. That matters here, because the `sagemaker-distribution` image takes
+**160 seconds** to pull on a cold node, and `waitForPodsReady` evicts and requeues a
+workload whose pods are not all ready within its timeout.
+
+#### Cluster policy, then compute allocation
+
+**Policies** tab → **Cluster policy** → `Create`. The defaults offered are
+`Task ranking` with four priority classes (inference 100, experimentation 80,
+training 70, fine-tuning 60), `Fair-share` for idle compute, and **`Unallocated
+resource sharing: Disabled`**.
+
+That last one is worth a thought before you accept it: capacity you do not allocate
+cannot be used by anyone. On a single-team cluster, allocate everything, or you will
+be debugging a `Pending` pod while a node sits empty.
+
+Then **Compute allocations** → `Create`. The decisive detail is on this form:
+
+> Namespace will be **auto-generated** based on the defined team name.
+
+**You cannot allocate to an existing namespace.** Team `ray` produces namespace
+`hyperpod-ns-ray`. This collides with the Ray chapter's instruction —
+
+> Create an allocation for every namespace where you create Ray workloads.
+
+— which reads as though you point allocations at namespaces you already have. You
+do the reverse: the allocation makes the namespace, and governed Ray workloads move
+there. `default` cannot be governed from the console at all.
+
+The form's `JSON` tab shows the API call, and the namespace is not in it:
+
+```json
+{
+  "Name": "ray-team",
+  "ComputeQuotaTarget": { "TeamName": "ray", "FairShareWeight": "0" },
+  "ComputeQuotaConfig": {
+    "ComputeQuotaResources": [{ "InstanceType": "ml.m5.xlarge", "Count": 4 }],
+    "PreemptTeamTasks": "LowerPriority",
+    "ResourceSharingConfig": { "Strategy": "LendAndBorrow", "BorrowLimit": "50" }
+  }
+}
+```
+
+So the namespace name is derived server-side from `TeamName`. Anything automating
+this has to either trust the undocumented `hyperpod-ns-<team>` convention or look
+the namespace up afterwards.
+
+#### What the allocation produced
+
+Everything is named off the team, deterministically:
+
+```console
+$ make governed-quota
+namespace              hyperpod-ns-ray
+ClusterQueue           hyperpod-ns-ray-clusterqueue
+LocalQueue             hyperpod-ns-ray-localqueue      (in hyperpod-ns-ray)
+ResourceFlavor         hyperpod-flavor, ml.m5.xlarge
+WorkloadPriorityClass  inference-priority 100, experimentation-priority 80,
+                       training-priority 70, fine-tuning-priority 60
+```
+
+Note the priority classes gained a **`-priority` suffix** that you did not type.
+
+And the quota itself:
+
+```
+flavor ml.m5.xlarge
+  cpu     nominal=16    borrow=8
+  memory  nominal=64Gi  borrow=32Gi
+```
+
+**16 CPU, against 7720m the scheduler can actually place.** The quota counts
+`ml.m5.xlarge` at its nominal 4 vCPU × 4 instances; with `ThreadsPerCore: 1` each
+node offers 1930m allocatable. So quota is more than double real capacity, and a
+workload can be admitted by governance and then sit `Pending` because Kubernetes has
+nowhere to put it. Two layers, two different ideas of how big the cluster is.
+
+#### Three ways to label a RayCluster, two of which fail
+
+This is the finding worth carrying away, and it is entirely undocumented — the Ray
+chapter's task governance section never mentions a label.
+
+**No labels — creation is refused.** Not "runs unmanaged", as
+`manageJobsWithoutQueueName: false` in the Kueue config might suggest. The add-on
+installs a `ValidatingAdmissionPolicy` that gets there first:
+
+```console
+$ kubectl apply -f ray-cluster.yaml -n hyperpod-ns-ray
+The rayclusters "ray-nolabel" is invalid: ValidatingAdmissionPolicy
+'hyperpod-task-governance-admission-policy' denied request: The label
+'kueue.x-k8s.io/queue-name' is either missing or does not have a value set.
+```
+
+Loud and clear, and easy to act on.
+
+**Label on the `RayCluster` only — accepted, then stuck forever.** The policy's
+`resourceRules` also cover `pods`, `deployments` and `statefulsets`, and its only
+exclusion is for HPTO-owned objects. KubeRay's generated pods carry no labels, so:
+
+```console
+$ kubectl get workload -n hyperpod-ns-ray
+NAME                            ADMITTED
+raycluster-ray-governed-0ded7   True          # governance says yes
+
+$ kubectl get raycluster -n hyperpod-ns-ray
+NAME            STATUS
+ray-governed    suspended                     # ...and it never starts
+
+$ kubectl get events -n hyperpod-ns-ray
+Warning  FailedToCreateHeadPod  pods "ray-governed-head-4hh4r" is forbidden:
+  ValidatingAdmissionPolicy … denied request: The label
+  'kueue.x-k8s.io/queue-name' is either missing or does not have a value set.
+```
+
+KubeRay retries forever. The Kueue `Workload` reports `QuotaReserved: True` and
+`Admitted: True`, so every obvious check says healthy; the cause is only in the
+events. **The governance layer admits the workload and the admission layer refuses
+its pods.**
+
+**Label on the `RayCluster` and both pod templates — works.** That is
+[examples/ray-cluster-governed.yaml](examples/ray-cluster-governed.yaml):
+
+```bash
+make deploy-governed              # TEAM_NAME=ray by default
+make governed-status
+```
+
+```
+NAME                   AVAILABLE WORKERS   CPUS   STATUS   AGE
+ray-example-governed   2                   3      ready    3m18s
+```
+
+160 seconds to `ready`, the same image pull as before. `make governed-status`
+deliberately prints the RayCluster, the Kueue workload *and* recent warnings
+together, because the middle one alone is misleading.
+
+#### Verify which namespaces are actually governed
+
+Before assuming governance broke something, check. The policy binding is scoped by
+namespace labels, not applied cluster-wide:
+
+```console
+$ kubectl get ns default hyperpod-ns-ray \
+    -o custom-columns='NS:.metadata.name,QUOTA:.metadata.labels.sagemaker\.amazonaws\.com/activate-quota,MANAGED:.metadata.labels.sagemaker\.amazonaws\.com/sagemaker-managed-queue'
+NS                QUOTA     MANAGED
+default           <none>    <none>
+hyperpod-ns-ray   Enabled   true
+```
+
+So **existing workloads in ungoverned namespaces are unaffected.** This walkthrough
+deleted its Ray cluster and stopped its space before installing the add-on, which
+turned out to be unnecessary caution — useful to know, since the Ray chapter's
+"a workload in a namespace with no allocation stays pending and is never admitted"
+reads like a cluster-wide switch.
+
+**Friction:** three console screens, and then a manifest change nothing told you
+about. The add-on install is one click and the policy and allocation forms are
+self-contained, so **none of that needs a template** — but the Kueue labels and the
+namespace derivation are exactly what a reader will get wrong, which is why this
+repo ships a worked example rather than a stack.
+
+### 5f. Deliberately skipped
 
 - **HyperPod Ray Endpoint Operator** and browser access to spaces — both need a
   customer-owned domain with a public Route 53 hosted zone. Out of scope here;
   use `make dashboard` (`kubectl port-forward`) instead of an authenticated
   public URL.
-- **Task governance** — not installed on `k8-ray-3`, and deliberately left that
-  way. The row offers `Install Task Governance add-on`, but once governance is on,
-  a namespace without a compute allocation holds a Ray workload unadmitted with no
-  pods at all, and preemption deletes a whole Ray cluster including its head.
-  Useful in production; in a hands-on session it only adds failure modes. Note
-  that the cluster-setup template has
-  `CreateTaskGovernanceClusterPolicyStack` for the create-time path.
 - **Tiered checkpointing / managed tiered KV cache** — both need HyperPod Tiered
   Storage configured.
+- **Preemption** — the allocation enables it (`PreemptTeamTasks: LowerPriority`)
+  and the priority classes exist, but it was not exercised. The documented behaviour
+  is worth testing before relying on it: preemption **deletes the whole Ray cluster,
+  including the head**, rather than shrinking it.
+
 
 ## Friction log
 
@@ -1240,6 +1460,7 @@ makes you collect ARNs from three consoles does.
 | 5b. Spaces add-on | 1 click + 1 dialog, then a space form | the space image's digest, if you want Ray to work | per cluster, per space | yes (3 IAM roles, created for you) | **No** for the add-on. Yes for a matching RayCluster: [examples/ray-cluster-space.yaml](examples/ray-cluster-space.yaml) |
 | 5c. Observability | _TODO_ | Grafana workspace, Prometheus workspace, role | per account | yes | _TODO_ |
 | 5d. AMI floor | unknown | none you can read | unclear | no | No — cluster-lifecycle concern, and the signal is unexplained |
+| 5e. Task governance | 3 forms | team name (it becomes the namespace), the derived LocalQueue name | per team | no | **No** for the console flow. Yes for a labelled manifest: [examples/ray-cluster-governed.yaml](examples/ray-cluster-governed.yaml). The Kueue labels are undocumented and fail silently when half-applied |
 
 ### How to read the verdict
 
