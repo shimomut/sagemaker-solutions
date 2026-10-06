@@ -373,6 +373,35 @@ API model (botocore 1.42.34). Call scope: read-only.
   `ray.io/rayjob` alongside the kubeflow frameworks, plus `pod`, `deployment`,
   `statefulset` and `leaderworkerset`.
 
+- **Spaces work in a task-governed namespace, and the Spaces controller adds the
+  Kueue label itself.** Verified 2026-10-06 on `hyperpod-ns-ray`. This is the
+  asymmetry that makes the `RayCluster` label requirement so easy to miss: on one
+  cluster, under one admission policy, the Spaces controller labels the pods it
+  creates and KubeRay does not. A space came up with no manual labelling, registered
+  as a Kueue **`pod`** workload (`pod-workspace-…`, distinct from
+  `raycluster-…`), and consumed the team's quota: `cpu` went 1500m → 2600m on
+  creation (workspace 1000m + ssm-agent 100m) → 2850m after attaching
+  (ray-sidecar 250m). Attaching restarts the pod, so its workload is recreated and
+  **re-admitted** — which would block on a team near its allocation.
+
+  Two practical consequences: a space cannot change namespace, so a governed setup
+  needs a *new* space in `hyperpod-ns-<team>` rather than a restart of one in
+  `default`; and the Create space form drops the `Task governance is not enabled for
+  this namespace` warning in favour of an Allocations / Utilization panel, which is
+  how you can tell the namespace is recognised.
+
+- **Governance changes admission and nothing else.** With the space attached to a
+  governed `RayCluster`, `ray.init()` connected, reported 4 nodes alive and 6.0
+  cluster CPU, and 9 tasks distributed 4/3/2 across the three real nodes with the
+  space contributing none — identical to the ungoverned run. Remote IDE access also
+  behaved identically: the space registered as an Online SSM managed instance and an
+  `AWS-StartSSHSession` session connected from local VS Code.
+
+- **The console's namespace Utilization panel truncates to whole vCPUs.** With
+  `cpu=1500m` consumed by Kueue's accounting, the Create space form showed
+  `Allocated vCPUs 0`. So a namespace running a Ray cluster reads as having nothing
+  allocated, on the form where a user decides how much to request.
+
 ## Proposed edits to the main doc
 
 ### 1. Hung job detection has a node AMI floor

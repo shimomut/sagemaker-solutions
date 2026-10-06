@@ -1425,6 +1425,87 @@ ray-example-governed   2                   3      ready    3m18s
 deliberately prints the RayCluster, the Kueue workload *and* recent warnings
 together, because the middle one alone is misleading.
 
+#### Spaces work under governance, and the controller labels them for you
+
+A space must live in the same namespace as the Ray cluster it attaches to, and a
+space cannot change namespace — so a governed setup needs a *new* space in
+`hyperpod-ns-<team>`, not a restart of one in `default`.
+
+The open question was whether that is even possible: the admission policy covers
+`deployments` and `pods`, so a space created without the queue label would be
+refused the same way a `RayCluster` is. It is possible, and the difference is
+instructive.
+
+**The namespace appears in the Create space form, and the form changes shape.** The
+`Task governance is not enabled for this namespace` warning seen on `default` is
+replaced by an **Allocations / Utilization** panel showing the team's quota.
+
+**The Spaces controller adds the label itself.** No manual step, no failure:
+
+```console
+$ kubectl get pod <space-pod> -n hyperpod-ns-ray \
+    -o jsonpath='{.metadata.labels.kueue\.x-k8s\.io/queue-name}'
+hyperpod-ns-ray-localqueue
+```
+
+**So a space consumes the team's quota**, as a `pod` workload rather than through any
+Ray-specific path:
+
+```console
+$ kubectl get workloads -n hyperpod-ns-ray
+pod-workspace-my-jupyter-space-governed-…   hyperpod-ns-ray-localqueue   True
+raycluster-ray-example-governed-e5ef9       hyperpod-ns-ray-localqueue   True
+
+$ make governed-quota        # before the space: cpu=1500m
+cpu=2600m                    # + workspace 1000m + ssm-agent 100m
+cpu=2850m                    # + ray-sidecar 250m, after attaching
+```
+
+Attaching restarts the pod, so its workload is recreated and **re-admitted** — which
+would block if the team's quota had no room. Worth knowing before attaching on a
+cluster that is near its allocation.
+
+**This is the asymmetry worth reporting.** On one cluster, with one admission policy:
+
+| Controller | Queue label |
+|---|---|
+| SageMaker Spaces | added automatically |
+| KubeRay | not added — you write it in three places by hand, undocumented |
+
+Because spaces just work, a reader has no reason to learn that Kueue labels exist
+before meeting the `RayCluster` that silently sits `suspended`.
+
+#### Everything else is unchanged under governance
+
+Verified on `hyperpod-ns-ray` with the space attached to `ray-example-governed`:
+
+```console
+$ kubectl exec <space-pod> -c workspace -- python -c "..."
+driver python 3.12.14 ray 2.55.1
+CONNECTED
+nodes alive: 4   cluster CPU: 6.0
+tasks: {'10.1.173.249': 4, '10.1.87.23': 3, '10.1.196.219': 2}
+```
+
+Four nodes with the space as the zero-compute fourth, nine tasks across the three
+real ones. Remote IDE access works too — the space registered as an **Online** SSM
+managed instance and an `AWS-StartSSHSession` session connected from a local VS Code
+exactly as in [5b](#5b-sagemaker-ai-spaces-add-on). Governance changes admission; it
+changes nothing about the Ray or the remote-access experience once admitted.
+
+#### The console's Utilization panel under-reports
+
+Worth a note because it is the number you would plan against. With the governed
+`RayCluster` running and consuming `cpu=1500m` by Kueue's accounting, the Create space
+form's Utilization panel read:
+
+```
+Allocated vCPUs 0        Borrowed vCPUs 0
+```
+
+It appears to truncate to whole vCPUs, so any usage below 1 CPU shows as zero. Minor,
+but it means the panel reads "nothing allocated" on a namespace that is in fact
+running a Ray cluster.
 #### Verify which namespaces are actually governed
 
 Before assuming governance broke something, check. The policy binding is scoped by

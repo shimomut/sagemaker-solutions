@@ -481,12 +481,26 @@ The Kueue `Workload` says `QuotaReserved: True` and `Admitted: True`. The
 `RayCluster` says `suspended`. The cause is only in the events. The governance layer
 admits the workload while the admission layer refuses its pods.
 
-**Suggested fix.** Document the labels, with the pod templates called out
-explicitly, in *Setting up task governance for Ray* — a worked manifest would be
-best, since this is exactly the kind of thing readers copy. Alternatively have the
-admission policy exempt pods owned by a `RayCluster` whose own labels are correct,
-the way it already exempts HPTO-owned objects via `matchConditions`. That would
-reduce the three states to two, and remove the one that lies.
+**The SageMaker Spaces controller does this automatically, which makes the gap
+harder to spot.** On the same cluster, under the same admission policy:
+
+| Controller | Queue label on the pods it creates |
+|---|---|
+| SageMaker Spaces | **added automatically** — a space in a governed namespace just works |
+| KubeRay | not added — the user writes it in three places, undocumented |
+
+A space created in `hyperpod-ns-ray` came up without any manual labelling, registered
+as a Kueue `pod` workload and consumed the team's quota correctly. So a reader has no
+reason to learn that Kueue labels exist until a `RayCluster` sits `suspended` with
+nothing to explain it.
+
+**Suggested fix.** Either make the two consistent — have KubeRay-generated pods
+labelled the way the Spaces controller labels its own, or exempt pods owned by a
+correctly-labelled `RayCluster` from the policy, the way it already exempts HPTO-owned
+objects via `matchConditions`. Both reduce the three states to two and remove the one
+that lies. Failing that, document the labels with the pod templates called out
+explicitly in *Setting up task governance for Ray*; a worked manifest would be best,
+since this is exactly the kind of thing readers copy.
 
 ---
 
@@ -618,7 +632,27 @@ that — would stop people planning against a number twice too large.
 
 ---
 
-## 16. `Quick Install` is not latest, again
+## 16. The namespace Utilization panel truncates to whole vCPUs
+
+**Severity: Low.**
+
+**Surface:** Studio → Create space → **Namespace** → Allocations / Utilization.
+
+With a governed `RayCluster` running and Kueue accounting `cpu=1500m` against the
+team's quota, the panel read:
+
+```
+Allocated GPUs 0     Allocated vCPUs 0     Borrowed vCPUs 0
+```
+
+It appears to truncate rather than round, so any usage below one whole vCPU displays
+as zero. The effect is that a namespace actively running a Ray cluster is presented as
+having nothing allocated — on the very form where a user is deciding how much compute
+to request. `kubectl get clusterqueue … -o yaml` shows the real figure.
+
+---
+
+## 17. `Quick Install` is not latest, again
 
 **Severity: Low**, but now a pattern.
 
