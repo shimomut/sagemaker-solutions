@@ -59,20 +59,41 @@ telling them apart is already available: the UI's own feature detection uses
 
 ## 2. Following the Ray chapter produces a space that cannot use its cluster
 
-**Severity: High.** Both halves of the incompatibility come from the documentation.
+**Severity: High.** The warning is in the documentation. It is on a different page
+from the example that violates it.
 
-**Pages.** The requirement and the failure are on
-`sagemaker-hyperpod-ray-attach-space.html`; the incompatible examples are on other
-pages of the same chapter:
+**Where each half comes from.** Two sibling pages both have a section called
+**Creating a cluster**. One carries the warning; the other carries the manifest that
+ignores it.
 
-| Page | Section | Image |
+| Page | Section | Content |
 |---|---|---|
-| `sagemaker-hyperpod-ray-manage-kubectl.html` | *Creating a cluster* | `rayproject/ray:2.55.1`, `:2.55.1-gpu` |
-| `sagemaker-hyperpod-ray-deploy-model.html` | *A RayService manifest* | `rayproject/ray:2.56.1`, `:2.56.1-gpu` |
+| `sagemaker-hyperpod-ray-manage-studio.html` | *Creating a cluster* | *"A space carries its own Ray version, from the SageMaker AI Distribution image it runs. Match that version to the Ray version of the cluster. A mismatch produces runtime errors that are hard to diagnose."* |
+| `sagemaker-hyperpod-ray-manage-kubectl.html` | *Creating a cluster* | `image: rayproject/ray:2.55.1`, with no mention of spaces or version matching |
+| `sagemaker-hyperpod-ray-deploy-model.html` | *A RayService manifest* | `image: rayproject/ray:2.56.1` |
+| `sagemaker-hyperpod-ray-attach-space.html` | *Version compatibility* | restates the requirement, and recommends the same Distribution image on both sides |
 
-`attach-space.html` itself carries no `RayCluster` manifest, which is part of the
-problem: the page that states the version requirement is not the page a reader
-copies a manifest from.
+A reader who creates clusters with `kubectl` — which is the path this walkthrough
+took, and the path anyone doing IaC takes — sees the manifest and never the warning.
+The two sections share a heading, so there is no cue that the Studio page says
+something the kubectl page omits. And `attach-space.html`, where the requirement is
+stated most fully, carries no `RayCluster` manifest at all: the page that states the
+rule is not the page a reader copies from.
+
+**The space side is not a documented instruction.** The documentation never names an
+image or tag for a space — it only refers to *"the space's SageMaker AI Distribution
+image"* as a given. `sagemaker-distribution:latest-cpu` comes from the Spaces add-on's
+own installed templates:
+
+```console
+$ kubectl get workspacetemplates -n jupyter-k8s-system     -o jsonpath='{range .items[*]}{.metadata.name}  {.spec.defaultImage}{"\n"}{end}'
+sagemaker-code-editor-template  public.ecr.aws/sagemaker/sagemaker-distribution:latest-cpu
+sagemaker-jupyter-template      public.ecr.aws/sagemaker/sagemaker-distribution:latest-cpu
+```
+
+and the Create space form pre-fills it. So the collision is between a **documented
+example** and a **product default** — which is worse than two conflicting documents,
+because the reader has no reason to suspect the default.
 
 **What happens.** Create a `RayCluster` from the chapter's example manifests, create
 a space from the default template, attach them. The Connect dialog accepts the
@@ -89,20 +110,23 @@ This process on node 10.1.151.109 was started with:
 
 **Where it comes from.**
 
-| Side | Documented source | Python |
+| Side | Where the image comes from | Python |
 |---|---|---|
-| `RayCluster` | `rayproject/ray:2.55.1`, from *Creating a cluster* | 3.10.20 |
-| Space | `sagemaker-distribution:latest-cpu`, the default space template | 3.12.14 |
+| `RayCluster` | the documented example in *Creating a cluster* (kubectl) | 3.10.20 |
+| Space | the add-on's default template, pre-filled in the form | 3.12.14 |
 
 The **Ray versions match** at 2.55.1, which is exactly why this is easy to walk
 into. The chapter does state the requirement — *"The Python version must match as
-well, including the patch version"* — and does recommend using the same SageMaker
-Distribution image on both sides. Its own examples do not follow that advice.
+well, including the patch version"* — twice, and recommends the same Distribution
+image on both sides. Neither statement is anywhere near the manifest a reader
+copies.
 
-**Suggested fix.** Use a SageMaker Distribution image in the *Creating a cluster*
-example, or note on it that a cluster built from `rayproject/ray` cannot have a
-space attached. Repeating the version requirement next to the manifest, rather than
-only on `attach-space.html`, would also close the gap. Pinning by digest rather than
+**Suggested fix.** Put the warning where the manifest is. Either use a SageMaker
+Distribution image in the kubectl *Creating a cluster* example, or add the
+version-matching note to that section as well — it already exists verbatim on the
+Studio page one level away. Pinning by digest rather than `latest-cpu` would also
+help, since a moving tag on one side and a fixed tag on the other reintroduces the
+drift later. Pinning by digest rather than
 `latest-cpu` would also help, since `latest` on one side and a fixed tag on the
 other reintroduces the drift later.
 
