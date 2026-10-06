@@ -402,6 +402,43 @@ API model (botocore 1.42.34). Call scope: read-only.
   `Allocated vCPUs 0`. So a namespace running a Ray cluster reads as having nothing
   allocated, on the form where a user decides how much to request.
 
+- **Under Task ranking a space defaults to priority 0, below every class, and the
+  Create space form cannot set it.** The Spaces controller adds
+  `kueue.x-k8s.io/queue-name` but not `kueue.x-k8s.io/priority-class`. With
+  `PreemptTeamTasks: LowerPriority` on the allocation, the interactive development
+  environment is therefore the **first** thing preempted when quota is tight, and
+  preemption restarts the pod. Fixable only after creation, via **Edit space →
+  Kubernetes metadata → Labels → `+ Add label`** — verified: adding
+  `kueue.x-k8s.io/priority-class: training-priority` took the workload from
+  `priority=0` to `priority=70` after the restart.
+
+  That panel also shows the attachment is label-recorded
+  (`ray.sagemaker.amazonaws.com/cluster: <cluster>`), and that the Kueue and Ray labels
+  are **editable and removable** while the `workspace.jupyter.org/*` ones are read-only.
+  Removing `queue-name` in a governed namespace stops the space from starting, since the
+  admission policy denies the next pod.
+
+- **A space shares no filesystem with its Ray cluster.** `/home/sagemaker-user` is a
+  `ReadWriteOnce` 5Gi PVC owned by the space (the form's `EBS space storage` value, which
+  is what the `aws-ebs-csi-driver` prerequisite serves), and it survives `Stop space` but
+  not `Delete`. No FSx or EFS is mounted unless provisioned. So the head and workers
+  cannot see the notebook's working directory, which is the real reason
+  `runtime_env={"working_dir": …}` is the mechanism rather than a convenience — the
+  documentation leans on `runtime_env` without saying why.
+
+  Sizes worth knowing: `/dev/shm` is the Ray object store, **1Gi in the space** from the
+  add-on's `rayIntegration.devShmSizeLimit` default against 2Gi on the head, so a large
+  `ray.get()` can exhaust the driver's share while the cluster has room. `/tmp/ray`, the
+  sidecar's `--temp-dir`, is a 256Mi tmpfs.
+
+- **`ray.init()` needs no address because of injected environment, not just the
+  sidecar.** The space carries `RAY_ADDRESS=auto`, `RAY_CLUSTER_NAME` and
+  `RAY_HEAD_IMAGE` (the digest of the cluster's head image). Ray's own log says *"Using
+  address auto set in the environment variable RAY_ADDRESS"*. Recorded because an earlier
+  explanation in this session attributed it solely to the sidecar's local session, which
+  is half the story — and because `RAY_HEAD_IMAGE` plus `RAY_CLUSTER_NAME` are enough for
+  a startup script to perform the version check Studio skips.
+
 ## Proposed edits to the main doc
 
 ### 1. Hung job detection has a node AMI floor

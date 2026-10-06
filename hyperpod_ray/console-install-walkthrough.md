@@ -1116,6 +1116,61 @@ Three things to read off that:
 The `infeasible resource requests` warning from the raylet while the queue drains is
 the same harmless noise as in [Step 4](#step-4--prove-ray-actually-runs).
 
+#### What a space can and cannot see
+
+Two things about the filesystem shape its usefulness, and neither is stated where you
+would look for it.
+
+```console
+$ kubectl exec <space-pod> -c workspace -- df
+Filesystem     1K-blocks     Used Available Use% Mounted on
+overlay        524032000 21475392 502556608   5% /
+/dev/nvme2n1     5074592  1378808   3679400  28% /home/sagemaker-user
+tmpfs             262144      948    261196   1% /tmp/ray
+tmpfs            1048576       32   1048544   1% /dev/shm
+```
+
+**`/home/sagemaker-user` is a 5Gi `RWO` PVC** — the `EBS space storage (GB)` value from
+the Create space form, which is what the `aws-ebs-csi-driver` prerequisite exists for.
+It survives `Stop space`; only `Delete` removes it.
+
+**Nothing is shared with the Ray cluster.** That PVC is `ReadWriteOnce` and belongs to
+the space alone, and no FSx or EFS is mounted unless you provisioned one. So **the Ray
+head and workers cannot see your home directory**, which makes `runtime_env` the
+mechanism rather than a convenience:
+
+```python
+ray.init(runtime_env={"working_dir": "./projects", "pip": ["pandas==2.2.2"]})
+```
+
+Large data belongs in S3. This is why the documentation leans on `runtime_env`, though
+it does not say that the absence of a shared filesystem is the reason.
+
+**`/dev/shm` is 1Gi in the space and larger on the head.** It is the Ray object store,
+sized from the add-on's `rayIntegration.devShmSizeLimit` default on the space side and
+by KubeRay from the memory request on the cluster side (2Gi on this head). So pulling a
+large object back to the driver with `ray.get()` can exhaust the *space's* 1Gi even when
+the cluster has room. `/tmp/ray`, the sidecar's `--temp-dir`, is a 256Mi tmpfs.
+
+#### How `ray.init()` finds the cluster
+
+The sidecar's `ray start` is half of it; the other half is injected environment:
+
+```console
+$ kubectl exec <space-pod> -c workspace -- env | grep '^RAY_'
+RAY_ADDRESS=auto
+RAY_CLUSTER_NAME=ray-example-space
+RAY_HEAD_IMAGE=public.ecr.aws/sagemaker/sagemaker-distribution@sha256:e04ebe38…
+RAY_ACCEL_ENV_VAR_OVERRIDE_ON_ZERO=0
+```
+
+`RAY_ADDRESS=auto` is what makes a bare `ray.init()` work — Ray looks for a local
+session, which the sidecar created in the same pod. The notebook output says so
+explicitly: *"Using address auto set in the environment variable RAY_ADDRESS"*.
+
+`RAY_HEAD_IMAGE` and `RAY_CLUSTER_NAME` are more useful than they look: they let a
+startup script in the space verify the version match that Studio does not check. The
+head image is right there to compare against the space's own.
 **Friction:** the add-on itself is one click plus reading one dialog, and the console
 creates three IAM roles, two prerequisite add-ons and the controller for you. **Not
 worth a template** — the clearest case in this walkthrough of console automation a
@@ -1475,6 +1530,53 @@ cluster that is near its allocation.
 Because spaces just work, a reader has no reason to learn that Kueue labels exist
 before meeting the `RayCluster` that silently sits `suspended`.
 
+#### A space starts at the lowest priority, and the Create form cannot change it
+
+With `Task ranking` in the cluster policy, every workload carries a priority. The two
+in `hyperpod-ns-ray` did not start out equal:
+
+```console
+$ kubectl get workloads -n hyperpod-ns-ray -o json | …
+raycluster-ray-example-governed-e5ef9        priority=70     # kueue.x-k8s.io/priority-class: training-priority
+pod-workspace-my-jupyter-space-governed-…    priority=0      # no priority class at all
+```
+
+The Spaces controller adds `kueue.x-k8s.io/queue-name` but **not**
+`kueue.x-k8s.io/priority-class`, so a space lands at **priority 0 — below all four
+classes** defined in the policy. Combined with `PreemptTeamTasks: LowerPriority` on the
+allocation, that makes **the development environment the first thing preempted** when
+quota is tight. Preemption restarts the pod, so unsaved kernel state goes with it.
+
+Nothing says so. The Create space form has no priority field.
+
+**It is fixable after the fact**, through a surface that is not obvious: **Edit space
+→ Kubernetes metadata → Labels → `+ Add label`**.
+
+```
+kueue.x-k8s.io/priority-class : training-priority
+```
+
+Saving restarts the pod and the workload is re-admitted at the new priority:
+
+```console
+$ kubectl get workloads -n hyperpod-ns-ray -o json | …
+raycluster-ray-example-governed-e5ef9        priority=70
+pod-workspace-my-jupyter-space-governed-…    priority=70     # was 0
+```
+
+For real use, consider giving spaces a *higher* class than the training work rather
+than an equal one — losing an interactive session to a batch job is a poor trade.
+
+Two more things visible on that panel, both worth knowing:
+
+- **The attachment is recorded as a label.** `ray.sagemaker.amazonaws.com/cluster:
+  ray-example-governed` sits alongside the Kueue labels, which is how `Connect Ray
+  cluster` records its choice (together with `spec.integrationTemplateRefs` on the
+  `Workspace`).
+- **Those labels are editable *and* removable.** Deleting `kueue.x-k8s.io/queue-name`
+  in a governed namespace means the next pod creation is denied by the admission
+  policy and the space will not start. The `workspace.jupyter.org/*` labels are
+  read-only; the Kueue and Ray ones are not.
 #### Everything else is unchanged under governance
 
 Verified on `hyperpod-ns-ray` with the space attached to `ray-example-governed`:

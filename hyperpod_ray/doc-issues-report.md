@@ -652,7 +652,73 @@ to request. `kubectl get clusterqueue … -o yaml` shows the real figure.
 
 ---
 
-## 17. `Quick Install` is not latest, again
+## 17. Under Task ranking, a space is the first thing preempted, and the Create form cannot change that
+
+**Severity: Medium.**
+
+**Surface:** cluster policy `Task ranking` + Create space, and the per-space labels.
+
+With priority classes defined, every workload carries a priority. The Spaces controller
+adds `kueue.x-k8s.io/queue-name` to the pods it creates but **not**
+`kueue.x-k8s.io/priority-class`, so a space lands at **priority 0 — below every class in
+the policy**:
+
+```console
+$ kubectl get workloads -n hyperpod-ns-ray -o json | …
+raycluster-ray-example-governed-e5ef9       priority=70    # label set by hand
+pod-workspace-my-jupyter-space-governed-…   priority=0     # no priority class
+```
+
+Combined with `PreemptTeamTasks: LowerPriority` on the allocation — the console's
+default when preemption is enabled — **an interactive development environment is the
+first thing evicted** when a higher-priority task needs quota. Preemption restarts the
+pod, so unsaved kernel state is lost. Nothing in the console says this, and the Create
+space form has no priority field.
+
+It *is* fixable, through a surface a user is unlikely to find: **Edit space → Kubernetes
+metadata → Labels → `+ Add label`**, adding `kueue.x-k8s.io/priority-class`. Saving
+restarts the pod and the workload is re-admitted at the new priority (verified: 0 → 70).
+
+**Suggested fix.** Either have the Spaces controller assign a priority class — a
+sensible default for an interactive session is *above* batch training, not below it — or
+expose the field on the Create space form. At minimum, document that spaces default to
+the lowest priority once Task ranking is in use.
+
+**Related, same panel.** The Kueue and Ray labels on that Edit space screen are editable
+*and removable*, while the `workspace.jupyter.org/*` ones are read-only. Deleting
+`kueue.x-k8s.io/queue-name` in a governed namespace means the next pod creation is denied
+by the admission policy and the space stops starting. A one-way door presented as a text
+field.
+
+---
+
+## 18. Nothing documents that a space shares no filesystem with its Ray cluster
+
+**Severity: Low**, but it changes how you write code.
+
+A space's `/home/sagemaker-user` is a **`ReadWriteOnce` 5Gi PVC** belonging to that space
+alone, and no FSx or EFS is mounted unless you provisioned one:
+
+```console
+$ kubectl exec <space-pod> -c workspace -- df
+/dev/nvme2n1     5074592  1378808   3679400  28% /home/sagemaker-user
+tmpfs            1048576       32   1048544   1% /dev/shm
+tmpfs             262144      948    261196   1% /tmp/ray
+```
+
+So the Ray head and workers **cannot see the notebook's working directory**. That makes
+`runtime_env={"working_dir": …}` the mechanism rather than a convenience, which is
+presumably why the documentation leans on it — but it never states the reason, and a
+reader coming from a single-machine Ray setup will expect shared paths to work.
+
+Worth documenting alongside it: `/dev/shm` is the Ray object store and is **1Gi in the
+space** (from the add-on's `rayIntegration.devShmSizeLimit` default) against 2Gi on this
+head, so `ray.get()` of a large object can exhaust the driver's share while the cluster
+has room.
+
+---
+
+## 19. `Quick Install` is not latest, again
 
 **Severity: Low**, but now a pattern.
 
@@ -681,7 +747,19 @@ Several things were better than expected and are worth preserving:
 - **`ray.init()` really does work with no arguments**, via injected `RAY_ADDRESS=auto`
   and a sidecar that joins the pod to the cluster as a zero-compute node. Nine tasks
   from a notebook in remote VS Code distributed across the three real nodes while
-  the space itself received none, which is the documented intent.
+  the space itself received none, which is the documented intent. The injected
+  `RAY_HEAD_IMAGE` and `RAY_CLUSTER_NAME` are a thoughtful touch — they let a startup
+  script check the version match that Studio does not.
+- **Topology Aware Scheduling saves the quota model from itself.** Quota is accounted in
+  nominal vCPUs (issue 15), which on SMT-disabled nodes overstates capacity twofold, but
+  Kueue runs with `TopologyAwareScheduling: true` and refuses workloads that no node can
+  hold, with a message naming the resource and the node count. The misleading number
+  never becomes a misleading admission.
+- **The SageMaker Spaces controller integrates with task governance without being
+  asked.** A space in a governed namespace is labelled, queued, admitted and accounted
+  against the team's quota with no manual step. That it does the labelling KubeRay does
+  not is the substance of issue 12 — but the Spaces side is the behaviour to copy, not
+  the one to change.
 - **Ray's own `check_version_info()` fails loudly and precisely** on the version
   mismatch in issue 2. Given that the console let it through, this is the only thing
   that made the problem diagnosable at all.
