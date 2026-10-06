@@ -1,0 +1,94 @@
+# RayJob, variation 1 of 2: the job brings its own Ray cluster.
+#
+# This is the "cluster per job" shape, and it is the one to reach for by default.
+# KubeRay creates the cluster described in rayClusterSpec, waits for it, submits
+# the entrypoint, and — because shutdownAfterJobFinishes is true — deletes the
+# cluster when the job ends. Nothing is left running to pay for or to leak state
+# into the next run.
+#
+#   make delete-example         # free the CPU first; see the note below
+#   make examples-configmap     # the scripts this job runs
+#   make run-job                # apply this manifest
+#   make job-logs               # follow the driver output
+#
+# On a small cluster, run one example at a time. Four ThreadsPerCore: 1 nodes leave
+# roughly 1.6 CPU each after kubelet and the HyperPod daemonsets, so the standing
+# ray-example-cpu cluster and this job's cluster do not both fit. A RayJob whose
+# pods cannot be scheduled sits in DEPLOYMENT STATUS Initializing indefinitely
+# rather than failing, and starts as soon as room appears.
+#
+# Compare with rayjob-existing.yaml, which submits to a cluster that is already
+# up. The trade-off is startup: this variation pays cluster creation (~1 min here,
+# much more when the image is not cached on the node) on every submission, so an
+# interactive loop of many short jobs is better served by a standing cluster.
+apiVersion: ray.io/v1
+kind: RayJob
+metadata:
+  name: ray-data-job
+spec:
+  # The command KubeRay runs as the Ray job. It executes on the head pod, which is
+  # why the script has to exist there — see the ConfigMap mount below.
+  entrypoint: python /home/ray/examples/data_job.py
+
+  # The whole point of this variation. False would leave the cluster running after
+  # the job finished, which is a common way to end up paying for idle GPUs.
+  shutdownAfterJobFinishes: true
+
+  # When the teardown happens: KubeRay waits this long after the job finishes
+  # before deleting the Ray cluster, so the pods keep running (and costing) until
+  # then. That grace period is there for anyone who wants to open the dashboard or
+  # poke at the cluster after a run; two minutes is enough for a demo, and the
+  # default of leaving it unset means the cluster goes as soon as the job ends.
+  #
+  # It does not affect the logs. The submitter pod belongs to the RayJob rather
+  # than to the cluster, so `make job-logs` keeps working after the cluster is
+  # gone, until you delete the RayJob itself.
+  ttlSecondsAfterFinished: 120
+
+  # An identical spec to a standalone RayCluster's. Anything you can do in
+  # ray-cluster-cpu.yaml you can do here, including GPU worker groups and
+  # nodeSelectors pinning pods to a HyperPod instance group.
+  rayClusterSpec:
+    rayVersion: "2.55.1"
+    headGroupSpec:
+      rayStartParams:
+        dashboard-host: "0.0.0.0"
+        # More logical Ray CPUs than the pod's 1 CPU request, so a shuffle
+        # aggregator actor and a 1-CPU task can share a node. See the comment in
+        # examples/ray-cluster-cpu.yaml.
+        num-cpus: "2"
+      template:
+        spec:
+          volumes:
+            - name: examples
+              configMap:
+                name: ray-examples
+          containers:
+            - name: ray-head
+              image: rayproject/ray:2.55.1
+              volumeMounts:
+                - { name: examples, mountPath: /home/ray/examples }
+              ports:
+                - { containerPort: 6379, name: gcs-server }
+                - { containerPort: 8265, name: dashboard }
+                - { containerPort: 10001, name: client }
+              resources:
+                requests: { cpu: "1", memory: "4Gi" }
+    workerGroupSpecs:
+      - groupName: cpu-workers
+        # Two, so the cluster totals 3 CPU. One worker is not enough: data_job.py's
+        # groupby is a shuffle, and on 2 CPU it makes no progress at all rather than
+        # running slowly, printing "0/1" forever while the autoscaler complains that
+        # "No available node types can fulfill resource requests {'CPU': 1.0}" — a
+        # misleading message on a fixed-size cluster. Undersized Ray Data pipelines
+        # hang; they do not fail.
+        replicas: 2
+        rayStartParams:
+          num-cpus: "2"
+        template:
+          spec:
+            containers:
+              - name: ray-worker
+                image: rayproject/ray:2.55.1
+                resources:
+                  requests: { cpu: "1", memory: "4Gi" }

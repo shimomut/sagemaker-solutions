@@ -1,7 +1,7 @@
-# Ray on HyperPod - CloudFormation setup
+# Ray on HyperPod - setup
 
-Automates the setup of a **Ray on SageMaker HyperPod** environment with
-CloudFormation.
+Sets up a **Ray on SageMaker HyperPod** environment: the KubeRay operator by
+Helm, and a SageMaker AI domain by CloudFormation.
 
 Ray on HyperPod is an official HyperPod feature. It runs the upstream, unmodified
 open source Ray and KubeRay, and HyperPod adds capabilities around them
@@ -12,137 +12,225 @@ is two things:
 1. A HyperPod cluster orchestrated by Amazon EKS.
 2. The KubeRay operator installed on it.
 
-This solution automates step 2. Step 1 stays with
+This solution covers step 2, plus the optional Studio integration. Step 1 stays
+with
 [aws/sagemaker-hyperpod-cluster-setup](https://github.com/aws/sagemaker-hyperpod-cluster-setup),
-the official cluster setup assets, for now. Keeping them separate makes the
-iteration loop fast: you create the cluster once and redeploy just the Ray part
-as it grows.
+the official cluster setup assets. Keeping them separate makes the iteration loop
+fast: you create the cluster once and redo just the Ray part as it grows.
+
+**The console does not install KubeRay.** The SageMaker AI console has gained a
+`Ray` add-on panel that reports installation status and a per-feature readiness
+table, but its `Install` button opens the documentation. Helm is the only
+mechanism. The panel does read real cluster state, so it reports `Installed`
+after a Helm or Makefile install it had no part in. See
+[console-install-walkthrough.md](console-install-walkthrough.md).
 
 ## Contents
 
 | Path | What it is |
 |---|---|
-| [cfn/kuberay-operator.yaml](cfn/kuberay-operator.yaml) | The stack. Installs the KubeRay operator onto an existing HyperPod EKS cluster. |
-| [examples/ray-cluster.yaml](examples/ray-cluster.yaml) | A minimal `RayCluster` for verifying the setup. |
+| [Makefile](Makefile) | `make install-kuberay` and the domain stack, plus inspection and teardown. `make help` lists every target. |
+| [cfn/sagemaker-domain.yaml](cfn/sagemaker-domain.yaml) | SageMaker AI domain, user profile, and the EKS access entry that puts Ray workloads on Studio's Tasks tab. |
+| [console-install-walkthrough.md](console-install-walkthrough.md) | Step-by-step record of setting this up through the console, with what each step actually changes and which steps are worth automating. |
+| [scripts/capture-cluster-state.sh](scripts/capture-cluster-state.sh) | Read-only snapshot of Helm releases, Ray CRDs, EKS add-ons and access entries. Run before and after a step, then diff. |
+| [examples/ray-cluster-cpu.yaml](examples/ray-cluster-cpu.yaml) | A minimal CPU-only `RayCluster` for verifying the setup. The default. |
+| [examples/ray-cluster-gpu.yaml](examples/ray-cluster-gpu.yaml) | The same thing with a GPU worker group. |
+| [examples/rayjob-ephemeral.yaml](examples/rayjob-ephemeral.yaml) | A `RayJob` that creates its own cluster and deletes it afterwards. |
+| [examples/rayjob-existing.yaml](examples/rayjob-existing.yaml) | A `RayJob` that runs on a `RayCluster` you already have. |
+| [examples/rayservice-serve.yaml](examples/rayservice-serve.yaml) | A `RayService` running the Ray Serve app. |
+| [examples/scripts/](examples/scripts/) | The three workloads: Ray Data, Ray Train, Ray Serve. Mounted into the pods as a ConfigMap. |
 | [scripts/extract_pdf_docs.py](scripts/extract_pdf_docs.py) | Extracts a page range of an AWS docs PDF to Markdown. |
 | `docs/ray-on-hyperpod.md` | The "Ray on SageMaker HyperPod" chapter, extracted for easy reading by humans and agents. Generated locally, not committed. |
-| [Makefile](Makefile) | Deploy, inspect, verify, and tear down. |
 
 ## Prerequisites
 
 - A running HyperPod cluster orchestrated by Amazon EKS. The EKS cluster's
   authentication mode must include `API` (`API` or `API_AND_CONFIG_MAP`), which
   is what the official setup assets configure.
-- AWS CLI, configured with permissions to create IAM roles, Lambda functions,
-  and EKS access entries.
-- `kubectl` for the verification steps.
+- `kubectl` and `helm`, with `kubectl` pointing at the cluster.
+- AWS CLI, with permissions to create IAM roles and EKS access entries.
 
 ## Quick start
 
 ```bash
-# Create or update the stack
-make deploy EKS_CLUSTER_NAME=my-hyperpod-eks-cluster
-
-# Verify the operator is running
 make kubeconfig EKS_CLUSTER_NAME=my-hyperpod-eks-cluster
+make install-kuberay
+
 make operator-status
 make crds
 ```
+
+`make install-kuberay` pins the chart version and installs into a dedicated
+namespace, neither of which the documented `helm install kuberay-operator
+kuberay/kuberay-operator` does — that command tracks latest and puts a
+cluster-wide operator in `default`. It is also safe to re-run, and refuses rather
+than conflicting if KubeRay already exists in a different namespace.
 
 `make help` lists every target.
 
 Then verify end to end with a real Ray cluster:
 
 ```bash
-make deploy-example
-make list-clusters
-make dashboard        # http://localhost:8265
+make deploy-example                      # CPU-only by default
+make deploy-example EXAMPLE_FLAVOR=gpu   # needs a GPU instance group with capacity
+make list-clusters                       # wait for STATUS ready
+make dashboard                           # http://localhost:8265
 make delete-example
 ```
 
+`EXAMPLE_FLAVOR` selects the manifest and the `RayCluster` name together, so
+nothing else needs overriding.
+
+Check that the example fits your nodes before applying it, rather than sizing
+from the instance type. An instance group with `ThreadsPerCore: 1` runs without
+SMT, so its nodes report physical cores - an `ml.m5.xlarge` node shows 2 CPUs,
+1930m of it allocatable, where the same type with `ThreadsPerCore: 2` shows 4.
+The node labels are identical either way, and a pod asking for more than what is
+left stays Pending indefinitely with `Insufficient cpu`:
+
+```bash
+kubectl get nodes -o custom-columns=\
+'NAME:.metadata.name,CPU:.status.allocatable.cpu,MEM:.status.allocatable.memory'
+
+aws sagemaker describe-cluster --cluster-name <hyperpod-cluster> \
+  --query 'InstanceGroups[].{Name:InstanceGroupName,Type:InstanceType,ThreadsPerCore:ThreadsPerCore}'
+```
+
+## Example workloads
+
+Three scripts under [examples/scripts/](examples/scripts/) cover the Ray libraries
+you are most likely to reach for. Each is heavily commented, runs on CPU only, and
+needs nothing that the `rayproject/ray` image does not already have:
+
+| Script | Shows |
+|---|---|
+| [data_job.py](examples/scripts/data_job.py) | Ray Data: blocks as the unit of parallelism, `map_batches`, laziness and `materialize()`, and a `groupby` shuffle. |
+| [train_job.py](examples/scripts/train_job.py) | Ray Train: one training function per worker, dataset sharding, `ray.train.report`, and retry on node failure. |
+| [serve_app.py](examples/scripts/serve_app.py) | Ray Serve: composed deployments, autoscaling replicas, and fractional CPU per replica. |
+
+They reach the pods as a ConfigMap, which keeps every manifest runnable on its own
+with no image build and no S3 upload. Real code belongs in an image or in
+`runtime_env.working_dir`; a ConfigMap caps out at 1 MiB.
+
+### Two ways to get a cluster
+
+Ray Data, Ray Train, and Ray Serve do not need a `RayCluster` that you created
+first. Each KubeRay custom resource can bring its own, and the choice is about the
+lifecycle you want rather than about which library you are using:
+
+```bash
+# The job brings its own cluster, and it is deleted when the job finishes.
+make run-job                          # examples/rayjob-ephemeral.yaml, Ray Data
+make job-logs JOB=ray-data-job
+
+# The job runs on a cluster that already exists.
+make deploy-example                   # the standing cluster
+make run-job-existing                 # examples/rayjob-existing.yaml, Ray Train
+make job-logs JOB=ray-train-job
+
+# A long-running service, with a cluster KubeRay manages for it.
+make deploy-service                   # examples/rayservice-serve.yaml
+make service-status                   # wait for SERVICE STATUS Running
+make service-request                  # port-forward and POST a request
+make delete-service
+```
+
+A cluster per job (`rayClusterSpec`, plus `shutdownAfterJobFinishes: true`) is the
+better default: nothing is left running to pay for, and no state leaks into the next
+run. The cost is that every submission pays cluster startup, so an interactive loop
+of short jobs is better served by a standing cluster and `clusterSelector`, at the
+price of jobs contending for the same CPUs.
+
+**Run one example at a time on a small cluster.** Four `ThreadsPerCore: 1` nodes
+leave roughly 1.6 CPU each after kubelet reservations and the HyperPod daemonsets,
+which is not enough for the standing cluster and a job's own cluster at once. A
+`RayJob` whose pods cannot be scheduled waits in `Initializing` indefinitely rather
+than failing, then starts as soon as room appears - so `make delete-example` before
+`make run-job`.
+
 ## Configuration
 
-Override any of these on the `make` command line, or pass the matching template
-parameter directly.
+Override any of these on the `make` command line.
 
-| Make variable | Template parameter | Default | Notes |
-|---|---|---|---|
-| `EKS_CLUSTER_NAME` | `EKSClusterName` | *(required)* | The EKS cluster orchestrating your HyperPod cluster. |
-| `AWS_REGION` | - | `us-west-2` | Region of the cluster and the stack. |
-| `STACK_NAME` | - | `hyperpod-ray` | CloudFormation stack name. |
-| `RESOURCE_PREFIX` | `ResourceNamePrefix` | `hyperpod-ray` | Prefix for created resource names. |
-| `KUBERAY_VERSION` | `KubeRayVersion` | `1.7.0` | Chart version. Ray on HyperPod needs 1.6.0+ for `RayCronJob` and Ray's Kubernetes RBAC auth mode. |
-| `KUBERAY_NAMESPACE` | `KubeRayNamespace` | `kuberay-operator` | Created if absent. |
-| `KUBERAY_RELEASE` | `KubeRayReleaseName` | `kuberay-operator` | Helm release name. |
-| `INSTALLER_SUBNET_IDS` | `InstallerSubnetIds` | *(empty)* | Only for private EKS API endpoints. See below. |
-| `INSTALLER_SECURITY_GROUP_IDS` | `InstallerSecurityGroupIds` | *(empty)* | Paired with the above. |
+| Make variable | Default | Notes |
+|---|---|---|
+| `EKS_CLUSTER_NAME` | *(required)* | The EKS cluster orchestrating your HyperPod cluster. |
+| `AWS_REGION` | `us-west-2` | Region of the cluster. |
+| `KUBERAY_VERSION` | `1.7.1` | Chart version. Ray on HyperPod needs 1.6.0+ for `RayCronJob` and Ray's Kubernetes RBAC auth mode. |
+| `KUBERAY_NAMESPACE` | `kuberay-operator` | Created if absent. |
+| `KUBERAY_RELEASE` | `kuberay-operator` | Helm release name. |
+| `DOMAIN_STACK_NAME` | `hyperpod-ray-domain` | CloudFormation stack name for the domain. |
+| `DOMAIN_NAME` | `hyperpod-ray` | SageMaker AI domain name. |
+| `USER_PROFILE_NAME` | `ray-user` | User profile to launch Studio as. |
+| `DOMAIN_VPC_ID` | *(required for the domain)* | Use the cluster's VPC. |
+| `DOMAIN_SUBNET_IDS` | *(required for the domain)* | Prefer the EKS private subnets. |
+| `ACCESS_SCOPE_NAMESPACES` | *(empty)* | Empty means whole-cluster access scope. |
 
-Upgrading KubeRay is a stack update:
-
-```bash
-make deploy EKS_CLUSTER_NAME=my-cluster KUBERAY_VERSION=1.7.0
-```
-
-## How the stack works
-
-CloudFormation cannot run Helm, so the stack wraps `helm upgrade --install` in a
-Lambda-backed custom resource. This mirrors the pattern the official cluster
-setup assets use for the HyperPod Helm chart:
-
-1. An IAM role for the installer function, plus an `AWS::EKS::AccessEntry` that
-   grants it `AmazonEKSClusterAdminPolicy`. Cluster-admin is genuinely needed:
-   the chart installs CRDs and cluster-scoped RBAC.
-2. A Lambda layer carrying the `helm`, `kubectl`, and `aws-iam-authenticator`
-   binaries. Rather than build one, the stack reuses the layer artifact that the
-   HyperPod cluster setup assets publish at
-   `s3://aws-sagemaker-hyperpod-cluster-setup-<region>-prod/resources/artifacts/helm-lambda-layer.zip`.
-   Override `HelmToolsLayerS3Bucket` and `HelmToolsLayerS3Key` to supply your own.
-3. The installer function, whose code is inline in the template. It builds a
-   kubeconfig from `eks:DescribeCluster`, then runs `helm upgrade --install` on
-   create and update, and `helm uninstall` on delete.
-
-Because the function reports a physical resource ID of `<namespace>/<release>`,
-renaming either one replaces the release instead of orphaning it.
-
-### Private API endpoints
-
-The installer runs outside your VPC by default, which works because HyperPod EKS
-clusters created by the official assets expose a public API endpoint. If yours is
-private-only, set `INSTALLER_SUBNET_IDS` and `INSTALLER_SECURITY_GROUP_IDS`. The
-subnets need NAT egress so the installer can still reach the Helm repository, and
-the cluster security group must allow the installer's security groups inbound on
-443.
-
-## Troubleshooting
-
-The Helm output goes to CloudWatch:
+Upgrading KubeRay is the same command with a different version:
 
 ```bash
-make logs
-make events      # if the stack itself is stuck or rolled back
+make install-kuberay KUBERAY_VERSION=1.7.1
 ```
 
-Common failures:
+## SageMaker Studio access
 
-- **`ResourceInUseException` on the access entry** - an access entry already
-  exists for this principal. That should not happen with a freshly created role;
-  it does if you deleted the stack while retaining the role.
-- **The custom resource times out** - almost always the installer failing to
-  reach either the EKS API endpoint or `ray-project.github.io`. Check the log
-  group, then the private-endpoint note above.
-- **`helm upgrade` reports the release is in a pending state** - a previous
-  attempt was interrupted. Roll it back or delete the release with `helm` before
-  redeploying.
+Optional, and the one part of the setup that genuinely wants CloudFormation: it
+spans two consoles, needs cluster ARNs and subnet IDs you have to look up, creates
+an execution role, and is repeated per team.
+
+```bash
+make deploy-domain EKS_CLUSTER_NAME=my-eks-cluster HYPERPOD_CLUSTER_NAME=my-cluster \
+  DOMAIN_VPC_ID=vpc-xxxx DOMAIN_SUBNET_IDS=subnet-a,subnet-b,subnet-c
+
+make domain-access      # the EKS access policies actually granted
+make domain-outputs     # the Studio URL to open
+```
+
+This automates
+[Setting up an Amazon EKS cluster in Studio](https://docs.aws.amazon.com/sagemaker/latest/dg/sagemaker-hyperpod-studio-setup-eks.html),
+which is two grants that are easy to conflate:
+
+| Grant | Why it matters |
+|---|---|
+| An **IAM policy** on the execution role | Lets the role call AWS APIs. Without `eks:AccessKubernetesApi` the EKS authorizer refuses every call *before* RBAC is consulted, and **`AmazonSageMakerFullAccess` contains no `eks:` actions at all**. Note the two different cluster ARNs: `sagemaker:DescribeCluster` is scoped to the HyperPod cluster, the `eks:` actions to the EKS cluster. |
+| **EKS cluster-access policies** | Grant permissions *inside* the cluster. `AmazonSagemakerHyperpodTrainingPolicy` is what makes Ray workloads visible — no custom RBAC needed. |
+
+Their scopes are **not uniform**, which a template applying one scope to all five
+would get wrong: `AmazonSagemakerHyperpodUserClusterPolicy` must be cluster-scoped,
+and `AmazonSagemakerHyperpodSpaceTemplatePolicy` scoped to `jupyter-k8s-shared`
+where the templates live. `ACCESS_SCOPE_NAMESPACES` confines the other three.
+
+When the IAM policy is missing, Studio reports *"The Custom Resource Definition
+(CRD) of type … is not configured on the cluster"* — a 403 described as a
+configuration problem. The CRD is there; check the IAM policy first.
+
+If you are **creating** a cluster from the official assets, populate
+`DataScientistRole1` … `DataScientistRole10` and their namespace parameters. Left
+empty, `DataScientistSetupCondition` is false and the whole
+`DataScientistSetupStack` is skipped, so none of this is in place. Note that that
+stack takes the custom-RBAC route and its role covers
+`kubeflow.org/pytorchjobs` but not `ray.io`, so it shows PyTorch tasks and not Ray
+ones — use the cluster-access policies for Ray.
+
+The official assets do have a `sagemaker-domain-template.yaml`, but it takes an
+`EKSClusterName` parameter and never uses it, so it grants no cluster access, and
+the EKS main stack hardcodes `CreateDomain: 'false'`.
 
 ## Deleting
 
 ```bash
-make delete
+make uninstall-kuberay      # the operator
+make delete-domain          # the domain, user profile, and access entry
 ```
 
-**Delete your Ray resources before you delete the stack.** Uninstalling the
-operator stops reconciliation of every Ray resource in the cluster: running Ray
-clusters keep running but are no longer managed, and deletions never complete.
+**Delete your Ray resources before uninstalling the operator.** Uninstalling it
+stops reconciliation of every Ray resource in the cluster: running Ray clusters
+keep running but are no longer managed, and deletions never complete. The `ray.io`
+CRDs survive an uninstall — Helm never deletes `crds/` contents — so your resource
+definitions are not lost.
+
+Delete any spaces and apps in the domain before `make delete-domain`; a domain
+with running apps will not delete.
 
 ## Documentation
 
@@ -173,18 +261,41 @@ matters.
 
 ## Scope
 
-Deliberately minimal for now. Not yet included, and straightforward to add as
-separate nested stacks:
+Deliberately minimal for now, and aimed at setups that are quick to stand up for
+a hands-on session.
+
+**No Route 53.** Ray on HyperPod needs a customer-owned domain with a public
+Route 53 hosted zone, an ACM certificate, and a KMS key for exactly two things:
+web browser access to a SageMaker AI space, and the HyperPod Ray Endpoint
+Operator, which depends on it. Both are out of scope here, because a domain you
+own is a much heavier prerequisite than the AWS resources everything else needs.
+The consequences: reach the Ray Dashboard with `make dashboard`
+(`kubectl port-forward`) rather than an authenticated public URL, and reach a
+space from a local IDE over SSH-over-SSM rather than in a browser.
+
+Not yet included, and straightforward to add as separate nested stacks:
 
 - Creating the HyperPod EKS cluster itself (use the official setup assets).
 - The SageMaker AI Spaces add-on, for notebook and IDE spaces attached to a Ray
-  cluster.
-- The HyperPod Ray Endpoint Operator, for authenticated Ray Dashboard links and
-  remote job submission.
+  cluster. Needs version 0.2.0 or later for Ray. Usable without Route 53, as
+  long as attendees reach the space from a local IDE over SSH-over-SSM. Watch
+  the version matching: the space image's Ray *and* Python versions must equal
+  the cluster's, patch version included.
 - The HyperPod Observability add-on, for Ray metrics and Grafana dashboards
-  (needs version 1.0.6 or later for Ray metrics).
-- Task governance compute allocations, which Ray workloads need in order to be
-  admitted once task governance is on.
+  (needs version 1.0.6 or later for Ray metrics). No Route 53, but it does need
+  an Amazon Managed Grafana workspace, whose IAM Identity Center or SAML setup
+  is usually the slow part in a shared account.
+
+Deliberately excluded, rather than merely deferred:
+
+- The HyperPod Ray Endpoint Operator, and web browser access to spaces. See the
+  Route 53 note above.
+- Task governance compute allocations. Once task governance is on, a namespace
+  without an allocation holds a Ray workload unadmitted with no pods at all, and
+  preemption deletes a whole Ray cluster including its head. Useful in
+  production, but it only adds failure modes to a hands-on session.
+- The managed tiered KV cache for Ray Serve, which additionally needs HyperPod
+  Tiered Storage enabled on the cluster.
 
 ## References
 

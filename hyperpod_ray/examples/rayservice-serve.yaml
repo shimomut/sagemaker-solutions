@@ -1,0 +1,89 @@
+# RayService: a Ray Serve app with a Ray cluster KubeRay manages for it.
+#
+# A RayService is the serving counterpart to a RayJob. It owns its own cluster, but
+# unlike a RayJob it is never finished, so the cluster stays up and KubeRay keeps
+# the Serve applications in serveConfigV2 reconciled against it. Editing
+# serveConfigV2 and re-applying triggers a zero-downtime upgrade: KubeRay stands up
+# a second cluster, waits for the new app to be ready, switches the service over,
+# and only then tears the old one down.
+#
+#   make examples-configmap
+#   make deploy-service
+#   make service-request        # port-forward and POST a request
+#   make delete-service
+#
+# There is no separate inference operator involved. The HyperPod Ray Endpoint
+# Operator is an addition to this, not a replacement: it fronts the service with an
+# ALB and a DNS name, which needs a Route 53 domain. Without it, reach the app
+# through the Kubernetes service as make service-request does.
+apiVersion: ray.io/v1
+kind: RayService
+metadata:
+  name: ray-serve-example
+spec:
+  # The Serve applications to run. This is Serve's own config format, passed
+  # through verbatim, and it is what you edit to change replica counts, routes, or
+  # deployment options without touching the cluster.
+  serveConfigV2: |
+    applications:
+      - name: default
+        # module:attribute. `app` is the bound deployment graph at the bottom of
+        # serve_app.py. Serve imports it inside the cluster, so the module has to be
+        # importable there: PYTHONPATH below points at the mounted ConfigMap.
+        import_path: serve_app:app
+        route_prefix: /
+        runtime_env:
+          env_vars:
+            PYTHONPATH: /home/ray/examples
+        # Per-deployment overrides live here, and they win over the decorators in
+        # the source. Handy for giving one environment more replicas than another.
+        deployments:
+          - name: Scorer
+            autoscaling_config:
+              min_replicas: 2
+              max_replicas: 4
+              target_ongoing_requests: 5
+
+  # Note the field name. A RayJob calls this rayClusterSpec and a RayService calls
+  # it rayClusterConfig, for the same content; using the wrong one is rejected
+  # outright with 'unknown field "spec.rayClusterSpec"'.
+  rayClusterConfig:
+    rayVersion: "2.55.1"
+    headGroupSpec:
+      rayStartParams:
+        dashboard-host: "0.0.0.0"
+        # See the comment in examples/ray-cluster-cpu.yaml. Serve replicas are
+        # actors too, so the same fractional-actor arithmetic applies.
+        num-cpus: "2"
+      template:
+        spec:
+          volumes:
+            - name: examples
+              configMap:
+                name: ray-examples
+          containers:
+            - name: ray-head
+              image: rayproject/ray:2.55.1
+              volumeMounts:
+                - { name: examples, mountPath: /home/ray/examples }
+              ports:
+                - { containerPort: 6379, name: gcs-server }
+                - { containerPort: 8265, name: dashboard }
+                - { containerPort: 10001, name: client }
+                # Serve's HTTP proxy. A RayService without this port declared comes
+                # up healthy and is simply unreachable.
+                - { containerPort: 8000, name: serve }
+              resources:
+                requests: { cpu: "1", memory: "4Gi" }
+    workerGroupSpecs:
+      - groupName: cpu-workers
+        replicas: 1
+        rayStartParams:
+          num-cpus: "2"
+        template:
+          spec:
+            containers:
+              - name: ray-worker
+                image: rayproject/ray:2.55.1
+                resources:
+                  requests: { cpu: "1", memory: "4Gi" }
