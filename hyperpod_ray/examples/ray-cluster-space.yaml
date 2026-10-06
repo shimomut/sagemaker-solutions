@@ -1,0 +1,81 @@
+# A CPU-only RayCluster built from the SageMaker AI Distribution image, so a
+# SageMaker Studio space can attach to it.
+#
+# Use this flavour instead of ray-cluster-cpu.yaml whenever a space is involved.
+# Ray refuses to connect when the driver's Python differs from the cluster's, and
+# it checks at ray.init() time:
+#
+#   RuntimeError: Version mismatch: The cluster was started with:
+#       Ray: 2.55.1
+#       Python: 3.10.20
+#   This process on node 10.1.151.109 was started with:
+#       Ray: 2.55.1
+#       Python: 3.12.14
+#
+# That is what you get from rayproject/ray:2.55.1 (Python 3.10) plus a space on
+# sagemaker-distribution (Python 3.12), which is exactly what the developer guide's
+# own examples and the default space template produce. Matching Ray versions is not
+# enough. The only reliable fix is to run the *same image* on both sides, which is
+# what this manifest does.
+#
+# Note that Studio does not warn about this: the Connect Ray cluster dialog accepts
+# the mismatch and reports "Connected", because the space pod really does join the
+# cluster - it is the user's Python process that is refused.
+#
+# Pinned by digest on purpose. `latest-cpu` is a moving tag, and the whole point
+# here is that the space and the cluster run byte-identical Python. Find the digest
+# your spaces actually use with:
+#
+#   kubectl get pod <space-pod> -n <ns> \
+#     -o jsonpath='{.status.containerStatuses[?(@.name=="workspace")].imageID}'
+#
+# Sizing matches ray-cluster-cpu.yaml - 1 CPU per pod, so head plus two workers
+# needs three nodes' worth of headroom. See that file for the ThreadsPerCore
+# arithmetic, and shrink the requests if you have less.
+apiVersion: ray.io/v1
+kind: RayCluster
+metadata:
+  name: ray-example-space
+spec:
+  # Must equal the Ray version inside the image above. Both are 2.55.1 here; the
+  # mismatch this manifest exists to avoid was never the Ray version.
+  rayVersion: "2.55.1"
+  headGroupSpec:
+    rayStartParams:
+      dashboard-host: "0.0.0.0"
+      # See ray-cluster-cpu.yaml for why this is deliberately above the pod's CPU
+      # request, and why `num-cpus: "0"` is the right choice for real work.
+      num-cpus: "2"
+    template:
+      spec:
+        volumes:
+          - name: examples
+            configMap:
+              name: ray-examples
+              optional: true
+        containers:
+          - name: ray-head
+            image: public.ecr.aws/sagemaker/sagemaker-distribution@sha256:e04ebe3891d97f352cd7e00173b0c9c97eb940fceb2c2b6d696edb17fb8d0109
+            volumeMounts:
+              # This image runs as sagemaker-user, not ray, so the home directory
+              # is not /home/ray.
+              - { name: examples, mountPath: /home/sagemaker-user/examples }
+            ports:
+              - { containerPort: 6379, name: gcs-server }
+              - { containerPort: 8265, name: dashboard }
+              - { containerPort: 10001, name: client }
+              - { containerPort: 8000, name: serve }
+            resources:
+              requests: { cpu: "1", memory: "4Gi" }
+  workerGroupSpecs:
+    - groupName: cpu-workers
+      replicas: 2
+      rayStartParams:
+        num-cpus: "2"
+      template:
+        spec:
+          containers:
+            - name: ray-worker
+              image: public.ecr.aws/sagemaker/sagemaker-distribution@sha256:e04ebe3891d97f352cd7e00173b0c9c97eb940fceb2c2b6d696edb17fb8d0109
+              resources:
+                requests: { cpu: "1", memory: "4Gi" }

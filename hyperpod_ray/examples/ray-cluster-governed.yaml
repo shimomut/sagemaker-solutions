@@ -1,0 +1,100 @@
+# A RayCluster for a namespace under HyperPod task governance.
+#
+# Apply it with `make deploy-governed`, not `kubectl apply` - the queue name and
+# priority class below are placeholders that make substitutes, because both are
+# derived from your team name and cannot be known in advance.
+#
+# WHY THIS FILE IS SEPARATE FROM ray-cluster-space.yaml
+#
+# Once a namespace is governed, a RayCluster needs Kueue labels in *three* places,
+# and getting it wrong fails in two different ways. Neither is documented: the Ray
+# chapter's task governance section never mentions a label at all.
+#
+#   1. No labels anywhere  ->  creation is REFUSED outright:
+#
+#        denied by ValidatingAdmissionPolicy
+#        'hyperpod-task-governance-admission-policy': The label
+#        'kueue.x-k8s.io/queue-name' is either missing or does not have a value set.
+#
+#   2. Label on the RayCluster only  ->  accepted, then stuck forever. Kueue admits
+#      the workload and reserves quota, but the admission policy also covers `pods`,
+#      and KubeRay's generated head and worker pods inherit nothing. So:
+#
+#        kubectl get workload    ->  ADMITTED: True        (looks healthy)
+#        kubectl get raycluster  ->  STATUS: suspended     (never starts)
+#        kubectl get events      ->  FailedToCreateHeadPod, denied, retried forever
+#
+#      The governance layer says yes and the admission layer says no, and only the
+#      events reveal it.
+#
+#   3. Label on the RayCluster *and* on both pod templates  ->  works. That is what
+#      this file does.
+#
+# The governance labels are independent of the image. This file uses the same
+# SageMaker Distribution image as ray-cluster-space.yaml so a Studio space can also
+# attach to it; see that file for why the image is pinned by digest.
+#
+# Which namespace? Not one you choose. Creating a compute allocation for team
+# `<team>` auto-generates namespace `hyperpod-ns-<team>`, with
+# `hyperpod-ns-<team>-localqueue` inside it. The console cannot allocate to an
+# existing namespace such as `default`, so governed Ray workloads live in the
+# generated one.
+apiVersion: ray.io/v1
+kind: RayCluster
+metadata:
+  name: ray-example-governed
+  labels:
+    # Routes the workload to the team's queue. Required by the admission policy.
+    kueue.x-k8s.io/queue-name: TEAM_LOCALQUEUE
+    # Optional. Only meaningful when the cluster policy uses Task ranking rather
+    # than first-come first-serve. The console appends `-priority` to the class
+    # names you type, so `training` becomes `training-priority`.
+    kueue.x-k8s.io/priority-class: TEAM_PRIORITY_CLASS
+spec:
+  rayVersion: "2.55.1"
+  headGroupSpec:
+    rayStartParams:
+      dashboard-host: "0.0.0.0"
+      num-cpus: "2"
+    template:
+      metadata:
+        labels:
+          # Without this the head pod is denied and the cluster sits `suspended`.
+          kueue.x-k8s.io/queue-name: TEAM_LOCALQUEUE
+      spec:
+        volumes:
+          - name: examples
+            configMap:
+              name: ray-examples
+              optional: true
+        containers:
+          - name: ray-head
+            image: public.ecr.aws/sagemaker/sagemaker-distribution@sha256:e04ebe3891d97f352cd7e00173b0c9c97eb940fceb2c2b6d696edb17fb8d0109
+            volumeMounts:
+              - { name: examples, mountPath: /home/sagemaker-user/examples }
+            ports:
+              - { containerPort: 6379, name: gcs-server }
+              - { containerPort: 8265, name: dashboard }
+              - { containerPort: 10001, name: client }
+              - { containerPort: 8000, name: serve }
+            resources:
+              # Quota is reserved for the full declared size the moment the cluster
+              # is admitted, and held for its whole lifetime regardless of load. An
+              # idle cluster still consumes the team's quota until it is deleted.
+              requests: { cpu: "1", memory: "4Gi" }
+  workerGroupSpecs:
+    - groupName: cpu-workers
+      replicas: 2
+      rayStartParams:
+        num-cpus: "2"
+      template:
+        metadata:
+          labels:
+            # Same again for the workers.
+            kueue.x-k8s.io/queue-name: TEAM_LOCALQUEUE
+        spec:
+          containers:
+            - name: ray-worker
+              image: public.ecr.aws/sagemaker/sagemaker-distribution@sha256:e04ebe3891d97f352cd7e00173b0c9c97eb940fceb2c2b6d696edb17fb8d0109
+              resources:
+                requests: { cpu: "1", memory: "4Gi" }

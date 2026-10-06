@@ -1,0 +1,36 @@
+# RayJob, variation 2 of 2: the job runs on a cluster that already exists.
+#
+# clusterSelector replaces rayClusterSpec: KubeRay finds the RayCluster whose
+# `ray.io/cluster` label matches and submits the entrypoint to it. It does not
+# create anything, and it does not delete the cluster afterwards — so
+# shutdownAfterJobFinishes must not be set here.
+#
+#   make deploy-example         # the standing cluster this targets
+#   make examples-configmap
+#   make run-job-existing
+#   make job-logs JOB=ray-train-job
+#
+# Why choose this: the cluster is warm, so submission is immediate, and successive
+# jobs reuse the Ray object store and any cached data. It suits interactive
+# iteration and a shared cluster under task governance. The costs are the ones you
+# would expect from sharing: jobs contend for the same CPUs (this one asks Ray
+# Train for 2 workers, so it needs 2 free), and one job can leave the cluster in a
+# state the next one sees.
+apiVersion: ray.io/v1
+kind: RayJob
+metadata:
+  name: ray-train-job
+spec:
+  entrypoint: python /home/ray/examples/train_job.py
+
+  # The target cluster, by label rather than by name. KubeRay sets this label to
+  # the cluster's name, so `ray-example-cpu` is the cluster from
+  # examples/ray-cluster-cpu.yaml. The job fails if no cluster matches.
+  clusterSelector:
+    ray.io/cluster: ray-example-cpu
+
+  # ttlSecondsAfterFinished is deliberately absent. KubeRay rejects the spec
+  # outright — "a RayJob with shutdownAfterJobFinishes set to false cannot have
+  # TTLSecondsAfterFinished", surfacing as JOB STATUS ValidationFailed with no pod
+  # ever created — because the TTL governs the cluster teardown that this variation
+  # does not do. Delete the RayJob object yourself when you are done reading it.

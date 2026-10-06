@@ -1,0 +1,356 @@
+AWSTemplateFormatVersion: "2010-09-09"
+
+Description: >-
+  SageMaker AI domain, user profile, and cluster access for working with Ray on a
+  HyperPod EKS cluster from SageMaker Studio.
+
+# This automates the console flow in "Setting up an Amazon EKS cluster in Studio"
+# (sagemaker-hyperpod-studio-setup-eks.html), which is two separate grants that are
+# easy to confuse:
+#
+#   1. An IAM policy letting the execution role call AWS APIs - including
+#      eks:AccessKubernetesApi, without which every Kubernetes call is refused
+#      before RBAC is consulted. AmazonSageMakerFullAccess contains no eks:
+#      actions, so this policy is not optional.
+#   2. EKS cluster-access policies, which are what grant permissions *inside* the
+#      cluster. These are EKS access policies rather than IAM policies, so they
+#      are expressible as AWS::EKS::AccessEntry and need no custom resource.
+#
+# Why not the official cluster-setup assets: their sagemaker-domain-template.yaml
+# takes an EKSClusterName parameter and never uses it, so it grants no cluster
+# access, and the EKS main stack hardcodes CreateDomain: 'false'. Their
+# data-scientist-setup-template.yaml does grant access, but through a Lambda, and
+# it needs IAM role names you already have rather than creating the domain.
+
+Parameters:
+  EKSClusterName:
+    Type: String
+    Description: >-
+      The EKS cluster orchestrating your HyperPod cluster. The domain execution
+      role gets an access entry on it.
+
+  HyperPodClusterName:
+    Type: String
+    Description: >-
+      The HyperPod cluster itself. Needed because the execution role's
+      sagemaker:DescribeCluster permission is scoped to its ARN, which is a
+      different resource from the EKS cluster above.
+
+  DomainName:
+    Type: String
+    Default: hyperpod-ray
+    Description: Name of the SageMaker AI domain.
+
+  UserProfileName:
+    Type: String
+    Default: ray-user
+    Description: >-
+      Name of the user profile to create. A domain with no user profile cannot
+      launch Studio, so one is always created.
+
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Description: >-
+      Use the VPC the EKS cluster is in. Under PublicInternetOnly the subnets
+      only carry the domain's EFS mount targets, but a domain in another VPC
+      cannot later move to VpcOnly or reach a private EKS endpoint.
+
+  SubnetIds:
+    Type: List<AWS::EC2::Subnet::Id>
+    Description: >-
+      Prefer the EKS cluster's private subnets. Avoid the HyperPod node subnets:
+      the VPC CNI assigns pod IPs from those, which is why they are oversized.
+
+  AppNetworkAccessType:
+    Type: String
+    Default: PublicInternetOnly
+    AllowedValues: [PublicInternetOnly, VpcOnly]
+    Description: >-
+      PublicInternetOnly is enough for Ray. The Spaces add-on runs spaces as pods
+      on the HyperPod cluster, not as classic Studio apps, so the domain's own
+      network path carries no Ray traffic. VpcOnly needs NAT or interface
+      endpoints in the subnets above.
+
+  AuthMode:
+    Type: String
+    Default: IAM
+    AllowedValues: [IAM, SSO]
+    Description: IAM is the shortest path in a single account. SSO is IAM Identity Center.
+
+  ExecutionRoleArn:
+    Type: String
+    Default: ""
+    Description: >-
+      Existing execution role to use. Left empty, the stack creates one. This is
+      the principal that receives the EKS access entry, so whichever role is used
+      here is the identity Studio acts as against the cluster. When supplying your
+      own, attach the API permissions yourself - the stack only creates them on a
+      role it owns.
+
+  AccessScopeNamespaces:
+    Type: CommaDelimitedList
+    Default: ""
+    Description: >-
+      Kubernetes namespaces to scope the training, inference, and space policies
+      to. Empty means whole-cluster scope. Scoping to a namespace also restricts
+      which tasks those users see in Studio.
+
+  SpaceTemplateNamespaces:
+    Type: CommaDelimitedList
+    Default: jupyter-k8s-system,jupyter-k8s-shared
+    Description: >-
+      Namespaces the space templates live in. The space template policy is always
+      scoped here rather than to AccessScopeNamespaces. Both names are included
+      because they disagree: the developer guide says to scope this policy to
+      `jupyter-k8s-shared`, but Spaces add-on v0.2.0-eksbuild.2 installs its
+      WorkspaceTemplates, access strategy and the `ray-integration` integration
+      template into `jupyter-k8s-system`, and creates no `jupyter-k8s-shared` at
+      all. Scoping to a namespace that does not exist is accepted and simply grants
+      nothing, so listing both costs nothing and avoids depending on which is
+      right.
+
+  KubernetesGroups:
+    Type: CommaDelimitedList
+    Default: ""
+    Description: >-
+      Only for the documented "custom Kubernetes RBAC role" route, where you bind
+      your own ClusterRole to a group instead of using the cluster-access policies
+      below. Leave empty to use the policies.
+
+  # The policy checkboxes under "Manage access". The developer guide recommends
+  # attaching all of them: each covers a different part of the experience, so
+  # leaving one off removes that capability. One parameter each, because a list
+  # parameter cannot be mapped onto the AccessPolicies list.
+  AttachTrainingPolicy:
+    Type: String
+    Default: "true"
+    AllowedValues: ["true", "false"]
+    Description: >-
+      AmazonSagemakerHyperpodTrainingPolicy - full access to RayCluster, RayJob and
+      RayCronJob, HyperPodPyTorchJob, Kubeflow PyTorchJob/MPIJob/TFJob, and jobs
+      and pods. This is the policy that makes Ray workloads visible.
+
+  AttachInferencePolicy:
+    Type: String
+    Default: "true"
+    AllowedValues: ["true", "false"]
+    Description: >-
+      AmazonSagemakerHyperpodInferencePolicy - full access to RayCluster and
+      RayService, JumpStartModel, InferenceEndpointConfig, and pods.
+
+  AttachSpacePolicy:
+    Type: String
+    Default: "true"
+    AllowedValues: ["true", "false"]
+    Description: >-
+      AmazonSagemakerHyperpodSpacePolicy - spaces for interactive development.
+      Grants the WorkspaceConnection that opens a space.
+
+  AttachSpaceTemplatePolicy:
+    Type: String
+    Default: "true"
+    AllowedValues: ["true", "false"]
+    Description: >-
+      AmazonSagemakerHyperpodSpaceTemplatePolicy - read the shared space
+      templates, scoped to SpaceTemplateNamespaces.
+
+  AttachUserClusterPolicy:
+    Type: String
+    Default: "true"
+    AllowedValues: ["true", "false"]
+    Description: >-
+      AmazonSagemakerHyperpodUserClusterPolicy - the cluster-wide reads the Studio
+      UI needs to render at all, including CRD get and self-access checks. Always
+      attached at cluster scope.
+
+Conditions:
+  CreateExecutionRole: !Equals [!Ref ExecutionRoleArn, ""]
+  ScopeToNamespaces: !Not [!Equals [!Join ["", !Ref AccessScopeNamespaces], ""]]
+  WithKubernetesGroups: !Not [!Equals [!Join ["", !Ref KubernetesGroups], ""]]
+  WithTraining: !Equals [!Ref AttachTrainingPolicy, "true"]
+  WithInference: !Equals [!Ref AttachInferencePolicy, "true"]
+  WithSpace: !Equals [!Ref AttachSpacePolicy, "true"]
+  WithSpaceTemplate: !Equals [!Ref AttachSpaceTemplatePolicy, "true"]
+  WithUserCluster: !Equals [!Ref AttachUserClusterPolicy, "true"]
+
+Resources:
+  ExecutionRole:
+    Type: AWS::IAM::Role
+    Condition: CreateExecutionRole
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: sagemaker.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSageMakerFullAccess
+      # Transcribed from "Setting up an Amazon EKS cluster in Studio". These let
+      # the role call AWS APIs; they grant nothing inside Kubernetes - the access
+      # entry below does that.
+      Policies:
+        - PolicyName: hyperpod-studio-cluster-access
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: DescribeHyperpodClusterPermissions
+                Effect: Allow
+                Action: sagemaker:DescribeCluster
+                Resource: !Sub arn:${AWS::Partition}:sagemaker:${AWS::Region}:${AWS::AccountId}:cluster/${HyperPodClusterName}
+              - Sid: ListClustersPermission
+                Effect: Allow
+                Action: sagemaker:ListClusters
+                Resource: "*"
+              # The one that is easy to miss. Without eks:AccessKubernetesApi the
+              # EKS authorizer refuses every call before RBAC is consulted, and
+              # Studio reports the 403 as "the CRD is not configured on the
+              # cluster".
+              - Sid: UseEksClusterPermissions
+                Effect: Allow
+                Action:
+                  - eks:DescribeCluster
+                  - eks:AccessKubernetesApi
+                  - eks:MutateViaKubernetesApi
+                Resource: !Sub arn:${AWS::Partition}:eks:${AWS::Region}:${AWS::AccountId}:cluster/${EKSClusterName}
+              # Sub-resource ARN, so it is a separate statement from the above.
+              - Sid: DescribeSpacesAddon
+                Effect: Allow
+                Action: eks:DescribeAddon
+                Resource: !Sub arn:${AWS::Partition}:eks:${AWS::Region}:${AWS::AccountId}:cluster/${EKSClusterName}/*
+              # Reaching a space from a local IDE over SSH-over-SSM, which is the
+              # route when web browser access is not configured.
+              - Sid: SessionManagerAccess
+                Effect: Allow
+                Action:
+                  - ssm:StartSession
+                  - ssm:TerminateSession
+                Resource: "*"
+              - Sid: DescribeNetworking
+                Effect: Allow
+                Action: ec2:Describe*
+                Resource: "*"
+              - Sid: ImageAndMetricAccess
+                Effect: Allow
+                Action:
+                  - ecr:GetAuthorizationToken
+                  - ecr:BatchCheckLayerAvailability
+                  - ecr:InitiateLayerUpload
+                  - ecr:UploadLayerPart
+                  - ecr:CompleteLayerUpload
+                  - ecr:PutImage
+                  - cloudwatch:PutMetricData
+                  - cloudwatch:GetMetricData
+                Resource: "*"
+
+  Domain:
+    Type: AWS::SageMaker::Domain
+    Properties:
+      DomainName: !Ref DomainName
+      AuthMode: !Ref AuthMode
+      AppNetworkAccessType: !Ref AppNetworkAccessType
+      VpcId: !Ref VpcId
+      SubnetIds: !Ref SubnetIds
+      DefaultUserSettings:
+        ExecutionRole: !If
+          - CreateExecutionRole
+          - !GetAtt ExecutionRole.Arn
+          - !Ref ExecutionRoleArn
+
+  UserProfile:
+    Type: AWS::SageMaker::UserProfile
+    Properties:
+      DomainId: !GetAtt Domain.DomainId
+      UserProfileName: !Ref UserProfileName
+      UserSettings:
+        ExecutionRole: !If
+          - CreateExecutionRole
+          - !GetAtt ExecutionRole.Arn
+          - !Ref ExecutionRoleArn
+
+  # The console's "Cluster access for SageMaker domains" -> "Manage access".
+  # Creating this is what makes the cluster visible on Studio's Tasks tab.
+  #
+  # Fn::If with AWS::NoValue drops a list element entirely, which is how the
+  # policy checkboxes become optional. Note that the scopes are not uniform: the
+  # guide says to attach UserClusterPolicy at cluster scope and
+  # SpaceTemplatePolicy to the namespace holding the templates, regardless of
+  # where your users work.
+  ClusterAccessEntry:
+    Type: AWS::EKS::AccessEntry
+    Properties:
+      ClusterName: !Ref EKSClusterName
+      PrincipalArn: !If
+        - CreateExecutionRole
+        - !GetAtt ExecutionRole.Arn
+        - !Ref ExecutionRoleArn
+      Type: STANDARD
+      KubernetesGroups: !If
+        - WithKubernetesGroups
+        - !Ref KubernetesGroups
+        - !Ref AWS::NoValue
+      AccessPolicies:
+        - !If
+          - WithTraining
+          - PolicyArn: !Sub arn:${AWS::Partition}:eks::aws:cluster-access-policy/AmazonSagemakerHyperpodTrainingPolicy
+            AccessScope: !If
+              - ScopeToNamespaces
+              - Type: namespace
+                Namespaces: !Ref AccessScopeNamespaces
+              - Type: cluster
+          - !Ref AWS::NoValue
+        - !If
+          - WithInference
+          - PolicyArn: !Sub arn:${AWS::Partition}:eks::aws:cluster-access-policy/AmazonSagemakerHyperpodInferencePolicy
+            AccessScope: !If
+              - ScopeToNamespaces
+              - Type: namespace
+                Namespaces: !Ref AccessScopeNamespaces
+              - Type: cluster
+          - !Ref AWS::NoValue
+        - !If
+          - WithSpace
+          - PolicyArn: !Sub arn:${AWS::Partition}:eks::aws:cluster-access-policy/AmazonSagemakerHyperpodSpacePolicy
+            AccessScope: !If
+              - ScopeToNamespaces
+              - Type: namespace
+                Namespaces: !Ref AccessScopeNamespaces
+              - Type: cluster
+          - !Ref AWS::NoValue
+        - !If
+          - WithSpaceTemplate
+          - PolicyArn: !Sub arn:${AWS::Partition}:eks::aws:cluster-access-policy/AmazonSagemakerHyperpodSpaceTemplatePolicy
+            AccessScope:
+              Type: namespace
+              Namespaces: !Ref SpaceTemplateNamespaces
+          - !Ref AWS::NoValue
+        - !If
+          - WithUserCluster
+          - PolicyArn: !Sub arn:${AWS::Partition}:eks::aws:cluster-access-policy/AmazonSagemakerHyperpodUserClusterPolicy
+            AccessScope:
+              Type: cluster
+          - !Ref AWS::NoValue
+
+Outputs:
+  DomainId:
+    Description: SageMaker AI domain ID
+    Value: !GetAtt Domain.DomainId
+
+  DomainUrl:
+    Description: Studio URL for the domain
+    Value: !GetAtt Domain.Url
+
+  UserProfileName:
+    Description: User profile to launch Studio as
+    Value: !Ref UserProfileName
+
+  ExecutionRoleArn:
+    Description: >-
+      The principal that holds the EKS access entry. Check what it was granted with
+      `aws eks list-associated-access-policies --cluster-name <eks>
+      --principal-arn <this>`.
+    Value: !If
+      - CreateExecutionRole
+      - !GetAtt ExecutionRole.Arn
+      - !Ref ExecutionRoleArn

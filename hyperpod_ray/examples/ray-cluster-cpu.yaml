@@ -1,0 +1,86 @@
+# Minimal CPU-only RayCluster for verifying the Ray on HyperPod setup.
+#
+# Sized small on purpose: the head and each worker ask for 1 CPU, so head plus
+# two workers fit on three nodes of the smallest CPU instance groups. Check your
+# own headroom before raising anything:
+#
+#   kubectl get nodes -o custom-columns=\
+#   'NAME:.metadata.name,CPU:.status.allocatable.cpu,MEM:.status.allocatable.memory'
+#
+# Do not size from the instance type. An instance group set to ThreadsPerCore: 1
+# runs without SMT, so its nodes report physical cores: an ml.m5.xlarge node shows
+# 2 CPUs rather than the 4 vCPU of an EC2 m5.xlarge, of which 1930m is allocatable
+# once kubelet reservations come out, and the HyperPod daemonsets take roughly
+# 250m more. The node labels say ml.m5.xlarge either way. Pods that ask for more
+# than what is left sit Pending with "Insufficient cpu" forever, because nothing
+# will ever free up.
+#
+# There is no nodeSelector, so the pods land on whatever nodes have room. Add
+# one when you want to pin them to a particular instance group.
+#
+# Keep rayVersion and the image tag on the same Ray version.
+apiVersion: ray.io/v1
+kind: RayCluster
+metadata:
+  name: ray-example-cpu
+spec:
+  rayVersion: "2.55.1"
+  headGroupSpec:
+    rayStartParams:
+      # Required for authenticated Ray Dashboard access through the
+      # HyperPod Ray Endpoint Operator.
+      dashboard-host: "0.0.0.0"
+      # The head runs tasks here, which keeps this example's total CPU count
+      # useful on a small cluster. For anything real set num-cpus: "0" so the
+      # head only coordinates: a task that exhausts head memory takes the GCS
+      # down with it, and that loses the whole Ray cluster.
+      #
+      # Deliberately more than the pod's 1 CPU request. Ray's CPU count is a
+      # logical budget for its own scheduler, not a cgroup limit, and it defaults
+      # to the pod's request. Leaving it at 1 makes the node unable to run a 1-CPU
+      # task alongside any long-lived actor that took a fraction of a CPU, which
+      # deadlocks Ray Data's shuffle: see the note in examples/scripts/data_job.py.
+      # Two logical CPUs on one real one means tasks may share a core and run
+      # slower. That is the right trade for a demo and the wrong one for a job you
+      # are timing.
+      num-cpus: "2"
+    template:
+      spec:
+        # The example scripts, so `make run-data-existing` can submit a job that
+        # runs one of them on this cluster. Optional, so the cluster still starts
+        # when the ConfigMap is absent; `make examples-configmap` creates it.
+        volumes:
+          - name: examples
+            configMap:
+              name: ray-examples
+              optional: true
+        containers:
+          - name: ray-head
+            image: rayproject/ray:2.55.1
+            volumeMounts:
+              - { name: examples, mountPath: /home/ray/examples }
+            ports:
+              - { containerPort: 6379, name: gcs-server }
+              - { containerPort: 8265, name: dashboard }
+              - { containerPort: 10001, name: client }
+              # KubeRay builds the head service from these ports, so a port that
+              # is not listed here is not reachable even though Ray is listening
+              # on it. Ray Serve's HTTP proxy is the one that catches people out.
+              - { containerPort: 8000, name: serve }
+            resources:
+              requests: { cpu: "1", memory: "4Gi" }
+  workerGroupSpecs:
+    - groupName: cpu-workers
+      replicas: 2
+      rayStartParams:
+        # As on the head, and for the same reason.
+        num-cpus: "2"
+      template:
+        spec:
+          containers:
+            - name: ray-worker
+              image: rayproject/ray:2.55.1
+              resources:
+                # No memory limit: KubeRay sizes /dev/shm from the request, and a
+                # memory-backed emptyDir counts against the limit if one is set.
+                requests: { cpu: "1", memory: "4Gi" }

@@ -8,7 +8,7 @@
 apiVersion: ray.io/v1
 kind: RayCluster
 metadata:
-  name: ray-example
+  name: ray-example-gpu
 spec:
   rayVersion: "2.55.1"
   headGroupSpec:
